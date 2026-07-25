@@ -127,11 +127,15 @@ input:focus, select:focus { border-color: #3fc6cf; }
    A diferencia de la app de escritorio (kiosco a pantalla completa),
    aquí es responsive: cada estudiante entra desde su propio PC.
    ============================================================ */
+/* Pantalla FIJA: ocupa justo la ventana y nunca hace scroll. Con
+   position:fixed nos ajustamos a la altura real del móvil (incluida la
+   barra del navegador), mejor que 100vh. */
 .estudiante {
-  min-height: 100vh; display: flex; flex-direction: row;
+  position: fixed; inset: 0; overflow: hidden;
+  display: flex; flex-direction: row;
 }
 .visor {
-  position: relative; flex: 1; min-height: 60vh;
+  position: relative; flex: 1 1 auto; min-width: 0; min-height: 0;
   background: #000; overflow: hidden;
 }
 .visor video {
@@ -147,15 +151,28 @@ input:focus, select:focus { border-color: #3fc6cf; }
 .freeze-tag { position: absolute; top: 14px; left: 16px; font-size: 15px; color: #d9c04a; }
 .esc-hint { position: absolute; right: 14px; bottom: 10px; font-size: 12px; color: #3a444d; }
 
-/* Panel lateral con el maniquí y los puntos */
+/* Panel lateral con el maniquí y los puntos.
+   El maniquí se dimensiona por la ALTURA disponible (no por el ancho): así
+   siempre cabe entero en pantalla, sin scroll, y en un móvil apaisado se
+   encoge solo. El ancho lo deduce su propia proporción (aspect-ratio). */
+/* El ANCHO del panel se deduce de la altura de la ventana, usando la
+   proporción del maniquí (380x660 de frente, 660x380 de lado). Así el
+   dibujo entra siempre entero, conserva su forma (los puntos no se
+   desalinean) y no aparece scroll. El "- 70px" reserva las pestañas,
+   el borde y el aire de alrededor. */
 .panel-maniqui {
-  width: 300px; flex: none; border-left: 1px solid #141a22;
+  flex: none; border-left: 1px solid #141a22;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 10px; padding: 16px;
+  gap: 8px; padding: 12px;
+  min-height: 0; min-width: 0;
+  width: min(46vw, 340px, calc((100vh - 70px) * 0.575));
+  width: min(46vw, 340px, calc((100dvh - 70px) * 0.575));
 }
-.panel-maniqui.lado { width: 420px; }
-.panel-maniqui .mq-canvas { width: 100%; max-width: 250px; }
-.panel-maniqui.lado .mq-canvas { max-width: 400px; }
+.panel-maniqui.lado {
+  width: min(56vw, 520px, calc((100vh - 70px) * 1.737));
+  width: min(56vw, 520px, calc((100dvh - 70px) * 1.737));
+}
+.panel-maniqui .mq-canvas { width: 100%; max-width: 100%; margin: 0; }
 .panel-hint { font-size: 12px; color: #5a636b; text-align: center; }
 
 /* Pantalla de carga (precarga de videos al entrar) */
@@ -208,8 +225,25 @@ input:focus, select:focus { border-color: #3fc6cf; }
    (En horizontal se usa el diseño lado a lado de arriba.) */
 @media (max-width: 760px) and (orientation: portrait) {
   .estudiante { flex-direction: column-reverse; }
-  .panel-maniqui, .panel-maniqui.lado { width: 100%; border-left: none; border-top: 1px solid #141a22; }
-  .visor { min-height: 46vh; }
+  .panel-maniqui, .panel-maniqui.lado {
+    width: 100%; max-width: 100%; flex: 0 1 auto;
+    border-left: none; border-top: 1px solid #141a22;
+  }
+  /* Aquí manda la mitad de alto disponible, no el ancho de la pantalla. */
+  .panel-maniqui .mq-canvas { max-width: calc((52vh - 70px) * 0.575); }
+  .panel-maniqui.lado .mq-canvas { max-width: calc((52vh - 70px) * 1.737); }
+  .visor { flex: 1 1 46%; }
+}
+
+/* Pantallas BAJAS (móvil en horizontal): apretamos los adornos para dejarle
+   toda la altura posible al maniquí. */
+@media (max-height: 500px) {
+  .panel-maniqui { padding: 8px; gap: 5px; }
+  .panel-maniqui .tabs { margin: 0; gap: 4px; }
+  .panel-maniqui .tab { padding: 4px 9px; font-size: 11px; }
+  .panel-hint, .esc-hint { display: none; }
+  .idle-mark { font-size: 28px; letter-spacing: 4px; }
+  .idle-sub { font-size: 12px; }
 }
 
 /* Mostrar el aviso de girar solo en pantallas pequeñas (móvil) en vertical.
