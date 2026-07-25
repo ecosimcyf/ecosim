@@ -77,12 +77,27 @@ input:focus, select:focus { border-color: #3fc6cf; }
 .mq-arte { position: absolute; inset: 0; }
 .mq-svg { width: 100%; height: 100%; display: block; }
 
-/* Tokens (puntos) sobre el maniquí */
+/* Tokens (puntos) sobre el maniquí.
+   El tamaño es PROPORCIONAL al maniquí (unidades cqw = % del ancho del
+   lienzo), con un mínimo para que siempre se puedan pulsar con el dedo y un
+   máximo para que no se hagan enormes. Así, al encogerse el dibujo en un
+   móvil, los puntos se encogen con él y no quedan amontonados. */
+.mq-canvas { container-type: inline-size; }
 .mq-token {
-  position: absolute; width: 22px; height: 22px; border-radius: 50%;
+  position: absolute;
+  width: clamp(15px, 7.5cqw, 24px); height: clamp(15px, 7.5cqw, 24px);
+  border-radius: 50%;
   border: 2px solid; display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 500; cursor: grab; transform: translate(-50%, -50%);
+  font-size: clamp(9px, 4.2cqw, 13px); font-weight: 500; cursor: grab;
+  transform: translate(-50%, -50%);
   user-select: none; z-index: 3; touch-action: none;
+}
+/* En pantallas táctiles, zona de pulsación invisible algo mayor que el
+   círculo: el punto se ve pequeño pero sigue siendo fácil de acertar. */
+@media (pointer: coarse) {
+  .mq-token::after {
+    content: ''; position: absolute; inset: -6px; border-radius: 50%;
+  }
 }
 .mq-token:active { cursor: grabbing; }
 .mq-token.config { border-color: #3fc6cf; background: #0f2b30; color: #7fe0e8; }
@@ -161,16 +176,19 @@ input:focus, select:focus { border-color: #3fc6cf; }
    desalinean) y no aparece scroll. El "- 70px" reserva las pestañas,
    el borde y el aire de alrededor. */
 .panel-maniqui {
+  /* Alto que ocupan pestañas, textos y márgenes: lo que NO es maniquí.
+     Se descuenta de la ventana para calcular cuánto puede crecer el dibujo. */
+  --reserva: 74px;
   flex: none; border-left: 1px solid #141a22;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; padding: 12px;
+  gap: 8px; padding: 10px;
   min-height: 0; min-width: 0;
-  width: min(46vw, 340px, calc((100vh - 70px) * 0.575));
-  width: min(46vw, 340px, calc((100dvh - 70px) * 0.575));
+  width: min(52vw, 420px, calc((100vh - var(--reserva)) * 0.575 + 20px));
+  width: min(52vw, 420px, calc((100dvh - var(--reserva)) * 0.575 + 20px));
 }
 .panel-maniqui.lado {
-  width: min(56vw, 520px, calc((100vh - 70px) * 1.737));
-  width: min(56vw, 520px, calc((100dvh - 70px) * 1.737));
+  width: min(62vw, 640px, calc((100vh - var(--reserva)) * 1.737 + 20px));
+  width: min(62vw, 640px, calc((100dvh - var(--reserva)) * 1.737 + 20px));
 }
 .panel-maniqui .mq-canvas { width: 100%; max-width: 100%; margin: 0; }
 .panel-hint { font-size: 12px; color: #5a636b; text-align: center; }
@@ -238,7 +256,9 @@ input:focus, select:focus { border-color: #3fc6cf; }
 /* Pantallas BAJAS (móvil en horizontal): apretamos los adornos para dejarle
    toda la altura posible al maniquí. */
 @media (max-height: 500px) {
-  .panel-maniqui { padding: 8px; gap: 5px; }
+  /* Sin texto de ayuda y con pestañas compactas sobra sitio: reservamos
+     menos alto y el maniquí crece. */
+  .panel-maniqui { --reserva: 54px; padding: 7px; gap: 4px; }
   .panel-maniqui .tabs { margin: 0; gap: 4px; }
   .panel-maniqui .tab { padding: 4px 9px; font-size: 11px; }
   .panel-hint, .esc-hint { display: none; }
