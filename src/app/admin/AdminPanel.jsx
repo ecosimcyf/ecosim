@@ -1,0 +1,427 @@
+'use client';
+// ============================================================
+// Panel de administración interactivo.
+//
+// Cada acción llama a una Server Action (que valida la sesión y escribe
+// en Supabase) y devuelve el estado COMPLETO actualizado, que guardamos
+// en "datos". Es el mismo patrón que la app de escritorio: tras cada
+// cambio, refrescamos todo el estado.
+// ============================================================
+import { useState, useEffect, useRef } from 'react';
+import { MANIQUIES } from '@/lib/maniquies';
+import { crearClienteNavegador } from '@/lib/supabase/client';
+import { puedeReproducir, convertirAH264 } from '@/lib/convertir-video';
+import {
+  setCasoActivo, crearCaso, renombrarCaso, cambiarEspecieCaso, eliminarCaso,
+  addPunto, actualizarPunto, eliminarPunto,
+  crearUrlSubidaVideo, guardarVideoCaso, quitarVideoCaso,
+} from '@/app/actions/admin';
+
+const VISTAS = [
+  { id: 'ventral', label: 'Por debajo' },
+  { id: 'izq', label: 'Lado izquierdo' },
+  { id: 'der', label: 'Lado derecho' },
+];
+
+const clamp = (min, max, v) => Math.max(min, Math.min(max, v));
+
+function posToken(p, i) {
+  const x = typeof p.x === 'number' ? p.x : 12 + (i % 6) * 13;
+  const y = typeof p.y === 'number' ? p.y : 10 + Math.floor(i / 6) * 9;
+  return { x, y };
+}
+
+function popStyle(pos) {
+  return {
+    left: clamp(28, 72, pos.x) + '%',
+    top: pos.y + '%',
+    transform: pos.y > 50 ? 'translate(-50%, calc(-100% - 18px))' : 'translate(-50%, 18px)',
+  };
+}
+
+export default function AdminPanel({ inicial }) {
+  const [datos, setDatos] = useState(inicial);
+
+  // Editor de puntos (maniquí global)
+  const [especiePuntos, setEspeciePuntos] = useState('perro');
+  const [vistaPuntos, setVistaPuntos] = useState('ventral');
+  const [guias, setGuias] = useState(true);
+  const [puntoSel, setPuntoSel] = useState(null);
+  const [nombreEdit, setNombreEdit] = useState('');
+
+  // Editor de videos del caso
+  const [casoEnEdicion, setCasoEnEdicion] = useState(null);
+  const [vistaCaso, setVistaCaso] = useState('ventral');
+  const [casoPuntoSel, setCasoPuntoSel] = useState(null);
+
+  // Crear caso
+  const [nuevoNombre, setNuevoNombre] = useState('');
+  const [nuevaEspecie, setNuevaEspecie] = useState('perro');
+
+  // Subida / preview de video
+  const [subiendo, setSubiendo] = useState(false);
+  const [convProgreso, setConvProgreso] = useState(null); // % de conversión (o null)
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const canvasPuntosRef = useRef(null);
+  const dragRef = useRef(null);
+
+  const puntosDe = (especie, vista) =>
+    (datos.puntos || []).filter((p) => p.especie === especie && (p.vista || 'ventral') === vista);
+
+  const caso = (datos.casos || []).find((c) => c.id === casoEnEdicion) || null;
+  const casoActivo = (datos.casos || []).find((c) => c.id === datos.casoActivoId) || null;
+
+  // Sincronizar el nombre en edición al abrir el popup de un punto.
+  useEffect(() => {
+    if (!puntoSel) return;
+    const p = (datos.puntos || []).find((x) => x.id === puntoSel);
+    setNombreEdit(p ? p.nombre : '');
+  }, [puntoSel, datos]);
+
+  // ---------------- Editor de PUNTOS: arrastrar / clic ----------------
+  function puntoPointerDown(e, p, i) {
+    const rect = canvasPuntosRef.current.getBoundingClientRect();
+    const pos = posToken(p, i);
+    const cx = (pos.x / 100) * rect.width;
+    const cy = (pos.y / 100) * rect.height;
+    dragRef.current = {
+      id: p.id, el: e.currentTarget, rect,
+      ox: e.clientX - rect.left - cx, oy: e.clientY - rect.top - cy,
+      sx: e.clientX, sy: e.clientY, moved: false, x: pos.x, y: pos.y,
+    };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  }
+  function puntoPointerMove(e) {
+    const d = dragRef.current;
+    if (!d) return;
+    if (Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 4) d.moved = true;
+    const nx = clamp(3, 97, ((e.clientX - d.rect.left - d.ox) / d.rect.width) * 100);
+    const ny = clamp(3, 97, ((e.clientY - d.rect.top - d.oy) / d.rect.height) * 100);
+    d.x = nx; d.y = ny;
+    d.el.style.left = nx + '%';
+    d.el.style.top = ny + '%';
+  }
+  async function puntoPointerUp() {
+    const d = dragRef.current;
+    if (!d) return;
+    dragRef.current = null;
+    if (d.moved) {
+      const nuevos = await actualizarPunto(d.id, { x: Math.round(d.x * 10) / 10, y: Math.round(d.y * 10) / 10 });
+      setDatos(nuevos);
+    } else {
+      setPuntoSel(d.id);
+    }
+  }
+
+  async function nuevoPunto() {
+    const r = await addPunto({ especie: especiePuntos, vista: vistaPuntos });
+    setDatos(r);
+    if (r.nuevoPuntoId) setPuntoSel(r.nuevoPuntoId);
+  }
+  async function guardarNombrePunto() {
+    if (!puntoSel) return;
+    const nuevos = await actualizarPunto(puntoSel, { nombre: nombreEdit });
+    setDatos(nuevos);
+  }
+  async function borrarPunto() {
+    if (!puntoSel) return;
+    if (!confirm('¿Borrar este punto del cuerpo?\nTodos los casos perderán el video asignado a este punto.')) return;
+    const id = puntoSel;
+    setPuntoSel(null);
+    setDatos(await eliminarPunto(id));
+  }
+
+  // ---------------- Casos ----------------
+  async function crear() {
+    if (!nuevoNombre.trim()) { alert('Escribe un nombre para el caso.'); return; }
+    setDatos(await crearCaso(nuevoNombre, nuevaEspecie));
+    setNuevoNombre('');
+  }
+  async function activar(id) { setDatos(await setCasoActivo(id)); }
+  async function renombrar(id, nombre) { setDatos(await renombrarCaso(id, nombre)); }
+  async function cambiarEspecie(id, especie) { setDatos(await cambiarEspecieCaso(id, especie)); }
+  async function borrarCaso(id) {
+    if (!confirm('¿Borrar este caso y todos sus videos?')) return;
+    const nuevos = await eliminarCaso(id);
+    if (casoEnEdicion === id) setCasoEnEdicion(null);
+    setDatos(nuevos);
+  }
+  function editarVideos(id) {
+    setCasoPuntoSel(null);
+    setVistaCaso('ventral');
+    setCasoEnEdicion(id);
+  }
+
+  // ---------------- Videos del caso ----------------
+  function elegirVideo() { fileInputRef.current?.click(); }
+  async function onFileChange(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!casoEnEdicion || !casoPuntoSel) return;
+    setSubiendo(true);
+    setConvProgreso(null);
+    try {
+      // Si el navegador NO puede reproducir el video (p. ej. MPEG-4 Parte 2
+      // de los ecógrafos), lo convertimos a H.264 aquí mismo antes de subir.
+      let aSubir = file;
+      const reproducible = await puedeReproducir(file);
+      if (!reproducible) {
+        setConvProgreso(0);
+        const blob = await convertirAH264(file, (p) => setConvProgreso(p));
+        aSubir = new File([blob], 'video.mp4', { type: 'video/mp4' });
+        setConvProgreso(null);
+      }
+      const { path, token } = await crearUrlSubidaVideo();
+      const supabase = crearClienteNavegador();
+      const { error } = await supabase.storage.from('videos').uploadToSignedUrl(path, token, aSubir);
+      if (error) throw error;
+      setDatos(await guardarVideoCaso(casoEnEdicion, casoPuntoSel, path));
+    } catch (err) {
+      alert('No se pudo procesar el video: ' + (err?.message || err));
+    } finally {
+      setSubiendo(false);
+      setConvProgreso(null);
+    }
+  }
+  async function quitarVideo() {
+    if (!casoEnEdicion || !casoPuntoSel) return;
+    if (!confirm('¿Quitar el video de este punto en este caso?')) return;
+    setDatos(await quitarVideoCaso(casoEnEdicion, casoPuntoSel));
+  }
+  function verVideo() {
+    const url = datos.videosPorCaso?.[casoEnEdicion]?.[casoPuntoSel];
+    if (!url) { alert('Este punto aún no tiene video en este caso.'); return; }
+    setPreviewUrl(url);
+  }
+
+  // ---------------- Render ----------------
+  const listaPuntos = puntosDe(especiePuntos, vistaPuntos);
+  const puntoSelObj = listaPuntos.find((p) => p.id === puntoSel);
+  const esLadoPuntos = MANIQUIES.esLado(vistaPuntos);
+
+  const especieCaso = caso ? caso.especie : 'perro';
+  const listaCaso = caso ? puntosDe(especieCaso, vistaCaso) : [];
+  const casoPuntoObj = listaCaso.find((p) => p.id === casoPuntoSel);
+  const esLadoCaso = MANIQUIES.esLado(vistaCaso);
+  const videosDelCaso = (caso && datos.videosPorCaso?.[caso.id]) || {};
+
+  return (
+    <div className="admin-panel">
+      <input
+        ref={fileInputRef} type="file" accept="video/*"
+        style={{ display: 'none' }} onChange={onFileChange}
+      />
+
+      {/* -------- Caso activo -------- */}
+      <section className="card">
+        <h3>Caso activo</h3>
+        <p className="muted">
+          Es el caso que ven ahora mismo los estudiantes. Al cambiarlo, su
+          pantalla se actualiza sola.
+        </p>
+        <div style={{ fontSize: 15, marginTop: 4 }}>
+          {casoActivo
+            ? <>Ahora mismo: <span className="accent">{casoActivo.nombre}</span> ({MANIQUIES.nombre(casoActivo.especie)})</>
+            : <span className="warn">Ningún caso activo — los estudiantes ven «Esperando…»</span>}
+        </div>
+      </section>
+
+      {/* -------- Maniquí: puntos del cuerpo -------- */}
+      <section className="card">
+        <div className="editor-head">
+          <h3>Maniquí — puntos del cuerpo</h3>
+          <div className="editor-tools">
+            <label className="tool-lbl">Especie
+              <select value={especiePuntos} onChange={(e) => { setPuntoSel(null); setEspeciePuntos(e.target.value); }}>
+                <option value="perro">Perro</option>
+                <option value="gato">Gato</option>
+              </select>
+            </label>
+            <button className="btn small" onClick={() => setGuias((g) => !g)}>
+              {guias ? 'Ocultar guías' : 'Mostrar guías'}
+            </button>
+            <button className="btn small btn-primary" onClick={nuevoPunto}>+ Añadir punto</button>
+          </div>
+        </div>
+        <p className="muted">
+          Define UNA sola vez las partes del cuerpo (su posición). Todos los
+          casos usan estos mismos puntos: lo único que cambia en cada caso es
+          el video de cada punto.
+        </p>
+
+        <div className="tabs">
+          {VISTAS.map((v) => (
+            <button key={v.id}
+              className={'tab' + (v.id === vistaPuntos ? ' act' : '')}
+              onClick={() => { setPuntoSel(null); setVistaPuntos(v.id); }}>
+              {v.label}
+            </button>
+          ))}
+        </div>
+        <div className="mq-leyenda">
+          <span className="muted">Arrastra cada punto a su lugar · clic para renombrar o borrar</span>
+        </div>
+
+        <div className="mq-stage">
+          <div
+            ref={canvasPuntosRef}
+            className={'mq-canvas' + (esLadoPuntos ? ' lado' : '') + (guias ? '' : ' guias-ocultas')}
+            onPointerDown={(e) => {
+              if (!e.target.closest('.mq-token') && !e.target.closest('.mq-pop')) setPuntoSel(null);
+            }}
+          >
+            <div className="mq-arte" dangerouslySetInnerHTML={{ __html: MANIQUIES.svg(especiePuntos, vistaPuntos) }} />
+            {listaPuntos.map((p, i) => {
+              const pos = posToken(p, i);
+              return (
+                <div key={p.id}
+                  className={'mq-token config' + (p.id === puntoSel ? ' sel' : '')}
+                  style={{ left: pos.x + '%', top: pos.y + '%' }}
+                  onPointerDown={(e) => puntoPointerDown(e, p, i)}
+                  onPointerMove={puntoPointerMove}
+                  onPointerUp={puntoPointerUp}
+                >
+                  <span>{i + 1}</span>
+                  <div className="mq-token-lbl">{p.nombre}</div>
+                </div>
+              );
+            })}
+
+            {puntoSelObj && (
+              <div className="mq-pop" style={popStyle(posToken(puntoSelObj, listaPuntos.indexOf(puntoSelObj)))}>
+                <label>Nombre de la parte del cuerpo</label>
+                <input
+                  value={nombreEdit}
+                  autoFocus
+                  onChange={(e) => setNombreEdit(e.target.value)}
+                  onBlur={guardarNombrePunto}
+                  placeholder="Ej. Corazón"
+                />
+                <div className="mq-pop-foot">
+                  <button className="btn small danger" onClick={borrarPunto}>Borrar</button>
+                  <button className="btn small btn-primary" onClick={async () => { await guardarNombrePunto(); setPuntoSel(null); }}>Listo</button>
+                </div>
+              </div>
+            )}
+          </div>
+          {!listaPuntos.length && <p className="muted mq-vacio">No hay puntos en esta vista. Pulsa «+ Añadir punto».</p>}
+        </div>
+      </section>
+
+      {/* -------- Casos -------- */}
+      <section className="card">
+        <h3>Casos</h3>
+        {(datos.casos || []).length ? (datos.casos).map((c) => (
+          <div className="item" key={c.id}>
+            <input className="nombre-caso" defaultValue={c.nombre} onBlur={(e) => renombrar(c.id, e.target.value)} />
+            <select value={c.especie} onChange={(e) => cambiarEspecie(c.id, e.target.value)} title="Especie del maniquí">
+              <option value="perro">Perro</option>
+              <option value="gato">Gato</option>
+            </select>
+            <span className="muted">{c.numVideos} video(s)</span>
+            {c.id === datos.casoActivoId
+              ? <span className="pill-activo">● Activo</span>
+              : <button className="btn small" onClick={() => activar(c.id)}>Activar</button>}
+            <button className="btn small" onClick={() => editarVideos(c.id)}>Asignar videos</button>
+            <button className="btn small danger" onClick={() => borrarCaso(c.id)}>Borrar</button>
+          </div>
+        )) : <p className="muted">No hay casos todavía. Crea el primero abajo.</p>}
+
+        <div className="row">
+          <input value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} placeholder="Nombre del nuevo caso (ej. Embarazo)" />
+          <select value={nuevaEspecie} onChange={(e) => setNuevaEspecie(e.target.value)} title="Especie del maniquí">
+            <option value="perro">Perro</option>
+            <option value="gato">Gato</option>
+          </select>
+          <button className="btn" onClick={crear}>Crear caso</button>
+        </div>
+      </section>
+
+      {/* -------- Videos del caso -------- */}
+      {caso && (
+        <section className="card">
+          <div className="editor-head">
+            <h3>Videos de: <span className="accent">{caso.nombre}</span></h3>
+            <button className="btn small" onClick={() => setCasoEnEdicion(null)}>Cerrar</button>
+          </div>
+          <p className="muted">Toca un punto del cuerpo para asignarle el video de ESTE caso.</p>
+
+          <div className="tabs">
+            {VISTAS.map((v) => (
+              <button key={v.id}
+                className={'tab' + (v.id === vistaCaso ? ' act' : '')}
+                onClick={() => { setCasoPuntoSel(null); setVistaCaso(v.id); }}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+          <div className="mq-leyenda">
+            <span><i className="dotleg config" />Con video</span>
+            <span><i className="dotleg sinvid" />Sin video</span>
+          </div>
+
+          <div className="mq-stage">
+            <div
+              className={'mq-canvas' + (esLadoCaso ? ' lado' : '') + (guias ? '' : ' guias-ocultas')}
+              onPointerDown={(e) => {
+                if (!e.target.closest('.mq-token') && !e.target.closest('.mq-pop')) setCasoPuntoSel(null);
+              }}
+            >
+              <div className="mq-arte" dangerouslySetInnerHTML={{ __html: MANIQUIES.svg(especieCaso, vistaCaso) }} />
+              {listaCaso.map((p, i) => {
+                const pos = posToken(p, i);
+                const clase = videosDelCaso[p.id] ? 'config' : 'sinvid';
+                return (
+                  <div key={p.id}
+                    className={'mq-token ' + clase + (p.id === casoPuntoSel ? ' sel' : '')}
+                    style={{ left: pos.x + '%', top: pos.y + '%', cursor: 'pointer' }}
+                    onClick={() => setCasoPuntoSel(p.id)}
+                  >
+                    <span>{i + 1}</span>
+                    <div className="mq-token-lbl">{p.nombre}</div>
+                  </div>
+                );
+              })}
+
+              {casoPuntoObj && (
+                <div className="mq-pop" style={popStyle(posToken(casoPuntoObj, listaCaso.indexOf(casoPuntoObj)))}>
+                  <div className="pop-titulo">{casoPuntoObj.nombre}</div>
+                  <div style={{ fontSize: 12, marginBottom: 6, color: videosDelCaso[casoPuntoObj.id] ? '#37d39a' : '#8b949c' }}>
+                    {subiendo
+                      ? (convProgreso !== null ? `convirtiendo a H.264… ${convProgreso}%` : 'subiendo video…')
+                      : (videosDelCaso[casoPuntoObj.id] ? 'video ✓' : 'sin video')}
+                  </div>
+                  {subiendo && convProgreso !== null && (
+                    <div style={{ fontSize: 11, color: '#8b949c', marginBottom: 6 }}>
+                      (puede tardar 1-3 min; no cierres esta ventana)
+                    </div>
+                  )}
+                  <div className="row" style={{ margin: 0 }}>
+                    <button className="btn small" disabled={subiendo} onClick={elegirVideo}>Elegir video…</button>
+                    <button className="btn small" onClick={verVideo} title="Ver el video asignado">▶</button>
+                  </div>
+                  <div className="mq-pop-foot">
+                    <button className="btn small danger" onClick={quitarVideo}>Quitar video</button>
+                    <button className="btn small btn-primary" onClick={() => setCasoPuntoSel(null)}>Listo</button>
+                  </div>
+                </div>
+              )}
+            </div>
+            {!listaCaso.length && <p className="muted mq-vacio">Esta especie aún no tiene puntos en esta vista. Créalos arriba, en «Maniquí».</p>}
+          </div>
+        </section>
+      )}
+
+      {/* -------- Vista previa de video -------- */}
+      {previewUrl && (
+        <div className="overlay" onClick={() => setPreviewUrl(null)}>
+          <video src={previewUrl} controls autoPlay onClick={(e) => e.stopPropagation()} />
+          <button className="btn small" onClick={() => setPreviewUrl(null)}>Cerrar</button>
+        </div>
+      )}
+    </div>
+  );
+}

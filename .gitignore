@@ -1,0 +1,18 @@
+# Dependencias
+/node_modules
+
+# Compilado de Next.js
+/.next
+/out
+
+# Núcleo de ffmpeg.wasm (se copia solo desde node_modules en postinstall)
+/public/ffmpeg
+
+# Variables de entorno (¡SECRETO! nunca subir a internet)
+.env.local
+.env*.local
+
+# Sistema
+.DS_Store
+*.log
+npm-debug.log*
