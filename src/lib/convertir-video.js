@@ -56,10 +56,16 @@ export async function convertirAH264(file, onProgress) {
   ffmpeg.on('progress', prog);
   try {
     await ffmpeg.writeFile('entrada', await fetchFile(file));
+    // Ajuste "Ligero": reescala a 960 px de ancho y comprime algo más
+    // (crf 27). En una ecografía la calidad se ve prácticamente igual, pero
+    // el archivo queda ~2,5x más pequeño → menos gasto de datos y menos
+    // memoria en los equipos de los estudiantes. El video se ve siempre en
+    // silencio, así que quitamos el audio (-an) para ahorrar aún más.
     await ffmpeg.exec([
       '-i', 'entrada',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac',
+      '-vf', 'scale=960:-2',
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27', '-pix_fmt', 'yuv420p',
+      '-an',
       '-movflags', '+faststart',
       'salida.mp4',
     ]);
