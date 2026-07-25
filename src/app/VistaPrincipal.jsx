@@ -185,6 +185,19 @@ export default function VistaPrincipal({ inicial }) {
 
   return (
     <div className="estudiante">
+      {/* Aviso de girar el teléfono (solo se ve en móvil en vertical, por CSS) */}
+      <div className="rotar-overlay">
+        <svg className="rotar-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <g className="rotar-fono">
+            <rect x="37" y="16" width="26" height="52" rx="6" fill="none" stroke="#3fc6cf" strokeWidth="3" />
+            <line x1="46" y1="22" x2="54" y2="22" stroke="#3fc6cf" strokeWidth="3" strokeLinecap="round" />
+            <circle cx="50" cy="62" r="2.4" fill="#3fc6cf" />
+          </g>
+        </svg>
+        <div className="rotar-titulo">Gira tu teléfono</div>
+        <div className="rotar-sub">Pon la pantalla en horizontal para ver la ecografía.</div>
+      </div>
+
       {/* Pantalla de carga (precarga de videos al entrar) */}
       {precarga.cargando && (
         <div className="carga-overlay">

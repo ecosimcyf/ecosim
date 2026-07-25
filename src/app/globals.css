@@ -182,11 +182,41 @@ input:focus, select:focus { border-color: #3fc6cf; }
 .espera .marca { color: #3fc6cf; font-size: 36px; letter-spacing: 5px; opacity: .8; }
 .espera .txt { color: #8b949c; font-size: 16px; max-width: 420px; }
 
-/* En pantallas estrechas (móvil): el maniquí va ARRIBA y el visor abajo */
-@media (max-width: 760px) {
+/* Aviso "gira el teléfono" — oculto por defecto; solo se muestra en móvil
+   en vertical (ver media query al final). */
+.rotar-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 90;
+  background: #04060a;
+  flex-direction: column; align-items: center; justify-content: center;
+  gap: 18px; text-align: center; padding: 30px;
+}
+.rotar-svg { width: 96px; height: 96px; }
+.rotar-fono { transform-origin: 50px 50px; animation: rotar-fono 2.6s ease-in-out infinite; }
+@keyframes rotar-fono {
+  0%, 18%  { transform: rotate(0deg); }
+  50%, 72% { transform: rotate(90deg); }
+  100%     { transform: rotate(0deg); }
+}
+.rotar-titulo { color: #3fc6cf; font-size: 22px; letter-spacing: 1px; }
+.rotar-sub { color: #8b949c; font-size: 14px; max-width: 300px; line-height: 1.5; }
+@media (prefers-reduced-motion: reduce) {
+  .rotar-fono { animation: none; transform: rotate(90deg); }
+}
+
+/* En VERTICAL en pantallas estrechas: el maniquí va arriba y el visor abajo.
+   (En horizontal se usa el diseño lado a lado de arriba.) */
+@media (max-width: 760px) and (orientation: portrait) {
   .estudiante { flex-direction: column-reverse; }
   .panel-maniqui, .panel-maniqui.lado { width: 100%; border-left: none; border-top: 1px solid #141a22; }
   .visor { min-height: 46vh; }
+}
+
+/* Mostrar el aviso de girar solo en pantallas pequeñas (móvil) en vertical.
+   Un navegador de escritorio casi nunca tiene una ventana <600px en vertical,
+   así que en la práctica esto solo afecta a teléfonos. */
+@media (orientation: portrait) and (max-width: 600px) {
+  .rotar-overlay { display: flex; }
 }
 
 /* ============================================================
