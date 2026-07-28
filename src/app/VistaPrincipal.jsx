@@ -38,6 +38,9 @@ export default function VistaPrincipal({ inicial }) {
   const [videoUrl, setVideoUrl] = useState(null); // null => reposo
   const [congelado, setCongelado] = useState(false);
   const [ayuda, setAyuda] = useState(false);
+  // Pantalla completa: en el móvil no hay tecla F11, así que ofrecemos botón.
+  const [pantallaCompleta, setPantallaCompleta] = useState(false);
+  const [soportaPantallaCompleta, setSoportaPantallaCompleta] = useState(false);
   // Estado de la precarga de videos.
   const [precarga, setPrecarga] = useState(() => ({ cargando: hayVideos(inicial), pct: 0 }));
 
@@ -46,6 +49,18 @@ export default function VistaPrincipal({ inicial }) {
   const blobsRef = useRef({}); // punto_id -> blob URL (video ya descargado)
 
   const irAReposo = useCallback(() => setVideoUrl(null), []);
+
+  // -------- Pantalla completa --------
+  useEffect(() => {
+    // Safari en iPhone no permite poner la página a pantalla completa: allí
+    // el botón se oculta (para eso está "Añadir a pantalla de inicio").
+    setSoportaPantallaCompleta(
+      typeof document !== 'undefined' && !!document.documentElement.requestFullscreen
+    );
+    const alCambiar = () => setPantallaCompleta(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', alCambiar);
+    return () => document.removeEventListener('fullscreenchange', alCambiar);
+  }, []);
 
   // -------- Tiempo real: recargar al cambiar el caso activo --------
   useEffect(() => {
@@ -241,6 +256,27 @@ export default function VistaPrincipal({ inicial }) {
               {v.label}
             </button>
           ))}
+          {soportaPantallaCompleta && (
+            <button
+              className="tab tab-icono"
+              onClick={alternarPantallaCompleta}
+              title={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'}
+              aria-label={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'}
+            >
+              <svg viewBox="0 0 20 20" width="13" height="13" fill="none"
+                   stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                {pantallaCompleta ? (
+                  <>
+                    <path d="M8 2v6H2" /><path d="M12 18v-6h6" />
+                  </>
+                ) : (
+                  <>
+                    <path d="M7 2H2v5" /><path d="M13 18h5v-5" />
+                  </>
+                )}
+              </svg>
+            </button>
+          )}
         </div>
 
         <div className={'mq-canvas' + (esLado ? ' lado' : '')}>
@@ -289,10 +325,17 @@ export default function VistaPrincipal({ inicial }) {
   );
 }
 
-function alternarPantallaCompleta() {
+async function alternarPantallaCompleta() {
   if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen?.().catch(() => {});
+    try {
+      await document.documentElement.requestFullscreen();
+      // En el móvil, ya que estamos a pantalla completa, dejamos fija la
+      // orientación horizontal. En ordenador y en iPhone esto no existe:
+      // se ignora sin más.
+      await screen.orientation?.lock?.('landscape');
+    } catch {}
   } else {
+    try { screen.orientation?.unlock?.(); } catch {}
     document.exitFullscreen?.();
   }
 }
