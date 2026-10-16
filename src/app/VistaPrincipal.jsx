@@ -97,7 +97,15 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
     return () => document.removeEventListener('fullscreenchange', alCambiar);
   }, []);
 
-  // -------- Tiempo real: refrescar el menú al cambiar los casos activos --------
+  // -------- Refrescar la lista de casos activos: tiempo real + sondeo --------
+  // Supabase Realtime filtra "postgres_changes" según RLS usando la fila
+  // NUEVA: cuando un caso pasa de activo a inactivo, esa fila ya no es
+  // visible para el rol anónimo, así que ese evento en concreto nunca llega
+  // (limitación conocida de Supabase, no corregible desde la policy sin
+  // volver a exponer los casos inactivos). El sondeo cada 15s es la red de
+  // seguridad que sí detecta esa desactivación; el canal en tiempo real
+  // sigue dando respuesta instantánea para los demás cambios (activar un
+  // caso nuevo, renombrar uno ya activo, etc).
   useEffect(() => {
     const supabase = crearClienteNavegador();
     const recargarLista = async () => {
@@ -115,7 +123,8 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
       .channel('casos-cambios')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'casos' }, recargarLista)
       .subscribe();
-    return () => { supabase.removeChannel(canal); };
+    const sondeo = setInterval(recargarLista, 15000);
+    return () => { supabase.removeChannel(canal); clearInterval(sondeo); };
   }, []);
 
   // -------- Precarga de todos los videos del caso elegido --------
