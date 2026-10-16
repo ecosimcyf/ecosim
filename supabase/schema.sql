@@ -22,11 +22,15 @@ create table if not exists puntos (
 );
 
 -- Casos: un escenario clínico. Solo dice de qué especie es.
+-- "activo": si el estudiante lo ve en el menú para simularlo. Puede haber
+-- varios casos activos a la vez (antes solo podía haber uno, vía
+-- config.caso_activo_id; ver la migración al final de este archivo).
 create table if not exists casos (
   id text primary key default 'caso-' || substr(md5(random()::text), 1, 8),
   nombre      text not null,
   descripcion text not null default '',
-  especie     text not null check (especie in ('perro','gato'))
+  especie     text not null check (especie in ('perro','gato')),
+  activo      boolean not null default false
 );
 
 -- Qué video reproduce cada punto DENTRO de un caso concreto.
@@ -71,7 +75,7 @@ alter table config      enable row level security;
 -- rol anónimo no puede leer la columna "nombre". Lee "puntos_publicos".
 drop policy if exists "casos lectura publica" on casos;
 create policy "casos lectura publica" on casos
-  for select to anon, authenticated using (true);
+  for select to anon, authenticated using (activo = true);
 
 drop policy if exists "caso_videos lectura publica" on caso_videos;
 create policy "caso_videos lectura publica" on caso_videos
@@ -105,3 +109,29 @@ alter publication supabase_realtime add table config;
 insert into storage.buckets (id, name, public)
 values ('videos', 'videos', true)
 on conflict (id) do nothing;
+
+-- ============================================================
+-- MIGRACIÓN (2026-10-16): varios casos activos a la vez
+-- ------------------------------------------------------------
+-- Antes solo podía haber UN caso activo (config.caso_activo_id) y el
+-- estudiante cargaba directo su maniquí. Ahora cada caso tiene su propio
+-- interruptor ("activo"), pueden estar activos varios a la vez, y el
+-- estudiante elige en un menú cuál simular.
+--
+-- Las definiciones de arriba (tabla "casos", su policy y esta sección)
+-- ya están al día para un proyecto NUEVO. Si tu base de datos YA EXISTE
+-- (la de producción), copia y ejecuta SOLO el bloque de abajo, UNA SOLA
+-- VEZ, en el SQL Editor de Supabase — no hace falta pegar todo el archivo:
+--
+--   alter table casos add column if not exists activo boolean not null default false;
+--   update casos set activo = true where id = (select caso_activo_id from config where id = 1);
+--   drop policy if exists "casos lectura publica" on casos;
+--   create policy "casos lectura publica" on casos
+--     for select to anon, authenticated using (activo = true);
+--   alter publication supabase_realtime add table casos;
+--
+-- Es aditiva y segura de ejecutar aunque el código viejo siga desplegado
+-- durante el despliegue (sigue filtrando por id, y el caso que estaba
+-- activo en config queda con activo=true). "config"/"caso_activo_id"
+-- quedan sin uso a partir de ahora, pero no hace falta borrarlos.
+-- ============================================================

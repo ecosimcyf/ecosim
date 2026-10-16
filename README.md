@@ -1,10 +1,11 @@
 # Caninos y felinos — versión web
 
 Versión web del simulador de ecografía EcoSim. Los estudiantes abren una URL
-y ven el maniquí del caso activo; mantienen presionado un punto y se reproduce
-el video de esa ecografía. El profesor administra casos, puntos y videos desde
-un panel protegido por contraseña, y el caso activo se actualiza en tiempo real
-en todas las pantallas.
+y ven un menú con los casos activos; al elegir uno, ven su maniquí y mantienen
+presionado un punto para reproducir el video de esa ecografía. El profesor
+administra casos, puntos y videos desde un panel protegido por contraseña, y
+puede activar varios casos a la vez — el menú del estudiante se actualiza en
+tiempo real en todas las pantallas.
 
 - **Framework:** Next.js (App Router, JavaScript)
 - **Datos, videos y tiempo real:** Supabase (Postgres + Storage + Realtime)
@@ -141,5 +142,6 @@ web/
   check de sesión. El navegador del estudiante no puede modificar nada.
 - **Los videos deben ser `.mp4` (H.264).** No se convierte ningún formato: si
   el archivo no es `.mp4`, se rechaza al elegirlo.
-- **El caso activo se propaga en tiempo real** gracias a Supabase Realtime
-  sobre la tabla `config`.
+- **Qué casos están activos se propaga en tiempo real** gracias a Supabase
+  Realtime sobre la tabla `casos`. Los videos de un caso solo se descargan
+  cuando el estudiante lo abre desde el menú, nunca todos por adelantado.

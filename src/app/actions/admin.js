@@ -41,10 +41,9 @@ async function borrarVideosStorage(supabase, urls) {
 
 // Lee TODO el estado que necesita el panel.
 async function leerTodo(supabase) {
-  const [cfgR, puntosR, casosR, cvR] = await Promise.all([
-    supabase.from('config').select('caso_activo_id').eq('id', 1).maybeSingle(),
+  const [puntosR, casosR, cvR] = await Promise.all([
     supabase.from('puntos').select('id,especie,vista,nombre,x,y'),
-    supabase.from('casos').select('id,nombre,descripcion,especie').order('nombre'),
+    supabase.from('casos').select('id,nombre,descripcion,especie,activo').order('nombre'),
     supabase.from('caso_videos').select('caso_id,punto_id,video_url'),
   ]);
 
@@ -60,7 +59,6 @@ async function leerTodo(supabase) {
   }));
 
   return {
-    casoActivoId: cfgR.data?.caso_activo_id || null,
     puntos: puntosR.data || [],
     casos,
     videosPorCaso,
@@ -74,12 +72,14 @@ export async function leerDatosAdmin() {
   return leerTodo(crearClienteAdmin());
 }
 
-// ---------- caso activo ----------
+// ---------- casos activos ----------
 
-export async function setCasoActivo(casoId) {
+// Enciende o apaga el interruptor de UN caso, sin tocar los demás: puede
+// haber varios casos activos (en el menú del estudiante) a la vez.
+export async function alternarCasoActivo(casoId, activo) {
   await requerirAdmin();
   const supabase = crearClienteAdmin();
-  await supabase.from('config').update({ caso_activo_id: casoId || null }).eq('id', 1);
+  await supabase.from('casos').update({ activo: !!activo }).eq('id', casoId);
   return leerTodo(supabase);
 }
 
@@ -94,9 +94,9 @@ export async function crearCaso(nombre, especie) {
     .select('id').single();
 
   // Si no había ningún caso activo, activamos este.
-  const { data: cfg } = await supabase.from('config').select('caso_activo_id').eq('id', 1).maybeSingle();
-  if (!cfg?.caso_activo_id && nuevo?.id) {
-    await supabase.from('config').update({ caso_activo_id: nuevo.id }).eq('id', 1);
+  const { data: casos } = await supabase.from('casos').select('activo');
+  if (!(casos || []).some((c) => c.activo) && nuevo?.id) {
+    await supabase.from('casos').update({ activo: true }).eq('id', nuevo.id);
   }
   return leerTodo(supabase);
 }
@@ -120,8 +120,7 @@ export async function eliminarCaso(casoId) {
   const supabase = crearClienteAdmin();
   const { data: vids } = await supabase.from('caso_videos').select('video_url').eq('caso_id', casoId);
   await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
-  // Al borrar el caso, sus caso_videos se borran solos (cascade) y si era
-  // el activo, config.caso_activo_id pasa a null (on delete set null).
+  // Al borrar el caso, sus caso_videos se borran solos (cascade).
   await supabase.from('casos').delete().eq('id', casoId);
   return leerTodo(supabase);
 }
