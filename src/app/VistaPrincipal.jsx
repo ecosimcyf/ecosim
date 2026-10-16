@@ -2,16 +2,18 @@
 // ============================================================
 // Vista del estudiante.
 //
-// Al entrar (y al cambiar el caso activo) PRECARGA todos los videos del
-// caso en memoria, mostrando una barra de progreso. Así, al mantener
+// Primero se ve un MENÚ con los casos activos (puede haber varios a la
+// vez). Al elegir uno se cargan sus datos y se PRECARGAN todos sus
+// videos en memoria, mostrando una barra de progreso — así, al mantener
 // presionado un punto, el video ya está listo y se reproduce al instante.
+// Los videos de los demás casos activos nunca se descargan.
 //
 // El <video> se maneja de forma imperativa (poner src, silenciar y
 // reproducir por código), igual que en la app de escritorio.
 // ============================================================
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { crearClienteNavegador } from '@/lib/supabase/client';
-import { cargarDatosPublicos } from '@/lib/datos';
+import { listarCasosActivos, cargarDatosDeCaso } from '@/lib/datos';
 import { MANIQUIES } from '@/lib/maniquies';
 
 const GRACIA_TACTIL_MS = 1500; // mismo valor que la app de escritorio
@@ -32,8 +34,12 @@ function hayVideos(datos) {
   return !!(datos && datos.puntos && datos.puntos.some((p) => p.videoUrl));
 }
 
-export default function VistaPrincipal({ inicial }) {
-  const [datos, setDatos] = useState(inicial);
+export default function VistaPrincipal({ casosActivosIniciales }) {
+  const [casosActivos, setCasosActivos] = useState(casosActivosIniciales);
+  const [casoSeleccionado, setCasoSeleccionado] = useState(null); // null => menú
+  const [avisoCasoDesactivado, setAvisoCasoDesactivado] = useState(false);
+
+  const [datos, setDatos] = useState(null); // datos del caso elegido (null en el menú)
   const [vista, setVista] = useState('ventral');
   const [videoUrl, setVideoUrl] = useState(null); // null => reposo
   const [congelado, setCongelado] = useState(false);
@@ -42,13 +48,42 @@ export default function VistaPrincipal({ inicial }) {
   const [pantallaCompleta, setPantallaCompleta] = useState(false);
   const [soportaPantallaCompleta, setSoportaPantallaCompleta] = useState(false);
   // Estado de la precarga de videos.
-  const [precarga, setPrecarga] = useState(() => ({ cargando: hayVideos(inicial), pct: 0 }));
+  const [precarga, setPrecarga] = useState({ cargando: false, pct: 0 });
 
   const videoRef = useRef(null);
   const graciaRef = useRef(null);
   const blobsRef = useRef({}); // punto_id -> blob URL (video ya descargado)
+  const casoSeleccionadoRef = useRef(null); // espejo de casoSeleccionado para el canal realtime
 
   const irAReposo = useCallback(() => setVideoUrl(null), []);
+
+  useEffect(() => {
+    casoSeleccionadoRef.current = casoSeleccionado;
+  }, [casoSeleccionado]);
+
+  // -------- Elegir un caso del menú / volver al menú --------
+  const abrirCaso = useCallback(async (casoId) => {
+    setAvisoCasoDesactivado(false);
+    setCasoSeleccionado(casoId);
+    setDatos(null);
+    const supabase = crearClienteNavegador();
+    const d = await cargarDatosDeCaso(supabase, casoId);
+    if (!d.casoId) {
+      // Pudo desactivarse justo entre que se listó y se eligió.
+      setAvisoCasoDesactivado(true);
+      setCasoSeleccionado(null);
+      return;
+    }
+    setVideoUrl(null);
+    setVista('ventral');
+    setDatos(d);
+  }, []);
+
+  const volverAlMenu = useCallback(() => {
+    setCasoSeleccionado(null);
+    setDatos(null);
+    setVideoUrl(null);
+  }, []);
 
   // -------- Pantalla completa --------
   useEffect(() => {
@@ -62,29 +97,34 @@ export default function VistaPrincipal({ inicial }) {
     return () => document.removeEventListener('fullscreenchange', alCambiar);
   }, []);
 
-  // -------- Tiempo real: recargar al cambiar el caso activo --------
+  // -------- Tiempo real: refrescar el menú al cambiar los casos activos --------
   useEffect(() => {
     const supabase = crearClienteNavegador();
-    const recargar = async () => {
-      const d = await cargarDatosPublicos(supabase);
-      setVideoUrl(null);
-      setVista('ventral');
-      setDatos(d); // dispara la re-precarga (efecto de abajo)
+    const recargarLista = async () => {
+      const lista = await listarCasosActivos(supabase);
+      setCasosActivos(lista);
+      const abiertoId = casoSeleccionadoRef.current;
+      if (abiertoId && !lista.some((c) => c.id === abiertoId)) {
+        setAvisoCasoDesactivado(true);
+        setCasoSeleccionado(null);
+        setDatos(null);
+        setVideoUrl(null);
+      }
     };
     const canal = supabase
-      .channel('config-cambios')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'config' }, recargar)
+      .channel('casos-cambios')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'casos' }, recargarLista)
       .subscribe();
     return () => { supabase.removeChannel(canal); };
   }, []);
 
-  // -------- Precarga de todos los videos del caso --------
+  // -------- Precarga de todos los videos del caso elegido --------
   useEffect(() => {
     // Soltar los blobs del caso anterior.
     Object.values(blobsRef.current).forEach((u) => URL.revokeObjectURL(u));
     blobsRef.current = {};
 
-    if (!datos || !datos.casoActivoId || !hayVideos(datos)) {
+    if (!datos || !datos.casoId || !hayVideos(datos)) {
       setPrecarga({ cargando: false, pct: 100 });
       return;
     }
@@ -184,12 +224,37 @@ export default function VistaPrincipal({ inicial }) {
     graciaRef.current = setTimeout(() => { graciaRef.current = null; irAReposo(); }, GRACIA_TACTIL_MS);
   };
 
-  // -------- Sin caso activo --------
-  if (!datos || !datos.casoActivoId) {
+  // -------- Menú: todavía no se ha elegido ningún caso --------
+  if (!casoSeleccionado) {
+    return (
+      <div className="menu-casos">
+        <div className="marca">ECOSIM</div>
+        {avisoCasoDesactivado && (
+          <div className="aviso-caso">El profesor desactivó este caso.</div>
+        )}
+        {casosActivos.length ? (
+          <div className="menu-casos-grid">
+            {casosActivos.map((c) => (
+              <button key={c.id} className="caso-card" onClick={() => abrirCaso(c.id)}>
+                <div className="caso-card-nombre">{c.nombre}</div>
+                <div className="caso-card-especie">{MANIQUIES.nombre(c.especie)}</div>
+                {c.descripcion && <div className="caso-card-desc">{c.descripcion}</div>}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="txt">Esperando a que el profesor active un caso…</div>
+        )}
+      </div>
+    );
+  }
+
+  // -------- Caso elegido, pero sus datos todavía no llegaron --------
+  if (!datos) {
     return (
       <div className="espera">
         <div className="marca">ECOSIM</div>
-        <div className="txt">Esperando a que el profesor active un caso…</div>
+        <div className="txt">Cargando caso…</div>
       </div>
     );
   }
@@ -247,6 +312,9 @@ export default function VistaPrincipal({ inicial }) {
       {/* Panel del maniquí */}
       <div className={'panel-maniqui' + (esLado ? ' lado' : '')}>
         <div className="tabs">
+          <button className="tab" onClick={volverAlMenu} title="Volver al menú de casos">
+            ← Casos
+          </button>
           {VISTAS.map((v) => (
             <button
               key={v.id}

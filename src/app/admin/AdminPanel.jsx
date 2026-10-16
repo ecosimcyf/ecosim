@@ -12,7 +12,7 @@ import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264 } from '@/lib/convertir-video';
 import {
-  setCasoActivo, crearCaso, renombrarCaso, cambiarEspecieCaso, eliminarCaso,
+  alternarCasoActivo, crearCaso, renombrarCaso, cambiarEspecieCaso, eliminarCaso,
   addPunto, actualizarPunto, eliminarPunto,
   crearUrlSubidaVideo, guardarVideoCaso, quitarVideoCaso,
 } from '@/app/actions/admin';
@@ -71,7 +71,7 @@ export default function AdminPanel({ inicial }) {
     (datos.puntos || []).filter((p) => p.especie === especie && (p.vista || 'ventral') === vista);
 
   const caso = (datos.casos || []).find((c) => c.id === casoEnEdicion) || null;
-  const casoActivo = (datos.casos || []).find((c) => c.id === datos.casoActivoId) || null;
+  const casosActivosCount = (datos.casos || []).filter((c) => c.activo).length;
 
   // Sincronizar el nombre en edición al abrir el popup de un punto.
   useEffect(() => {
@@ -139,7 +139,7 @@ export default function AdminPanel({ inicial }) {
     setDatos(await crearCaso(nuevoNombre, nuevaEspecie));
     setNuevoNombre('');
   }
-  async function activar(id) { setDatos(await setCasoActivo(id)); }
+  async function activar(c) { setDatos(await alternarCasoActivo(c.id, !c.activo)); }
   async function renombrar(id, nombre) { setDatos(await renombrarCaso(id, nombre)); }
   async function cambiarEspecie(id, especie) { setDatos(await cambiarEspecieCaso(id, especie)); }
   async function borrarCaso(id) {
@@ -215,17 +215,18 @@ export default function AdminPanel({ inicial }) {
         style={{ display: 'none' }} onChange={onFileChange}
       />
 
-      {/* -------- Caso activo -------- */}
+      {/* -------- Casos activos -------- */}
       <section className="card">
-        <h3>Caso activo</h3>
+        <h3>Casos activos</h3>
         <p className="muted">
-          Es el caso que ven ahora mismo los estudiantes. Al cambiarlo, su
-          pantalla se actualiza sola.
+          Los estudiantes ven un menú con los casos activos y eligen cuál
+          simular. Enciende o apaga cada uno abajo, en «Casos» — puede haber
+          varios encendidos a la vez.
         </p>
         <div style={{ fontSize: 15, marginTop: 4 }}>
-          {casoActivo
-            ? <>Ahora mismo: <span className="accent">{casoActivo.nombre}</span> ({MANIQUIES.nombre(casoActivo.especie)})</>
-            : <span className="warn">Ningún caso activo — los estudiantes ven «Esperando…»</span>}
+          {casosActivosCount
+            ? <>Casos activos ahora: <span className="accent">{casosActivosCount}</span></>
+            : <span className="warn">Ningún caso activo — los estudiantes ven el menú vacío</span>}
         </div>
       </section>
 
@@ -322,9 +323,10 @@ export default function AdminPanel({ inicial }) {
               <option value="gato">Gato</option>
             </select>
             <span className="muted">{c.numVideos} video(s)</span>
-            {c.id === datos.casoActivoId
-              ? <span className="pill-activo">● Activo</span>
-              : <button className="btn small" onClick={() => activar(c.id)}>Activar</button>}
+            <label className="chk-activo" title="Visible en el menú del estudiante">
+              <input type="checkbox" checked={!!c.activo} onChange={() => activar(c)} />
+              <span className={c.activo ? 'accent' : 'muted'}>{c.activo ? '● Activo' : 'Inactivo'}</span>
+            </label>
             <button className="btn small" onClick={() => editarVideos(c.id)}>Asignar videos</button>
             <button className="btn small danger" onClick={() => borrarCaso(c.id)}>Borrar</button>
           </div>
