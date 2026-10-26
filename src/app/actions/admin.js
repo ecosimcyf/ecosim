@@ -82,16 +82,26 @@ async function listarCuentasInterno(supabase) {
 // cuentaId es obligatorio para quien llama a leerTodo con intención de
 // mostrar los casos de una cuenta concreta (cliente, o super_admin que ya
 // eligió una). Si se omite (lo hacen addPunto/actualizarPunto/eliminarPunto,
-// que no reciben cuentaId — ver Paso 8), devolvemos "casos: []" en vez de
-// TODOS los casos de TODAS las cuentas: así una función que no conoce la
-// cuenta nunca reenvía por error casos ajenos al navegador.
+// que no reciben cuentaId — ver Paso 8), devolvemos "casos: []" y
+// "videosPorCaso: {}" en vez de TODOS los casos/videos de TODAS las
+// cuentas: así una función que no conoce la cuenta nunca reenvía por error
+// datos ajenos al navegador.
+//
+// caso_videos no tiene su propia columna cuenta_id (igual que en
+// usoStorageBytes, arriba), así que para filtrarla por cuenta usamos el
+// mismo embed "casos!inner(cuenta_id)" + .eq('casos.cuenta_id', cuentaId):
+// sin esto, videosPorCaso traería el video_url de TODAS las cuentas en
+// cada respuesta (el bucket "videos" es público, así que un video_url
+// ajeno equivale a poder ver el video clínico de otro cliente).
 async function leerTodo(supabase, cuentaId) {
   const [puntosR, casosR, cvR] = await Promise.all([
     supabase.from('puntos').select('id,especie,vista,nombre,x,y'),
     cuentaId
       ? supabase.from('casos').select('id,nombre,descripcion,especie,activo').eq('cuenta_id', cuentaId).order('nombre')
       : { data: [] },
-    supabase.from('caso_videos').select('caso_id,punto_id,video_url'),
+    cuentaId
+      ? supabase.from('caso_videos').select('caso_id,punto_id,video_url,casos!inner(cuenta_id)').eq('casos.cuenta_id', cuentaId)
+      : { data: [] },
   ]);
 
   const videosPorCaso = {};
