@@ -379,14 +379,28 @@ export async function guardarVideoCaso(cuentaId, casoId, puntoId, path, tamanoBy
   return { ...datos, usoStorageMb: Math.round(usoBytes / (1024 * 1024)) };
 }
 
-export async function quitarVideoCaso(casoId, puntoId) {
-  await requerirAdmin();
+export async function quitarVideoCaso(cuentaId, casoId, puntoId) {
+  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
   const supabase = crearClienteAdmin();
-  const { data: casoActual } = await supabase.from('casos').select('cuenta_id').eq('id', casoId).maybeSingle();
+
+  // Mismo chequeo que guardarVideoCaso: el caso debe ser DE ESTA cuenta,
+  // verificado a nivel de consulta (no solo por el chequeo de permiso de
+  // arriba), antes de tocar Storage o la fila de caso_videos.
+  const { data: propio } = await supabase
+    .from('casos').select('id').eq('id', casoId).eq('cuenta_id', cuentaId).maybeSingle();
+  if (!propio) throw new Error('No autorizado');
+
   const { data: row } = await supabase
     .from('caso_videos').select('video_url')
     .eq('caso_id', casoId).eq('punto_id', puntoId).maybeSingle();
   if (row?.video_url) await borrarVideosStorage(supabase, [row.video_url]);
   await supabase.from('caso_videos').delete().eq('caso_id', casoId).eq('punto_id', puntoId);
-  return leerTodo(supabase, casoActual?.cuenta_id);
+
+  // Mismo motivo que en guardarVideoCaso: refrescamos el uso de storage ya
+  // actualizado, así el contador del panel baja de inmediato al quitar un
+  // video, sin esperar a la próxima acción con cuenta.
+  const datos = await leerTodo(supabase, cuentaId);
+  const usoBytes = await usoStorageBytes(supabase, cuentaId);
+  return { ...datos, usoStorageMb: Math.round(usoBytes / (1024 * 1024)) };
 }

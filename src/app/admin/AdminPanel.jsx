@@ -266,7 +266,7 @@ export default function AdminPanel({ inicial }) {
   async function quitarVideo() {
     if (!casoEnEdicion || !casoPuntoSel) return;
     if (!confirm('¿Quitar el video de este punto en este caso?')) return;
-    fusionar(await quitarVideoCaso(casoEnEdicion, casoPuntoSel));
+    fusionar(await quitarVideoCaso(datos.cuentaId, casoEnEdicion, casoPuntoSel));
   }
   function verVideo() {
     const url = datos.videosPorCaso?.[casoEnEdicion]?.[casoPuntoSel];
