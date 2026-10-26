@@ -251,11 +251,11 @@ export default function AdminPanel({ inicial }) {
         aSubir = new File([blob], 'video.mp4', { type: 'video/mp4' });
         setConvProgreso(null);
       }
-      const { path, token } = await crearUrlSubidaVideo();
+      const { path, token } = await crearUrlSubidaVideo(datos.cuentaId, aSubir.size);
       const supabase = crearClienteNavegador();
       const { error } = await supabase.storage.from('videos').uploadToSignedUrl(path, token, aSubir);
       if (error) throw error;
-      fusionar(await guardarVideoCaso(casoEnEdicion, casoPuntoSel, path));
+      fusionar(await guardarVideoCaso(datos.cuentaId, casoEnEdicion, casoPuntoSel, path, aSubir.size));
     } catch (err) {
       alert('No se pudo procesar el video: ' + (err?.message || err));
     } finally {
@@ -376,6 +376,11 @@ export default function AdminPanel({ inicial }) {
         {datos.cupoCasosPropios != null && (
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
             Casos propios usados: <span className="accent">{(datos.casos || []).length}</span> de {datos.cupoCasosPropios}
+          </div>
+        )}
+        {datos.cupoStorageMb != null && (
+          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+            Storage: <span className="accent">{datos.usoStorageMb ?? 0}</span> / {datos.cupoStorageMb} MB
           </div>
         )}
       </section>

@@ -59,6 +59,17 @@ async function contarCasosDeCuenta(supabase, cuentaId) {
   return count || 0;
 }
 
+// Cuántos bytes de video tiene YA una cuenta (para comparar contra su cupo
+// de storage). caso_videos no tiene cuenta_id propio, así que filtramos por
+// la cuenta de SU caso vía el embed "casos!inner(cuenta_id)".
+async function usoStorageBytes(supabase, cuentaId) {
+  const { data } = await supabase
+    .from('caso_videos')
+    .select('tamano_bytes, casos!inner(cuenta_id)')
+    .eq('casos.cuenta_id', cuentaId);
+  return (data || []).reduce((s, r) => s + (r.tamano_bytes || 0), 0);
+}
+
 // Lista de cuentas para el selector del super_admin.
 async function listarCuentasInterno(supabase) {
   const { data } = await supabase
@@ -108,20 +119,38 @@ export async function leerDatosAdmin() {
   const supabase = crearClienteAdmin();
   if (rol === 'super_admin') {
     const cuentas = await listarCuentasInterno(supabase);
-    return { rol, cuentaId: null, cuentas, cupoCasosPropios: null, puntos: [], casos: [], videosPorCaso: {} };
+    return {
+      rol, cuentaId: null, cuentas,
+      cupoCasosPropios: null, cupoStorageMb: null, usoStorageMb: null,
+      puntos: [], casos: [], videosPorCaso: {},
+    };
   }
-  const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios').eq('id', cuentaId).single();
+  const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios,cupo_storage_mb').eq('id', cuentaId).single();
   const datos = await leerTodo(supabase, cuentaId);
-  return { rol, cuentaId, cuentas: null, cupoCasosPropios: cuenta.cupo_casos_propios, ...datos };
+  const usoBytes = await usoStorageBytes(supabase, cuentaId);
+  return {
+    rol, cuentaId, cuentas: null,
+    cupoCasosPropios: cuenta.cupo_casos_propios,
+    cupoStorageMb: cuenta.cupo_storage_mb,
+    usoStorageMb: Math.round(usoBytes / (1024 * 1024)),
+    ...datos,
+  };
 }
 
 // El super_admin cambia de cuenta sin recargar la página.
 export async function elegirCuentaAdmin(cuentaId) {
   await requerirSuperAdmin();
   const supabase = crearClienteAdmin();
-  const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios').eq('id', cuentaId).single();
+  const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios,cupo_storage_mb').eq('id', cuentaId).single();
   const datos = await leerTodo(supabase, cuentaId);
-  return { cuentaId, cupoCasosPropios: cuenta.cupo_casos_propios, ...datos };
+  const usoBytes = await usoStorageBytes(supabase, cuentaId);
+  return {
+    cuentaId,
+    cupoCasosPropios: cuenta.cupo_casos_propios,
+    cupoStorageMb: cuenta.cupo_storage_mb,
+    usoStorageMb: Math.round(usoBytes / (1024 * 1024)),
+    ...datos,
+  };
 }
 
 // Alta de una cuenta de cliente nueva: crea la fila en "cuentas", invita por
@@ -280,9 +309,24 @@ export async function eliminarPunto(puntoId) {
 // Paso 1: el servidor genera una URL firmada para que el navegador suba
 // el archivo directamente a Storage (sin pasar el video por nuestra
 // función, que tiene límite de tamaño).
-export async function crearUrlSubidaVideo() {
-  await requerirAdmin();
+export async function crearUrlSubidaVideo(cuentaId, tamanoBytes) {
+  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
   const supabase = crearClienteAdmin();
+
+  // El cupo de storage solo limita al CLIENTE (igual que el cupo de casos:
+  // el super_admin precarga sin tope). Se revisa ANTES de firmar la URL de
+  // subida —con el tamaño que el navegador ya conoce, sin haber mandado
+  // ni un byte— así un video que por sí solo ya excede lo que queda del
+  // cupo se bloquea de entrada, nunca a mitad de la subida.
+  if (rol === 'cliente') {
+    const { data: cuenta } = await supabase.from('cuentas').select('cupo_storage_mb').eq('id', cuentaId).single();
+    const usoActual = await usoStorageBytes(supabase, cuentaId);
+    if (usoActual + tamanoBytes > cuenta.cupo_storage_mb * 1024 * 1024) {
+      throw new Error('Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.');
+    }
+  }
+
   const path = randomUUID() + '.mp4';
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(path);
   if (error) throw new Error('No se pudo preparar la subida: ' + error.message);
@@ -290,16 +334,19 @@ export async function crearUrlSubidaVideo() {
 }
 
 // Paso 2: tras subir, guardamos la URL pública en caso_videos.
-//
-// guardarVideoCaso/quitarVideoCaso no reciben cuentaId (no cambian de firma
-// en esta tarea), pero SÍ reciben casoId — así que averiguamos su cuenta_id
-// para pasarlo a leerTodo. Sin esto, leerTodo(supabase) devolvería
-// "casos: []" (ver su comentario) y la lista de Casos —y el panel de
-// Videos que puede estar abierto— se vaciarían de golpe tras cada subida.
-export async function guardarVideoCaso(casoId, puntoId, path) {
-  await requerirAdmin();
+export async function guardarVideoCaso(cuentaId, casoId, puntoId, path, tamanoBytes) {
+  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
   const supabase = crearClienteAdmin();
-  const { data: casoActual } = await supabase.from('casos').select('cuenta_id').eq('id', casoId).maybeSingle();
+
+  // Confirmamos que el caso sea DE ESTA cuenta antes de escribir: así un
+  // casoId ajeno (de otra cuenta) no puede registrarse como video de esta
+  // cuenta ni sumarse a su cupo de storage, al nivel de la consulta misma
+  // (no solo por el chequeo de permiso de arriba).
+  const { data: propio } = await supabase
+    .from('casos').select('id').eq('id', casoId).eq('cuenta_id', cuentaId).maybeSingle();
+  if (!propio) throw new Error('No autorizado');
+
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   const url = data.publicUrl;
 
@@ -311,8 +358,15 @@ export async function guardarVideoCaso(casoId, puntoId, path) {
     await borrarVideosStorage(supabase, [prev.video_url]);
   }
 
-  await supabase.from('caso_videos').upsert({ caso_id: casoId, punto_id: puntoId, video_url: url });
-  return leerTodo(supabase, casoActual?.cuenta_id);
+  await supabase.from('caso_videos').upsert({ caso_id: casoId, punto_id: puntoId, video_url: url, tamano_bytes: tamanoBytes });
+
+  // Devolvemos también el uso de storage ya actualizado: así el contador
+  // del panel sube de inmediato tras la subida, sin recargar ni volver a
+  // elegir la cuenta (igual que el resto del panel, que vive de fusionar
+  // la respuesta de cada acción sobre el estado actual).
+  const datos = await leerTodo(supabase, cuentaId);
+  const usoBytes = await usoStorageBytes(supabase, cuentaId);
+  return { ...datos, usoStorageMb: Math.round(usoBytes / (1024 * 1024)) };
 }
 
 export async function quitarVideoCaso(casoId, puntoId) {
