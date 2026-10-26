@@ -12,7 +12,8 @@ export default function LoginPage() {
       <div className="admin-login">
         <form className="login-box" action={formAction}>
           <div className="login-t">Acceso al panel</div>
-          <input name="password" type="password" placeholder="Contraseña" autoFocus />
+          <input name="correo" type="email" placeholder="Correo" autoFocus />
+          <input name="password" type="password" placeholder="Contraseña" />
           <button className="btn btn-primary" disabled={pending}>
             {pending ? 'Entrando…' : 'Entrar'}
           </button>

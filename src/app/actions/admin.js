@@ -10,9 +10,8 @@
 // que la app de escritorio devolvía store.getDatos() tras cada cambio.
 // ============================================================
 import { randomUUID } from 'node:crypto';
-import { cookies } from 'next/headers';
-import { verificarToken, COOKIE_SESION } from '@/lib/session';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
+import { crearClienteServidorAuth } from '@/lib/supabase/server';
 
 const BUCKET = 'videos';
 const PREFIJO_PUBLICO = '/storage/v1/object/public/' + BUCKET + '/';
@@ -20,10 +19,18 @@ const PREFIJO_PUBLICO = '/storage/v1/object/public/' + BUCKET + '/';
 // ---------- helpers (no exportados) ----------
 
 async function requerirAdmin() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(COOKIE_SESION)?.value;
-  const ok = await verificarToken(token, process.env.ADMIN_SESSION_SECRET);
-  if (!ok) throw new Error('No autorizado');
+  const { data: { user } } = await crearClienteServidorAuth().auth.getUser();
+  if (!user) throw new Error('No autorizado');
+  const { data: perfil } = await crearClienteAdmin()
+    .from('perfiles').select('rol,cuenta_id').eq('id', user.id).maybeSingle();
+  if (!perfil) throw new Error('No autorizado');
+  return { rol: perfil.rol, cuentaId: perfil.cuenta_id };
+}
+
+async function requerirSuperAdmin() {
+  const r = await requerirAdmin();
+  if (r.rol !== 'super_admin') throw new Error('No autorizado');
+  return r;
 }
 
 function especieOk(e) { return e === 'gato' ? 'gato' : 'perro'; }

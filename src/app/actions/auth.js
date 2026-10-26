@@ -1,15 +1,15 @@
 'use server';
 // ============================================================
-// Acciones de login / logout del administrador.
+// Acciones de login / logout del administrador, con Supabase Auth.
 // ============================================================
-import bcrypt from 'bcryptjs';
-import { cookies, headers } from 'next/headers';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { crearToken, COOKIE_SESION } from '@/lib/session';
+import { crearClienteServidorAuth } from '@/lib/supabase/server';
 import { estaBloqueado, registrarIntento, limpiarIntentos } from '@/lib/ratelimit';
 
 export async function login(_prevState, formData) {
-  const pass = String(formData.get('password') || '');
+  const correo = String(formData.get('correo') || '');
+  const password = String(formData.get('password') || '');
 
   // Identificar el origen para el límite de intentos.
   const hdrs = await headers();
@@ -19,35 +19,20 @@ export async function login(_prevState, formData) {
     return { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' };
   }
 
-  // El hash se guarda en base64 para que los signos "$" del hash bcrypt no
-  // se rompan al leer el archivo .env (Next.js interpreta "$" como variable).
-  // Si llegara el hash crudo ($2a$...) —p. ej. puesto a mano en Vercel—
-  // también se acepta tal cual.
-  let hash = process.env.ADMIN_PASSWORD_HASH || '';
-  if (hash && !hash.startsWith('$2')) {
-    try { hash = Buffer.from(hash, 'base64').toString('utf8'); } catch {}
-  }
-  const ok = hash && bcrypt.compareSync(pass, hash);
-  if (!ok) {
+  const { error } = await crearClienteServidorAuth().auth.signInWithPassword({
+    email: correo,
+    password,
+  });
+  if (error) {
     registrarIntento(ip);
-    return { error: 'Contraseña incorrecta.' };
+    return { error: 'Correo o contraseña incorrectos.' };
   }
 
   limpiarIntentos(ip);
-  const token = await crearToken(process.env.ADMIN_SESSION_SECRET);
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_SESION, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 8 * 60 * 60, // 8 horas
-  });
   redirect('/admin');
 }
 
 export async function logout() {
-  const cookieStore = await cookies();
-  cookieStore.delete(COOKIE_SESION);
+  await crearClienteServidorAuth().auth.signOut();
   redirect('/admin/login');
 }
