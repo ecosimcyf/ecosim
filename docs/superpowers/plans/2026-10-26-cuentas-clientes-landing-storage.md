@@ -493,8 +493,11 @@ git commit -m "feat: ruta publica /c/[slug] por cuenta, lectura via RPC"
 
 ## Task 6: Landing page en `/` + formulario de contacto
 
+> **Nota de la Tarea 5:** `src/app/VistaPrincipal.jsx` (el archivo viejo, global) sigue existiendo — la Tarea 5 copió su versión por-cuenta a `src/app/c/[slug]/VistaPrincipal.jsx` en vez de moverlo, porque moverlo habría roto el import de `src/app/page.js` antes de que esta tarea lo reescribiera. Esta tarea, al reemplazar `page.js`, debe BORRAR el `src/app/VistaPrincipal.jsx` viejo (queda huérfano, nadie más lo importa).
+
 **Files:**
 - Modify: `src/app/page.js` (se reemplaza por completo)
+- Delete: `src/app/VistaPrincipal.jsx` (huérfano desde la Tarea 5, ver nota arriba)
 - Create: `src/app/actions/contacto.js`
 - Create: `src/app/FormularioContacto.jsx`
 - Modify: `src/app/globals.css` (estilos de la landing)
@@ -512,7 +515,7 @@ git commit -m "feat: ruta publica /c/[slug] por cuenta, lectura via RPC"
 
 - [ ] **Step 3: Reescribir `src/app/page.js`**
 
-Server Component estático (sin llamadas a Supabase): portada (nombre + una frase), funcionalidades (lista fija: maniquí interactivo perro/gato, casos con descripción y video, varios casos activos con menú de selección, actualización en tiempo real), "para quién es" (clínicas, universidades, programas de formación), `<FormularioContacto />`, y un enlace `<a href="/admin/login">Iniciar sesión</a>`.
+Server Component estático (sin llamadas a Supabase): portada (nombre + una frase), funcionalidades (lista fija: maniquí interactivo perro/gato, casos con descripción y video, varios casos activos con menú de selección, actualización automática cuando el profesor activa/desactiva un caso — decir "automática", no "en tiempo real": desde la Tarea 5 es por sondeo cada 15s, no instantáneo), "para quién es" (clínicas, universidades, programas de formación), `<FormularioContacto />`, y un enlace `<a href="/admin/login">Iniciar sesión</a>`. Borrar `src/app/VistaPrincipal.jsx` (ver nota al inicio de esta tarea) como parte de este mismo paso.
 
 - [ ] **Step 4: Estilos en `src/app/globals.css`**
 
