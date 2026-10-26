@@ -247,7 +247,7 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
 .caso-card:hover { border-color: #3fc6cf; background: #0b121a; }
 .caso-card-nombre { font-size: 16px; margin-bottom: 4px; }
 .caso-card-especie { font-size: 12px; color: #3fc6cf; }
-.caso-card-desc { font-size: 12.5px; color: #8b949c; margin-top: 6px; }
+.caso-card-ver-desc { margin-top: 10px; }
 
 /* Aviso "gira el teléfono" — oculto por defecto; solo se muestra en móvil
    en vertical (ver media query al final). */
@@ -327,6 +327,14 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
 .ayuda-box td { padding: 7px 4px; border-bottom: 1px solid #131a22; text-align: left; }
 .ayuda-box td:first-child { color: #3fc6cf; width: 90px; }
 .overlay video { max-width: 82vw; max-height: 76vh; background: #000; border: 1px solid #2a3744; border-radius: 10px; }
+.desc-box {
+  background: #070b11; border: 1px solid #2a3744; border-radius: 14px;
+  padding: 26px 30px; width: 460px; max-width: 92vw;
+  display: flex; flex-direction: column; gap: 14px; text-align: left;
+}
+.desc-box-nombre { color: #7fe0e8; font-size: 17px; }
+.desc-box-texto { color: #c4ccd3; font-size: 14.5px; line-height: 1.5; white-space: pre-wrap; }
+.desc-box .btn { align-self: center; }
 
 /* ============================================================
    ADMINISTRACIÓN

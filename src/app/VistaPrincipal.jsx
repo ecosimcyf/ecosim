@@ -38,6 +38,7 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
   const [casosActivos, setCasosActivos] = useState(casosActivosIniciales);
   const [casoSeleccionado, setCasoSeleccionado] = useState(null); // null => menú
   const [avisoCasoDesactivado, setAvisoCasoDesactivado] = useState(false);
+  const [vistaDescripcion, setVistaDescripcion] = useState(null); // {caso, entrarAlCerrar} | null
 
   const [datos, setDatos] = useState(null); // datos del caso elegido (null en el menú)
   const [vista, setVista] = useState('ventral');
@@ -84,6 +85,22 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
     setDatos(null);
     setVideoUrl(null);
   }, []);
+
+  // -------- Descripción del caso: "Ver descripción" desde el menú (se
+  // queda en el menú al cerrar) o al tocar la tarjeta para entrar (al
+  // cerrar, recién ahí se abre el caso) --------
+  function clickCaso(c) {
+    if (c.descripcion) setVistaDescripcion({ caso: c, entrarAlCerrar: true });
+    else abrirCaso(c.id);
+  }
+  function verDescripcion(c) {
+    setVistaDescripcion({ caso: c, entrarAlCerrar: false });
+  }
+  function cerrarDescripcion() {
+    const v = vistaDescripcion;
+    setVistaDescripcion(null);
+    if (v?.entrarAlCerrar) abrirCaso(v.caso.id);
+  }
 
   // -------- Pantalla completa --------
   useEffect(() => {
@@ -205,7 +222,11 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
     const onKey = (e) => {
       if (e.key === 'F1') { e.preventDefault(); setAyuda((a) => !a); return; }
       if (e.key === 'F11') { e.preventDefault(); alternarPantallaCompleta(); return; }
-      if (e.key === 'Escape') { if (ayuda) setAyuda(false); else irAReposo(); return; }
+      if (e.key === 'Escape') {
+        if (vistaDescripcion) { cerrarDescripcion(); return; }
+        if (ayuda) setAyuda(false); else irAReposo();
+        return;
+      }
       if (e.code === 'Space' && videoUrl) {
         e.preventDefault();
         const v = videoRef.current;
@@ -219,7 +240,7 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [ayuda, videoUrl, irAReposo]);
+  }, [ayuda, videoUrl, irAReposo, vistaDescripcion]);
 
   // -------- Presionar / soltar un punto --------
   const presionar = (p, e) => {
@@ -244,15 +265,38 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
         {casosActivos.length ? (
           <div className="menu-casos-grid">
             {casosActivos.map((c) => (
-              <button key={c.id} className="caso-card" onClick={() => abrirCaso(c.id)}>
+              <div
+                key={c.id} className="caso-card" role="button" tabIndex={0}
+                onClick={() => clickCaso(c)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clickCaso(c); } }}
+              >
                 <div className="caso-card-nombre">{c.nombre}</div>
                 <div className="caso-card-especie">{MANIQUIES.nombre(c.especie)}</div>
-                {c.descripcion && <div className="caso-card-desc">{c.descripcion}</div>}
-              </button>
+                {c.descripcion && (
+                  <button
+                    type="button" className="btn small caso-card-ver-desc"
+                    onClick={(e) => { e.stopPropagation(); verDescripcion(c); }}
+                  >
+                    Ver descripción
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         ) : (
           <div className="txt">Esperando a que el profesor active un caso…</div>
+        )}
+
+        {vistaDescripcion && (
+          <div className="overlay" onClick={cerrarDescripcion}>
+            <div className="desc-box" onClick={(e) => e.stopPropagation()}>
+              <div className="desc-box-nombre">{vistaDescripcion.caso.nombre}</div>
+              <div className="desc-box-texto">{vistaDescripcion.caso.descripcion}</div>
+              <button className="btn btn-primary" onClick={cerrarDescripcion}>
+                {vistaDescripcion.entrarAlCerrar ? 'Continuar' : 'Cerrar'}
+              </button>
+            </div>
+          </div>
         )}
       </div>
     );
