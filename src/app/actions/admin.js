@@ -8,6 +8,12 @@
 //
 // Casi todas devuelven el estado COMPLETO y actualizado (leerTodo), igual
 // que la app de escritorio devolvía store.getDatos() tras cada cambio.
+//
+// Multi-cuenta: cada "cliente" pertenece a una cuenta (perfiles.cuenta_id)
+// y solo puede ver/tocar los casos de ESA cuenta. El "super_admin" no
+// pertenece a ninguna cuenta: elige con qué cuenta trabajar desde el panel
+// (ver elegirCuentaAdmin) y es el único que puede tocar el catálogo global
+// de puntos del maniquí.
 // ============================================================
 import { randomUUID } from 'node:crypto';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
@@ -46,11 +52,34 @@ async function borrarVideosStorage(supabase, urls) {
   }
 }
 
-// Lee TODO el estado que necesita el panel.
-async function leerTodo(supabase) {
+// Cuántos casos tiene YA una cuenta (para comparar contra su cupo).
+async function contarCasosDeCuenta(supabase, cuentaId) {
+  const { count } = await supabase
+    .from('casos').select('id', { count: 'exact', head: true }).eq('cuenta_id', cuentaId);
+  return count || 0;
+}
+
+// Lista de cuentas para el selector del super_admin.
+async function listarCuentasInterno(supabase) {
+  const { data } = await supabase
+    .from('cuentas').select('id,slug,nombre,activa,cupo_casos_propios,cupo_storage_mb').order('nombre');
+  return data || [];
+}
+
+// Lee TODO el estado que necesita el panel para UNA cuenta.
+//
+// cuentaId es obligatorio para quien llama a leerTodo con intención de
+// mostrar los casos de una cuenta concreta (cliente, o super_admin que ya
+// eligió una). Si se omite (lo hacen addPunto/actualizarPunto/eliminarPunto,
+// que no reciben cuentaId — ver Paso 8), devolvemos "casos: []" en vez de
+// TODOS los casos de TODAS las cuentas: así una función que no conoce la
+// cuenta nunca reenvía por error casos ajenos al navegador.
+async function leerTodo(supabase, cuentaId) {
   const [puntosR, casosR, cvR] = await Promise.all([
     supabase.from('puntos').select('id,especie,vista,nombre,x,y'),
-    supabase.from('casos').select('id,nombre,descripcion,especie,activo').order('nombre'),
+    cuentaId
+      ? supabase.from('casos').select('id,nombre,descripcion,especie,activo').eq('cuenta_id', cuentaId).order('nombre')
+      : { data: [] },
     supabase.from('caso_videos').select('caso_id,punto_id,video_url'),
   ]);
 
@@ -75,67 +104,146 @@ async function leerTodo(supabase) {
 // ---------- lectura inicial ----------
 
 export async function leerDatosAdmin() {
-  await requerirAdmin();
-  return leerTodo(crearClienteAdmin());
+  const { rol, cuentaId } = await requerirAdmin();
+  const supabase = crearClienteAdmin();
+  if (rol === 'super_admin') {
+    const cuentas = await listarCuentasInterno(supabase);
+    return { rol, cuentaId: null, cuentas, cupoCasosPropios: null, puntos: [], casos: [], videosPorCaso: {} };
+  }
+  const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios').eq('id', cuentaId).single();
+  const datos = await leerTodo(supabase, cuentaId);
+  return { rol, cuentaId, cuentas: null, cupoCasosPropios: cuenta.cupo_casos_propios, ...datos };
+}
+
+// El super_admin cambia de cuenta sin recargar la página.
+export async function elegirCuentaAdmin(cuentaId) {
+  await requerirSuperAdmin();
+  const supabase = crearClienteAdmin();
+  const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios').eq('id', cuentaId).single();
+  const datos = await leerTodo(supabase, cuentaId);
+  return { cuentaId, cupoCasosPropios: cuenta.cupo_casos_propios, ...datos };
+}
+
+// Alta de una cuenta de cliente nueva: crea la fila en "cuentas", invita por
+// correo al usuario (Supabase Auth) y crea su perfil 'cliente' ligado a esa
+// cuenta. Solo el super_admin puede hacerlo.
+export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageMb, correo }) {
+  await requerirSuperAdmin();
+  const supabase = crearClienteAdmin();
+
+  const slugLimpio = (slug || '').trim();
+  const nombreLimpio = (nombre || '').trim();
+  const correoLimpio = (correo || '').trim();
+  if (!slugLimpio || !nombreLimpio || !correoLimpio) {
+    throw new Error('Completa slug, nombre y correo para crear la cuenta.');
+  }
+
+  const { data: nuevaCuenta, error } = await supabase
+    .from('cuentas')
+    .insert({
+      slug: slugLimpio,
+      nombre: nombreLimpio,
+      cupo_casos_propios: Number(cupoCasosPropios) || 0,
+      cupo_storage_mb: Number(cupoStorageMb) || 0,
+    })
+    .select('id').single();
+  if (error) {
+    if (error.code === '23505') throw new Error('Ya existe una cuenta con ese slug.');
+    throw new Error('No se pudo crear la cuenta: ' + error.message);
+  }
+
+  const usuario = await supabase.auth.admin.inviteUserByEmail(correoLimpio);
+  if (usuario.error) {
+    throw new Error('La cuenta se creó, pero no se pudo invitar al correo: ' + usuario.error.message);
+  }
+  await supabase.from('perfiles').insert({ id: usuario.data.user.id, rol: 'cliente', cuenta_id: nuevaCuenta.id });
+
+  return { cuentas: await listarCuentasInterno(supabase) };
 }
 
 // ---------- casos activos ----------
 
 // Enciende o apaga el interruptor de UN caso, sin tocar los demás: puede
 // haber varios casos activos (en el menú del estudiante) a la vez.
-export async function alternarCasoActivo(casoId, activo) {
-  await requerirAdmin();
+export async function alternarCasoActivo(cuentaId, casoId, activo) {
+  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
   const supabase = crearClienteAdmin();
-  await supabase.from('casos').update({ activo: !!activo }).eq('id', casoId);
-  return leerTodo(supabase);
+  await supabase.from('casos').update({ activo: !!activo }).eq('id', casoId).eq('cuenta_id', cuentaId);
+  return leerTodo(supabase, cuentaId);
 }
 
 // ---------- casos ----------
 
-export async function crearCaso(nombre, especie) {
-  await requerirAdmin();
+export async function crearCaso(cuentaId, nombre, especie) {
+  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
   const supabase = crearClienteAdmin();
+
+  // El cupo del plan solo limita lo que el CLIENTE añade por su cuenta; el
+  // super_admin precarga casos para cualquier cuenta sin tope.
+  if (rol === 'cliente') {
+    const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios').eq('id', cuentaId).single();
+    const n = await contarCasosDeCuenta(supabase, cuentaId);
+    if (n >= cuenta.cupo_casos_propios) {
+      throw new Error('Llegaste al límite de casos de tu plan. Contacta a tu asesor para ampliarlo.');
+    }
+  }
+
   const { data: nuevo } = await supabase
     .from('casos')
-    .insert({ nombre: (nombre || '').trim() || 'Caso nuevo', especie: especieOk(especie) })
+    .insert({ nombre: (nombre || '').trim() || 'Caso nuevo', especie: especieOk(especie), cuenta_id: cuentaId })
     .select('id').single();
 
-  // Si no había ningún caso activo, activamos este.
-  const { data: casos } = await supabase.from('casos').select('activo');
+  // Si no había ningún caso activo EN ESTA CUENTA, activamos este (cada
+  // cuenta prende su propio primer caso; no depende de otras cuentas).
+  const { data: casos } = await supabase.from('casos').select('activo').eq('cuenta_id', cuentaId);
   if (!(casos || []).some((c) => c.activo) && nuevo?.id) {
     await supabase.from('casos').update({ activo: true }).eq('id', nuevo.id);
   }
-  return leerTodo(supabase);
+  return leerTodo(supabase, cuentaId);
 }
 
-export async function renombrarCaso(casoId, nombre) {
-  await requerirAdmin();
+export async function renombrarCaso(cuentaId, casoId, nombre) {
+  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
   const supabase = crearClienteAdmin();
-  await supabase.from('casos').update({ nombre: (nombre || '').trim() || 'Caso' }).eq('id', casoId);
-  return leerTodo(supabase);
+  await supabase.from('casos').update({ nombre: (nombre || '').trim() || 'Caso' }).eq('id', casoId).eq('cuenta_id', cuentaId);
+  return leerTodo(supabase, cuentaId);
 }
 
-export async function cambiarEspecieCaso(casoId, especie) {
-  await requerirAdmin();
+export async function cambiarEspecieCaso(cuentaId, casoId, especie) {
+  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
   const supabase = crearClienteAdmin();
-  await supabase.from('casos').update({ especie: especieOk(especie) }).eq('id', casoId);
-  return leerTodo(supabase);
+  await supabase.from('casos').update({ especie: especieOk(especie) }).eq('id', casoId).eq('cuenta_id', cuentaId);
+  return leerTodo(supabase, cuentaId);
 }
 
-export async function eliminarCaso(casoId) {
-  await requerirAdmin();
+export async function eliminarCaso(cuentaId, casoId) {
+  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
   const supabase = crearClienteAdmin();
+
+  // Confirmamos que el caso sea DE ESTA cuenta antes de tocar Storage: así
+  // un casoId ajeno (de otra cuenta) no borra videos de nadie — ni siquiera
+  // de paso — aunque el chequeo de arriba tuviera un error.
+  const { data: propio } = await supabase
+    .from('casos').select('id').eq('id', casoId).eq('cuenta_id', cuentaId).maybeSingle();
+  if (!propio) return leerTodo(supabase, cuentaId);
+
   const { data: vids } = await supabase.from('caso_videos').select('video_url').eq('caso_id', casoId);
   await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
   // Al borrar el caso, sus caso_videos se borran solos (cascade).
-  await supabase.from('casos').delete().eq('id', casoId);
-  return leerTodo(supabase);
+  await supabase.from('casos').delete().eq('id', casoId).eq('cuenta_id', cuentaId);
+  return leerTodo(supabase, cuentaId);
 }
 
 // ---------- puntos (catálogo global del maniquí) ----------
+// Solo el super_admin los toca: son compartidos por TODAS las cuentas.
 
 export async function addPunto({ especie, vista }) {
-  await requerirAdmin();
+  await requerirSuperAdmin();
   const supabase = crearClienteAdmin();
   const { data: nuevo } = await supabase
     .from('puntos')
@@ -146,7 +254,7 @@ export async function addPunto({ especie, vista }) {
 }
 
 export async function actualizarPunto(puntoId, campos) {
-  await requerirAdmin();
+  await requerirSuperAdmin();
   const supabase = crearClienteAdmin();
   const limpio = {};
   if (typeof campos.nombre === 'string') limpio.nombre = campos.nombre.trim() || 'Punto';
@@ -159,7 +267,7 @@ export async function actualizarPunto(puntoId, campos) {
 }
 
 export async function eliminarPunto(puntoId) {
-  await requerirAdmin();
+  await requerirSuperAdmin();
   const supabase = crearClienteAdmin();
   const { data: vids } = await supabase.from('caso_videos').select('video_url').eq('punto_id', puntoId);
   await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
@@ -182,9 +290,16 @@ export async function crearUrlSubidaVideo() {
 }
 
 // Paso 2: tras subir, guardamos la URL pública en caso_videos.
+//
+// guardarVideoCaso/quitarVideoCaso no reciben cuentaId (no cambian de firma
+// en esta tarea), pero SÍ reciben casoId — así que averiguamos su cuenta_id
+// para pasarlo a leerTodo. Sin esto, leerTodo(supabase) devolvería
+// "casos: []" (ver su comentario) y la lista de Casos —y el panel de
+// Videos que puede estar abierto— se vaciarían de golpe tras cada subida.
 export async function guardarVideoCaso(casoId, puntoId, path) {
   await requerirAdmin();
   const supabase = crearClienteAdmin();
+  const { data: casoActual } = await supabase.from('casos').select('cuenta_id').eq('id', casoId).maybeSingle();
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   const url = data.publicUrl;
 
@@ -197,16 +312,17 @@ export async function guardarVideoCaso(casoId, puntoId, path) {
   }
 
   await supabase.from('caso_videos').upsert({ caso_id: casoId, punto_id: puntoId, video_url: url });
-  return leerTodo(supabase);
+  return leerTodo(supabase, casoActual?.cuenta_id);
 }
 
 export async function quitarVideoCaso(casoId, puntoId) {
   await requerirAdmin();
   const supabase = crearClienteAdmin();
+  const { data: casoActual } = await supabase.from('casos').select('cuenta_id').eq('id', casoId).maybeSingle();
   const { data: row } = await supabase
     .from('caso_videos').select('video_url')
     .eq('caso_id', casoId).eq('punto_id', puntoId).maybeSingle();
   if (row?.video_url) await borrarVideosStorage(supabase, [row.video_url]);
   await supabase.from('caso_videos').delete().eq('caso_id', casoId).eq('punto_id', puntoId);
-  return leerTodo(supabase);
+  return leerTodo(supabase, casoActual?.cuenta_id);
 }

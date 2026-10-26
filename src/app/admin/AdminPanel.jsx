@@ -3,15 +3,17 @@
 // Panel de administración interactivo.
 //
 // Cada acción llama a una Server Action (que valida la sesión y escribe
-// en Supabase) y devuelve el estado COMPLETO actualizado, que guardamos
-// en "datos". Es el mismo patrón que la app de escritorio: tras cada
-// cambio, refrescamos todo el estado.
+// en Supabase) y devuelve el estado actualizado, que FUSIONAMOS sobre
+// "datos" (no lo reemplazamos entero): casi ninguna acción vuelve a mandar
+// rol/cuentaId/cuentas/cupoCasosPropios, así que un reemplazo completo los
+// borraría del estado tras el primer clic.
 // ============================================================
 import { useState, useEffect, useRef } from 'react';
 import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264 } from '@/lib/convertir-video';
 import {
+  elegirCuentaAdmin, crearCuenta,
   alternarCasoActivo, crearCaso, renombrarCaso, cambiarEspecieCaso, eliminarCaso,
   addPunto, actualizarPunto, eliminarPunto,
   crearUrlSubidaVideo, guardarVideoCaso, quitarVideoCaso,
@@ -42,6 +44,15 @@ function popStyle(pos) {
 export default function AdminPanel({ inicial }) {
   const [datos, setDatos] = useState(inicial);
 
+  // Selector / alta de cuentas (solo super_admin)
+  const [cambiandoCuenta, setCambiandoCuenta] = useState(false);
+  const [nuevaCuentaSlug, setNuevaCuentaSlug] = useState('');
+  const [nuevaCuentaNombre, setNuevaCuentaNombre] = useState('');
+  const [nuevaCuentaCupoCasos, setNuevaCuentaCupoCasos] = useState('');
+  const [nuevaCuentaCupoStorage, setNuevaCuentaCupoStorage] = useState('');
+  const [nuevaCuentaCorreo, setNuevaCuentaCorreo] = useState('');
+  const [creandoCuenta, setCreandoCuenta] = useState(false);
+
   // Editor de puntos (maniquí global)
   const [especiePuntos, setEspeciePuntos] = useState('perro');
   const [vistaPuntos, setVistaPuntos] = useState('ventral');
@@ -67,6 +78,12 @@ export default function AdminPanel({ inicial }) {
   const canvasPuntosRef = useRef(null);
   const dragRef = useRef(null);
 
+  // Fusiona el resultado de una Server Action sobre el estado actual, sin
+  // perder los campos que esa acción no devuelve (rol, cuentaId, cuentas…).
+  function fusionar(resultado) {
+    setDatos((d) => ({ ...d, ...resultado }));
+  }
+
   const puntosDe = (especie, vista) =>
     (datos.puntos || []).filter((p) => p.especie === especie && (p.vista || 'ventral') === vista);
 
@@ -79,6 +96,48 @@ export default function AdminPanel({ inicial }) {
     const p = (datos.puntos || []).find((x) => x.id === puntoSel);
     setNombreEdit(p ? p.nombre : '');
   }, [puntoSel, datos]);
+
+  // ---------------- Cuentas (solo super_admin) ----------------
+  async function elegirCuenta(cuentaId) {
+    if (!cuentaId) return;
+    setCambiandoCuenta(true);
+    try {
+      fusionar(await elegirCuentaAdmin(cuentaId));
+      setPuntoSel(null);
+      setCasoEnEdicion(null);
+    } catch (err) {
+      alert(err?.message || 'No se pudo cambiar de cuenta.');
+    } finally {
+      setCambiandoCuenta(false);
+    }
+  }
+
+  async function crearCuentaNueva() {
+    if (!nuevaCuentaSlug.trim() || !nuevaCuentaNombre.trim() || !nuevaCuentaCorreo.trim()) {
+      alert('Completa slug, nombre y correo para crear la cuenta.');
+      return;
+    }
+    setCreandoCuenta(true);
+    try {
+      const r = await crearCuenta({
+        slug: nuevaCuentaSlug,
+        nombre: nuevaCuentaNombre,
+        cupoCasosPropios: Number(nuevaCuentaCupoCasos) || 0,
+        cupoStorageMb: Number(nuevaCuentaCupoStorage) || 0,
+        correo: nuevaCuentaCorreo,
+      });
+      fusionar(r);
+      setNuevaCuentaSlug('');
+      setNuevaCuentaNombre('');
+      setNuevaCuentaCupoCasos('');
+      setNuevaCuentaCupoStorage('');
+      setNuevaCuentaCorreo('');
+    } catch (err) {
+      alert(err?.message || 'No se pudo crear la cuenta.');
+    } finally {
+      setCreandoCuenta(false);
+    }
+  }
 
   // ---------------- Editor de PUNTOS: arrastrar / clic ----------------
   function puntoPointerDown(e, p, i) {
@@ -108,45 +167,63 @@ export default function AdminPanel({ inicial }) {
     if (!d) return;
     dragRef.current = null;
     if (d.moved) {
-      const nuevos = await actualizarPunto(d.id, { x: Math.round(d.x * 10) / 10, y: Math.round(d.y * 10) / 10 });
-      setDatos(nuevos);
+      try {
+        fusionar(await actualizarPunto(d.id, { x: Math.round(d.x * 10) / 10, y: Math.round(d.y * 10) / 10 }));
+      } catch (err) {
+        alert(err?.message || 'No se pudo mover el punto.');
+      }
     } else {
       setPuntoSel(d.id);
     }
   }
 
   async function nuevoPunto() {
-    const r = await addPunto({ especie: especiePuntos, vista: vistaPuntos });
-    setDatos(r);
-    if (r.nuevoPuntoId) setPuntoSel(r.nuevoPuntoId);
+    try {
+      const r = await addPunto({ especie: especiePuntos, vista: vistaPuntos });
+      fusionar(r);
+      if (r.nuevoPuntoId) setPuntoSel(r.nuevoPuntoId);
+    } catch (err) {
+      alert(err?.message || 'No se pudo crear el punto.');
+    }
   }
   async function guardarNombrePunto() {
     if (!puntoSel) return;
-    const nuevos = await actualizarPunto(puntoSel, { nombre: nombreEdit });
-    setDatos(nuevos);
+    try {
+      fusionar(await actualizarPunto(puntoSel, { nombre: nombreEdit }));
+    } catch (err) {
+      alert(err?.message || 'No se pudo guardar el nombre.');
+    }
   }
   async function borrarPunto() {
     if (!puntoSel) return;
     if (!confirm('¿Borrar este punto del cuerpo?\nTodos los casos perderán el video asignado a este punto.')) return;
     const id = puntoSel;
     setPuntoSel(null);
-    setDatos(await eliminarPunto(id));
+    try {
+      fusionar(await eliminarPunto(id));
+    } catch (err) {
+      alert(err?.message || 'No se pudo borrar el punto.');
+    }
   }
 
   // ---------------- Casos ----------------
   async function crear() {
     if (!nuevoNombre.trim()) { alert('Escribe un nombre para el caso.'); return; }
-    setDatos(await crearCaso(nuevoNombre, nuevaEspecie));
-    setNuevoNombre('');
+    try {
+      fusionar(await crearCaso(datos.cuentaId, nuevoNombre, nuevaEspecie));
+      setNuevoNombre('');
+    } catch (err) {
+      alert(err?.message || 'No se pudo crear el caso.');
+    }
   }
-  async function activar(c) { setDatos(await alternarCasoActivo(c.id, !c.activo)); }
-  async function renombrar(id, nombre) { setDatos(await renombrarCaso(id, nombre)); }
-  async function cambiarEspecie(id, especie) { setDatos(await cambiarEspecieCaso(id, especie)); }
+  async function activar(c) { fusionar(await alternarCasoActivo(datos.cuentaId, c.id, !c.activo)); }
+  async function renombrar(id, nombre) { fusionar(await renombrarCaso(datos.cuentaId, id, nombre)); }
+  async function cambiarEspecie(id, especie) { fusionar(await cambiarEspecieCaso(datos.cuentaId, id, especie)); }
   async function borrarCaso(id) {
     if (!confirm('¿Borrar este caso y todos sus videos?')) return;
-    const nuevos = await eliminarCaso(id);
+    const nuevos = await eliminarCaso(datos.cuentaId, id);
     if (casoEnEdicion === id) setCasoEnEdicion(null);
-    setDatos(nuevos);
+    fusionar(nuevos);
   }
   function editarVideos(id) {
     setCasoPuntoSel(null);
@@ -178,7 +255,7 @@ export default function AdminPanel({ inicial }) {
       const supabase = crearClienteNavegador();
       const { error } = await supabase.storage.from('videos').uploadToSignedUrl(path, token, aSubir);
       if (error) throw error;
-      setDatos(await guardarVideoCaso(casoEnEdicion, casoPuntoSel, path));
+      fusionar(await guardarVideoCaso(casoEnEdicion, casoPuntoSel, path));
     } catch (err) {
       alert('No se pudo procesar el video: ' + (err?.message || err));
     } finally {
@@ -189,7 +266,7 @@ export default function AdminPanel({ inicial }) {
   async function quitarVideo() {
     if (!casoEnEdicion || !casoPuntoSel) return;
     if (!confirm('¿Quitar el video de este punto en este caso?')) return;
-    setDatos(await quitarVideoCaso(casoEnEdicion, casoPuntoSel));
+    fusionar(await quitarVideoCaso(casoEnEdicion, casoPuntoSel));
   }
   function verVideo() {
     const url = datos.videosPorCaso?.[casoEnEdicion]?.[casoPuntoSel];
@@ -208,12 +285,80 @@ export default function AdminPanel({ inicial }) {
   const esLadoCaso = MANIQUIES.esLado(vistaCaso);
   const videosDelCaso = (caso && datos.videosPorCaso?.[caso.id]) || {};
 
+  const hayCuenta = !!datos.cuentaId;
+
   return (
     <div className="admin-panel">
       <input
         ref={fileInputRef} type="file" accept="video/*"
         style={{ display: 'none' }} onChange={onFileChange}
       />
+
+      {/* -------- Cuentas de clientes (solo super_admin) -------- */}
+      {datos.rol === 'super_admin' && (
+        <section className="card">
+          <h3>Cuentas de clientes</h3>
+          <p className="muted">
+            Elige con qué cuenta quieres trabajar abajo, o crea una cuenta
+            nueva para un cliente.
+          </p>
+          <div className="row">
+            <label className="lbl" htmlFor="selector-cuenta">Cuenta activa:</label>
+            <select
+              id="selector-cuenta"
+              value={datos.cuentaId || ''}
+              disabled={cambiandoCuenta}
+              onChange={(e) => elegirCuenta(e.target.value)}
+            >
+              <option value="">— Elige una cuenta —</option>
+              {(datos.cuentas || []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre}{c.activa ? '' : ' (inactiva)'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <p className="muted" style={{ marginTop: 14 }}>Crear una cuenta nueva:</p>
+          <div className="row">
+            <input
+              value={nuevaCuentaSlug}
+              onChange={(e) => setNuevaCuentaSlug(e.target.value)}
+              placeholder="slug (ej. clinica-norte)"
+            />
+            <input
+              value={nuevaCuentaNombre}
+              onChange={(e) => setNuevaCuentaNombre(e.target.value)}
+              placeholder="Nombre de la clínica"
+            />
+          </div>
+          <div className="row">
+            <input
+              value={nuevaCuentaCupoCasos}
+              onChange={(e) => setNuevaCuentaCupoCasos(e.target.value)}
+              placeholder="Cupo de casos propios"
+              type="number" min="0"
+            />
+            <input
+              value={nuevaCuentaCupoStorage}
+              onChange={(e) => setNuevaCuentaCupoStorage(e.target.value)}
+              placeholder="Cupo de almacenamiento (MB)"
+              type="number" min="0"
+            />
+          </div>
+          <div className="row">
+            <input
+              value={nuevaCuentaCorreo}
+              onChange={(e) => setNuevaCuentaCorreo(e.target.value)}
+              placeholder="Correo del cliente"
+              type="email"
+            />
+            <button className="btn btn-primary" disabled={creandoCuenta} onClick={crearCuentaNueva}>
+              {creandoCuenta ? 'Creando…' : 'Crear cuenta e invitar'}
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* -------- Casos activos -------- */}
       <section className="card">
@@ -228,9 +373,15 @@ export default function AdminPanel({ inicial }) {
             ? <>Casos activos ahora: <span className="accent">{casosActivosCount}</span></>
             : <span className="warn">Ningún caso activo — los estudiantes ven el menú vacío</span>}
         </div>
+        {datos.cupoCasosPropios != null && (
+          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+            Casos propios usados: <span className="accent">{(datos.casos || []).length}</span> de {datos.cupoCasosPropios}
+          </div>
+        )}
       </section>
 
       {/* -------- Maniquí: puntos del cuerpo -------- */}
+      {hayCuenta && (
       <section className="card">
         <div className="editor-head">
           <h3>Maniquí — puntos del cuerpo</h3>
@@ -311,8 +462,10 @@ export default function AdminPanel({ inicial }) {
           {!listaPuntos.length && <p className="muted mq-vacio">No hay puntos en esta vista. Pulsa «+ Añadir punto».</p>}
         </div>
       </section>
+      )}
 
       {/* -------- Casos -------- */}
+      {hayCuenta && (
       <section className="card">
         <h3>Casos</h3>
         {(datos.casos || []).length ? (datos.casos).map((c) => (
@@ -341,9 +494,10 @@ export default function AdminPanel({ inicial }) {
           <button className="btn" onClick={crear}>Crear caso</button>
         </div>
       </section>
+      )}
 
       {/* -------- Videos del caso -------- */}
-      {caso && (
+      {hayCuenta && caso && (
         <section className="card">
           <div className="editor-head">
             <h3>Videos de: <span className="accent">{caso.nombre}</span></h3>
