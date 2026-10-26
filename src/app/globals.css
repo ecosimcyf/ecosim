@@ -362,3 +362,63 @@ input:focus, select:focus { border-color: #3fc6cf; }
 .mq-stage { padding: 6px 0; }
 .chk-activo { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .chk-activo input { cursor: pointer; }
+
+/* ============================================================
+   LANDING (página pública en "/")
+   Mismos tonos que el resto de la app (fondo oscuro, acento cian,
+   tarjetas #070b11, bordes #18212b) — ninguna paleta nueva.
+   ============================================================ */
+.landing-bar {
+  position: sticky; top: 0; z-index: 2; background: #05080d;
+  border-bottom: 1px solid #18212b;
+  display: flex; align-items: center; justify-content: space-between; padding: 14px 22px;
+}
+.landing-marca { color: #3fc6cf; font-size: 16px; letter-spacing: 3px; }
+.landing-login {
+  color: #8b949c; font-size: 13px; text-decoration: none;
+  border: 1px solid #2a3744; border-radius: 8px; padding: 7px 14px; transition: color .15s, border-color .15s;
+}
+.landing-login:hover { color: #c4ccd3; border-color: #3a4a59; }
+
+.landing-hero { text-align: center; padding: 64px 24px 48px; max-width: 640px; margin: 0 auto; }
+.landing-hero h1 { color: #c4ccd3; font-size: 34px; font-weight: 500; margin: 0 0 14px; letter-spacing: .5px; }
+.landing-hero-frase { color: #8b949c; font-size: 17px; line-height: 1.5; margin: 0; }
+
+.landing-section { max-width: 880px; margin: 0 auto; padding: 36px 24px; text-align: center; }
+.landing-section h2 { color: #3fc6cf; font-size: 20px; font-weight: 500; margin: 0 0 22px; }
+.landing-parrafo { color: #8b949c; font-size: 15px; line-height: 1.6; max-width: 620px; margin: 0 auto; }
+
+.landing-features { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
+.feature-card {
+  width: 240px; text-align: left; background: #070b11; border: 1px solid #18212b;
+  border-radius: 12px; padding: 18px 20px; transition: border-color .15s, background .15s;
+}
+.feature-card:hover { border-color: #3fc6cf; background: #0b121a; }
+.feature-card h3 { color: #c4ccd3; font-size: 15px; font-weight: 500; margin: 0 0 8px; }
+.feature-card p { color: #8b949c; font-size: 13.5px; line-height: 1.5; margin: 0; }
+
+.contacto-form {
+  display: flex; flex-direction: column; gap: 12px; max-width: 420px;
+  margin: 26px auto 0; background: #070b11; border: 1px solid #18212b;
+  border-radius: 14px; padding: 26px 30px; text-align: left;
+}
+.contacto-form textarea {
+  font-family: inherit; font-size: 14px; color: #c4ccd3;
+  background: #0b121a; border: 1px solid #2a3744; border-radius: 8px;
+  padding: 9px 11px; outline: none; resize: vertical; min-height: 80px;
+}
+.contacto-form textarea:focus { border-color: #3fc6cf; }
+
+.contacto-ok {
+  max-width: 420px; margin: 26px auto 0; background: #070b11; border: 1px solid #2f7e86;
+  border-radius: 14px; padding: 26px 30px; text-align: center;
+}
+.contacto-ok-titulo { color: #7fe0e8; font-size: 16px; margin-bottom: 8px; }
+.contacto-ok p { color: #8b949c; font-size: 14px; line-height: 1.5; margin: 0; }
+
+@media (max-width: 480px) {
+  .landing-hero { padding: 44px 20px 36px; }
+  .landing-hero h1 { font-size: 28px; }
+  .feature-card { width: 100%; }
+  .contacto-form, .contacto-ok { padding: 22px; }
+}
