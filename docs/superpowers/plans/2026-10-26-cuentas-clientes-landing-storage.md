@@ -535,10 +535,12 @@ git commit -m "feat: panel de solicitudes de contacto"
 
 - [ ] **Step 1:** Confirmar que las Tareas 1-7 se probaron de punta a punta en el proyecto de Supabase de PRUEBA (no producción).
 - [ ] **Step 2:** Pushear la rama `cuentas-clientes` a `ecosimcyf/ecosim` y abrir un Pull Request contra `main` (sin `gh` CLI en este equipo: dar el enlace de compare `https://github.com/ecosimcyf/ecosim/compare/main...cuentas-clientes?expand=1`). Repetir las verificaciones manuales de las Tareas 2-7 en el preview de Vercel.
+> **Aviso (hallado por el implementador de la Tarea 1):** `casos.cuenta_id` queda `NOT NULL` sin default. El `crearCaso` de HOY (antes de la Tarea 3) inserta un caso sin `cuenta_id` y además ignora el error del insert — así que, en la ventana entre correr esta migración (Step 3) y que el código nuevo quede desplegado (Step 6), crear un caso nuevo desde el panel fallaría en silencio (no aparece, no hay mensaje). Mitigación: hacer los Steps 3 y 6 lo más seguido posible (uno justo después del otro, sin pausas), y no crear ni editar casos desde el panel mientras tanto — idealmente fuera de horario de clase. No se invierte el orden: desplegar el código ANTES de migrar el esquema sería peor (el panel entero fallaría de inmediato al buscar columnas/tablas que todavía no existen).
+
 - [ ] **Step 3:** Correr la migración SQL de la Tarea 1 contra el proyecto de Supabase de PRODUCCIÓN desde el SQL Editor.
 - [ ] **Step 4:** Confirmar en producción que los casos existentes quedaron con `cuenta_id='cuenta-demo'` y que `/c/demo` los muestra igual que antes del cambio.
 - [ ] **Step 5:** Correr `scripts/crear-super-admin.mjs` contra producción para Pablo (y David, cuando esté listo), con contraseñas temporales. (Supabase Auth no tiene todavía un flujo de "cambiar mi propia contraseña" en el panel — anotado como posible mejora futura, no bloqueante.)
-- [ ] **Step 6:** Fusionar el Pull Request a `main` (despliegue a producción).
+- [ ] **Step 6:** Fusionar el Pull Request a `main` (despliegue a producción) — inmediatamente después del Step 3, sin crear ni editar casos entre medio (ver aviso arriba).
 - [ ] **Step 7:** Avisar a los estudiantes/usuarios actuales del nuevo enlace `/c/demo` — el viejo `/` ya no es el simulador. Incluir volver a "Añadir a la pantalla de inicio" en el móvil si lo habían hecho: el manifiesto (`src/app/manifest.js`, `start_url: '/'`) ahora abre la landing, no el simulador directamente.
 - [ ] **Step 8:** Vigilar Supabase → Settings → Usage (storage/egress) las primeras semanas tras el lanzamiento.
 
