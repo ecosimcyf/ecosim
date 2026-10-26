@@ -13,7 +13,7 @@ import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264 } from '@/lib/convertir-video';
 import {
-  elegirCuentaAdmin, crearCuenta,
+  elegirCuentaAdmin, crearCuenta, actualizarEstadoSolicitud,
   alternarCasoActivo, crearCaso, renombrarCaso, cambiarEspecieCaso, eliminarCaso,
   addPunto, actualizarPunto, eliminarPunto,
   crearUrlSubidaVideo, guardarVideoCaso, quitarVideoCaso,
@@ -39,6 +39,17 @@ function popStyle(pos) {
     top: pos.y + '%',
     transform: pos.y > 50 ? 'translate(-50%, calc(-100% - 18px))' : 'translate(-50%, 18px)',
   };
+}
+
+// Fecha y hora en la zona del navegador del admin. Se pinta solo tras montar:
+// el servidor no conoce esa zona, y un HTML inicial distinto del que calcula
+// el navegador provocaría un error de hidratación de React.
+function FechaLocal({ iso }) {
+  const [texto, setTexto] = useState('');
+  useEffect(() => {
+    setTexto(new Date(iso).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' }));
+  }, [iso]);
+  return <span>{texto}</span>;
 }
 
 export default function AdminPanel({ inicial }) {
@@ -136,6 +147,15 @@ export default function AdminPanel({ inicial }) {
       alert(err?.message || 'No se pudo crear la cuenta.');
     } finally {
       setCreandoCuenta(false);
+    }
+  }
+
+  // ---------------- Solicitudes de contacto (solo super_admin) ----------------
+  async function cambiarEstadoSolicitud(id, estado) {
+    try {
+      fusionar(await actualizarEstadoSolicitud(id, estado));
+    } catch (err) {
+      alert(err?.message || 'No se pudo cambiar el estado de la solicitud.');
     }
   }
 
@@ -357,6 +377,41 @@ export default function AdminPanel({ inicial }) {
               {creandoCuenta ? 'Creando…' : 'Crear cuenta e invitar'}
             </button>
           </div>
+        </section>
+      )}
+
+      {/* -------- Solicitudes de contacto (solo super_admin) -------- */}
+      {datos.rol === 'super_admin' && (
+        <section className="card">
+          <h3>Solicitudes</h3>
+          <p className="muted">
+            Personas que llenaron el formulario de la landing. Cambia el estado
+            de cada una conforme las vayas contactando.
+          </p>
+          {(datos.solicitudes || []).length ? (datos.solicitudes).map((s) => (
+            <div className="item" key={s.id}>
+              <div style={{ flex: '1 1 260px', minWidth: 0, overflowWrap: 'anywhere' }}>
+                <strong>{s.nombre}</strong>
+                {s.clinica && <span className="muted"> · {s.clinica}</span>}
+                <div className="muted" style={{ fontSize: 13 }}>
+                  {s.correo}{s.telefono && ' · ' + s.telefono} · <FechaLocal iso={s.creada_en} />
+                </div>
+                {s.mensaje && (
+                  <div style={{ fontSize: 14, marginTop: 4, whiteSpace: 'pre-wrap' }}>{s.mensaje}</div>
+                )}
+              </div>
+              <select
+                value={s.estado}
+                onChange={(e) => cambiarEstadoSolicitud(s.id, e.target.value)}
+                title="Estado de la solicitud"
+              >
+                <option value="nueva">Nueva</option>
+                <option value="contactada">Contactada</option>
+                <option value="convertida">Convertida</option>
+                <option value="descartada">Descartada</option>
+              </select>
+            </div>
+          )) : <p className="muted">Todavía no hay solicitudes de contacto.</p>}
         </section>
       )}
 

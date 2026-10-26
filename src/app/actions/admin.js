@@ -77,6 +77,15 @@ async function listarCuentasInterno(supabase) {
   return data || [];
 }
 
+// Solicitudes de la landing (formulario de contacto), las más nuevas primero.
+// Sin chequeo de permiso (como leerTodo): lo llaman las acciones exportadas
+// tras requerirSuperAdmin(), o leerDatosAdmin tras comprobar el rol.
+async function listarSolicitudesInterno(supabase) {
+  const { data } = await supabase
+    .from('solicitudes_contacto').select('*').order('creada_en', { ascending: false });
+  return data || [];
+}
+
 // Lee TODO el estado que necesita el panel para UNA cuenta.
 //
 // cuentaId es obligatorio para quien llama a leerTodo con intención de
@@ -133,6 +142,7 @@ export async function leerDatosAdmin() {
       rol, cuentaId: null, cuentas,
       cupoCasosPropios: null, cupoStorageMb: null, usoStorageMb: null,
       puntos: [], casos: [], videosPorCaso: {},
+      solicitudes: await listarSolicitudesInterno(supabase),
     };
   }
   const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios,cupo_storage_mb').eq('id', cuentaId).single();
@@ -198,6 +208,22 @@ export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageM
   await supabase.from('perfiles').insert({ id: usuario.data.user.id, rol: 'cliente', cuenta_id: nuevaCuenta.id });
 
   return { cuentas: await listarCuentasInterno(supabase) };
+}
+
+// ---------- solicitudes de contacto (solo super_admin) ----------
+
+export async function listarSolicitudes() {
+  await requerirSuperAdmin();
+  return listarSolicitudesInterno(crearClienteAdmin());
+}
+
+export async function actualizarEstadoSolicitud(id, estado) {
+  await requerirSuperAdmin();
+  const supabase = crearClienteAdmin();
+  const valores = ['nueva', 'contactada', 'convertida', 'descartada'];
+  if (!valores.includes(estado)) throw new Error('Estado inválido');
+  await supabase.from('solicitudes_contacto').update({ estado }).eq('id', id);
+  return { solicitudes: await listarSolicitudesInterno(supabase) };
 }
 
 // ---------- casos activos ----------
