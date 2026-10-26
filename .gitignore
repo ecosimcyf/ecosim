@@ -16,3 +16,6 @@
 .DS_Store
 *.log
 npm-debug.log*
+
+# Worktrees aislados para implementar planes (superpowers)
+/.worktrees
