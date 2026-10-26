@@ -31,6 +31,7 @@
 - Cupo de casos en el límite exacto: crear hasta el cupo funciona, el siguiente se bloquea con el mensaje de plan, no con un error genérico de Postgres. → Tarea 3.
 - Cupo de storage: un solo video que por sí mismo ya excede el cupo restante se bloquea ANTES de subir, no a mitad de la subida. → Tarea 4.
 - Un estudiante visita `/c/<slug>` de una cuenta suspendida (`activa=false`) o un slug inexistente — debe ver un aviso genérico, nunca un error técnico ni datos de otra cuenta. → Tarea 5.
+- Alguien con la clave `anon` (pública, extraíble del JS del navegador) consulta `casos`/`caso_videos` por `select` directo vía REST, sin pasar por `/c/<slug>` — debe fallar por falta de permiso; solo las 3 funciones RPC (scoped por cuenta) pueden leerlos. Hallazgo real de la Tarea 3 sobre código previo a este plan, cerrado ampliando la Tarea 5. → Tarea 5.
 
 ---
 
@@ -376,14 +377,71 @@ git commit -m "feat: cupo de storage por cuenta"
 
 ## Task 5: Ruta pública `/c/[slug]`
 
+> **Ampliado el 2026-10-26, antes de dispatchear esta tarea:** el implementador de la Tarea 3 encontró que las policies públicas de `casos`/`caso_videos` (de antes de este plan) dejan a CUALQUIERA con la clave `anon` (pública por diseño, va en el JS del navegador) leer, por la REST API de Supabase directa — sin pasar por esta app — los casos activos de TODAS las cuentas a la vez; para `caso_videos` ni siquiera hace falta que el caso esté activo. El usuario confirmó cerrarlo del todo: en vez de que el público lea `casos`/`caso_videos` por `select` directo, lee por 3 funciones RPC nuevas que filtran por cuenta adentro, y se revoca el `select` directo a esas 2 tablas. Costo aceptado: se pierde el push instantáneo de Realtime (que necesitaba ese mismo acceso amplio); queda el sondeo de 15s que ya existía como respaldo, así que el menú del estudiante se sigue actualizando solo, con hasta 15s de atraso.
+
 **Files:**
+- Modify: `supabase/schema.sql` (3 funciones RPC + revocar grants, bloque de migración nuevo — Task 1 ya está cerrada, esto no la reabre)
 - Modify: `src/lib/datos.js`
 - Create: `src/app/c/[slug]/page.js`
 - Move: `src/app/VistaPrincipal.jsx` → `src/app/c/[slug]/VistaPrincipal.jsx`
 
 **Interfaces:**
-- Produces: `resolverCuenta(supabase, slug): Promise<{id,slug,nombre,activa}|null>`.
-- Modifica firmas: `listarCasosActivos(supabase, cuentaId)`, `cargarDatosDeCaso(supabase, casoId, cuentaId)`.
+- Produces: `resolverCuenta(supabase, slug): Promise<{id,slug,nombre,activa}|null>` (sigue leyendo `cuentas_publicas` por `select` directo — esa vista no cambia, no expone nada sensible por cuenta).
+- Modifica firmas: `listarCasosActivos(supabase, cuentaId)`, `cargarDatosDeCaso(supabase, casoId, cuentaId)` — mismas firmas que antes, pero ahora implementadas con `.rpc(...)` en vez de `.from(...).select(...)`.
+
+- [ ] **Step 0: Migración SQL — funciones RPC + revocar acceso directo**
+
+Agregar a `supabase/schema.sql`:
+
+```sql
+-- ============================================================
+-- MIGRACIÓN (2026-10-26): lectura pública de casos/caso_videos solo por
+-- función (cierra la lectura directa por REST, que no filtraba por cuenta)
+-- ------------------------------------------------------------
+create or replace function casos_activos_de_cuenta(p_cuenta_id text)
+returns table (id text, nombre text, descripcion text, especie text)
+language sql security definer set search_path = public
+as $$
+  select c.id, c.nombre, c.descripcion, c.especie
+  from casos c
+  join cuentas cu on cu.id = c.cuenta_id
+  where c.cuenta_id = p_cuenta_id and cu.activa and c.activo
+  order by c.nombre;
+$$;
+grant execute on function casos_activos_de_cuenta(text) to anon, authenticated;
+
+create or replace function caso_publico(p_cuenta_id text, p_caso_id text)
+returns table (id text, nombre text, especie text)
+language sql security definer set search_path = public
+as $$
+  select c.id, c.nombre, c.especie
+  from casos c
+  join cuentas cu on cu.id = c.cuenta_id
+  where c.cuenta_id = p_cuenta_id and cu.activa and c.activo and c.id = p_caso_id;
+$$;
+grant execute on function caso_publico(text, text) to anon, authenticated;
+
+create or replace function videos_de_caso_publico(p_cuenta_id text, p_caso_id text)
+returns table (punto_id text, video_url text)
+language sql security definer set search_path = public
+as $$
+  select cv.punto_id, cv.video_url
+  from caso_videos cv
+  join casos c on c.id = cv.caso_id
+  where c.cuenta_id = p_cuenta_id and c.id = p_caso_id and c.activo;
+$$;
+grant execute on function videos_de_caso_publico(text, text) to anon, authenticated;
+
+-- Esto es lo que de verdad cierra el hueco: antes, cualquiera con la clave
+-- anon podía pedir TODOS los casos de TODAS las cuentas por `/rest/v1/casos`
+-- directo. Ahora solo se puede pedir "los de esta cuenta" vía las funciones
+-- de arriba. puntos_publicos y cuentas_publicas NO cambian (sin dato
+-- sensible por cuenta en ninguna de las dos).
+drop policy if exists "casos lectura publica" on casos;
+drop policy if exists "caso_videos lectura publica" on caso_videos;
+revoke select on casos from anon, authenticated;
+revoke select on caso_videos from anon, authenticated;
+```
 
 - [ ] **Step 1: `resolverCuenta(supabase, slug)` en `src/lib/datos.js`**
 
@@ -395,17 +453,22 @@ export async function resolverCuenta(supabase, slug) {
 }
 ```
 
-- [ ] **Step 2: `listarCasosActivos(supabase, cuentaId)` filtra por cuenta**
+- [ ] **Step 2: Reescribir `listarCasosActivos(supabase, cuentaId)` para usar la función RPC**
 
-Agregar `.eq('cuenta_id', cuentaId)` al `select` existente.
+```js
+export async function listarCasosActivos(supabase, cuentaId) {
+  const { data } = await supabase.rpc('casos_activos_de_cuenta', { p_cuenta_id: cuentaId });
+  return data || [];
+}
+```
 
-- [ ] **Step 3: `cargarDatosDeCaso(supabase, casoId, cuentaId)` filtra por cuenta**
+- [ ] **Step 3: Reescribir `cargarDatosDeCaso(supabase, casoId, cuentaId)` para usar las funciones RPC**
 
-En el primer `select` (el que trae `especie` del caso), agregar `.eq('cuenta_id', cuentaId)`. Si no hay fila (caso de otra cuenta, o no existe), sigue devolviendo `{ casoId: null }` igual que hoy.
+Paso 1 (traer el caso): `const { data: filas } = await supabase.rpc('caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId }); const caso = filas?.[0];` — si no hay fila, sigue devolviendo `{ casoId: null }` igual que hoy. Paso 2 (`puntos_publicos`): sin cambios, sigue siendo `select` directo. Paso 3 (videos): `const { data: videos } = await supabase.rpc('videos_de_caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId });` en vez del `select` a `caso_videos`. El resto de la función (armar `mapa`/`lista`) no cambia.
 
-- [ ] **Step 4: Mover `VistaPrincipal.jsx` a `src/app/c/[slug]/VistaPrincipal.jsx`**
+- [ ] **Step 4: Mover `VistaPrincipal.jsx` a `src/app/c/[slug]/VistaPrincipal.jsx`, quitar la suscripción de Realtime**
 
-Añadir una prop `cuentaId`. Pasarla en las 2 llamadas del lado del cliente que hoy llaman a `listarCasosActivos`/`cargarDatosDeCaso` (en `abrirCaso` y en `recargarLista`, dentro del efecto de tiempo real).
+Añadir una prop `cuentaId`. Pasarla en las 2 llamadas del lado del cliente que hoy llaman a `listarCasosActivos`/`cargarDatosDeCaso` (en `abrirCaso` y en `recargarLista`, dentro del efecto de tiempo real). **Quitar la suscripción `supabase.channel('casos-cambios').on('postgres_changes', ...)`** del efecto de tiempo real (ya no recibiría nada: `casos` perdió su grant directo de lectura para `anon`) — dejar SOLO el `setInterval(recargarLista, 15000)` que ya existe como respaldo, sin canal que crear ni limpiar. Actualizar el comentario del efecto para explicar que ahora el sondeo de 15s es el único mecanismo, no un respaldo del canal.
 
 - [ ] **Step 5: Crear `src/app/c/[slug]/page.js`**
 
@@ -413,7 +476,7 @@ Server Component: `const { slug } = await params;`; `crearClienteServidor()`; `c
 
 - [ ] **Step 6: Verificar manualmente**
 
-Con una cuenta de prueba con 1-2 casos activos (de la Tarea 3): visitar `/c/<su-slug>` → el menú muestra solo esos casos. Visitar `/c/slug-que-no-existe` → aviso genérico. Poner `activa=false` a mano en SQL y recargar → mismo aviso genérico — caso de Review Focus. Activar/desactivar un caso desde el panel sigue reflejándose en tiempo real en esta ruta.
+Con una cuenta de prueba con 1-2 casos activos (de la Tarea 3): visitar `/c/<su-slug>` → el menú muestra solo esos casos. Visitar `/c/slug-que-no-existe` → aviso genérico. Poner `activa=false` a mano en SQL y recargar → mismo aviso genérico — caso de Review Focus. Activar/desactivar un caso desde el panel se refleja en esta ruta en máximo ~15s (ya no al instante — cambio aceptado, ver nota de arriba). **Nuevo, importante:** con el proyecto de prueba de la Tarea 8, confirmar que la clave `anon` YA NO puede leer `casos`/`caso_videos` por `select` directo (debe dar error de permiso vía `curl` o el Table Editor de Supabase), solo por las 3 funciones RPC.
 
 (`src/app/page.js` queda SIN tocar en esta tarea — sigue mostrando el simulador global viejo hasta la Tarea 6. Así ambas rutas conviven sin romper nada mientras se prueba.)
 
@@ -423,7 +486,7 @@ Con una cuenta de prueba con 1-2 casos activos (de la Tarea 3): visitar `/c/<su-
 
 ```bash
 git add -A
-git commit -m "feat: ruta publica /c/[slug] por cuenta"
+git commit -m "feat: ruta publica /c/[slug] por cuenta, lectura via RPC"
 ```
 
 ---
