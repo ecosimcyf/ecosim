@@ -19,3 +19,6 @@ npm-debug.log*
 
 # Worktrees aislados para implementar planes (superpowers)
 /.worktrees
+
+# Ledger/briefs/reportes/paquetes de revisión de superpowers (scratch, no versionar)
+/.superpowers
