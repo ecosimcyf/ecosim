@@ -135,3 +135,61 @@ on conflict (id) do nothing;
 -- activo en config queda con activo=true). "config"/"caso_activo_id"
 -- quedan sin uso a partir de ahora, pero no hace falta borrarlos.
 -- ============================================================
+
+-- ============================================================
+-- MIGRACIÓN (2026-10-26): cuentas por cliente, cupos y solicitudes
+-- ============================================================
+create table if not exists cuentas (
+  id text primary key default 'cuenta-' || substr(md5(random()::text), 1, 8),
+  slug text not null unique,
+  nombre text not null,
+  cupo_casos_propios int not null default 0,
+  cupo_storage_mb int not null default 0,
+  activa boolean not null default true,
+  creada_en timestamptz not null default now()
+);
+
+create table if not exists perfiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  rol text not null check (rol in ('super_admin','cliente')),
+  cuenta_id text references cuentas(id) on delete set null
+  -- rol='cliente' debe traer cuenta_id; rol='super_admin' lo deja null.
+  -- Se valida en código (actions/admin.js), no con un check de SQL, porque
+  -- el alta ocurre en 2 pasos (usuario de Auth, luego esta fila).
+);
+
+insert into cuentas (id, slug, nombre, cupo_casos_propios, cupo_storage_mb)
+values ('cuenta-demo', 'demo', 'EcoSim (demo)', 9999, 9999)
+on conflict (id) do nothing;
+
+alter table casos add column if not exists cuenta_id text references cuentas(id);
+update casos set cuenta_id = 'cuenta-demo' where cuenta_id is null;
+alter table casos alter column cuenta_id set not null;
+
+alter table caso_videos add column if not exists tamano_bytes bigint;
+
+create table if not exists solicitudes_contacto (
+  id bigint generated always as identity primary key,
+  nombre text not null,
+  clinica text,
+  correo text not null,
+  telefono text,
+  mensaje text,
+  estado text not null default 'nueva'
+    check (estado in ('nueva','contactada','convertida','descartada')),
+  creada_en timestamptz not null default now()
+);
+
+alter table cuentas enable row level security;
+alter table perfiles enable row level security;
+alter table solicitudes_contacto enable row level security;
+-- Sin policies públicas en estas 3 tablas: solo las toca el servidor con
+-- service_role (igual que ya hace admin.js con el resto de tablas).
+grant all on cuentas, perfiles, solicitudes_contacto to service_role;
+
+-- Vista pública para resolver "slug -> cuenta" sin exponer cupos ni toda
+-- la tabla cuentas al rol anónimo (mismo patrón que puntos_publicos).
+create or replace view cuentas_publicas
+  with (security_invoker = false)
+  as select id, slug, nombre, activa from cuentas;
+grant select on cuentas_publicas to anon, authenticated;
