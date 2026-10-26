@@ -108,6 +108,13 @@ export async function renombrarCaso(casoId, nombre) {
   return leerTodo(supabase);
 }
 
+export async function describirCaso(casoId, descripcion) {
+  await requerirAdmin();
+  const supabase = crearClienteAdmin();
+  await supabase.from('casos').update({ descripcion: (descripcion || '').trim() }).eq('id', casoId);
+  return leerTodo(supabase);
+}
+
 export async function cambiarEspecieCaso(casoId, especie) {
   await requerirAdmin();
   const supabase = crearClienteAdmin();

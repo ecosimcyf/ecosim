@@ -41,12 +41,12 @@ html, body {
 }
 .btn-link:hover { color: #8b949c; }
 
-input, select {
+input, select, textarea {
   font-family: inherit; font-size: 14px; color: #c4ccd3;
   background: #0b121a; border: 1px solid #2a3744; border-radius: 8px;
   padding: 9px 11px; outline: none;
 }
-input:focus, select:focus { border-color: #3fc6cf; }
+input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
 
 /* ============================================================
    DIBUJO DEL MANIQUÍ (colores por clase, portados tal cual)
@@ -353,6 +353,7 @@ input:focus, select:focus { border-color: #3fc6cf; }
 .row input { flex: 1; min-width: 160px; }
 .item { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid #131a22; flex-wrap: wrap; }
 .item input.nombre-caso { flex: 1; min-width: 140px; }
+.item textarea.descripcion-caso { flex: 1 1 100%; resize: vertical; min-height: 44px; font-size: 13px; }
 .msg { font-size: 13px; min-height: 16px; margin-top: 6px; }
 .editor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
 .editor-head h3 { margin: 0; }
