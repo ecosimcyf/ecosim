@@ -228,7 +228,8 @@ as $$
   select cv.punto_id, cv.video_url
   from caso_videos cv
   join casos c on c.id = cv.caso_id
-  where c.cuenta_id = p_cuenta_id and c.id = p_caso_id and c.activo;
+  join cuentas cu on cu.id = c.cuenta_id
+  where c.cuenta_id = p_cuenta_id and c.id = p_caso_id and c.activo and cu.activa;
 $$;
 grant execute on function videos_de_caso_publico(text, text) to anon, authenticated;
 
