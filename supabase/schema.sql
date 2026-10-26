@@ -193,3 +193,51 @@ create or replace view cuentas_publicas
   with (security_invoker = false)
   as select id, slug, nombre, activa from cuentas;
 grant select on cuentas_publicas to anon, authenticated;
+
+-- ============================================================
+-- MIGRACIÓN (2026-10-26): lectura pública de casos/caso_videos solo por
+-- función (cierra la lectura directa por REST, que no filtraba por cuenta)
+-- ------------------------------------------------------------
+create or replace function casos_activos_de_cuenta(p_cuenta_id text)
+returns table (id text, nombre text, descripcion text, especie text)
+language sql security definer set search_path = public
+as $$
+  select c.id, c.nombre, c.descripcion, c.especie
+  from casos c
+  join cuentas cu on cu.id = c.cuenta_id
+  where c.cuenta_id = p_cuenta_id and cu.activa and c.activo
+  order by c.nombre;
+$$;
+grant execute on function casos_activos_de_cuenta(text) to anon, authenticated;
+
+create or replace function caso_publico(p_cuenta_id text, p_caso_id text)
+returns table (id text, nombre text, especie text)
+language sql security definer set search_path = public
+as $$
+  select c.id, c.nombre, c.especie
+  from casos c
+  join cuentas cu on cu.id = c.cuenta_id
+  where c.cuenta_id = p_cuenta_id and cu.activa and c.activo and c.id = p_caso_id;
+$$;
+grant execute on function caso_publico(text, text) to anon, authenticated;
+
+create or replace function videos_de_caso_publico(p_cuenta_id text, p_caso_id text)
+returns table (punto_id text, video_url text)
+language sql security definer set search_path = public
+as $$
+  select cv.punto_id, cv.video_url
+  from caso_videos cv
+  join casos c on c.id = cv.caso_id
+  where c.cuenta_id = p_cuenta_id and c.id = p_caso_id and c.activo;
+$$;
+grant execute on function videos_de_caso_publico(text, text) to anon, authenticated;
+
+-- Esto es lo que de verdad cierra el hueco: antes, cualquiera con la clave
+-- anon podía pedir TODOS los casos de TODAS las cuentas por `/rest/v1/casos`
+-- directo. Ahora solo se puede pedir "los de esta cuenta" vía las funciones
+-- de arriba. puntos_publicos y cuentas_publicas NO cambian (sin dato
+-- sensible por cuenta en ninguna de las dos).
+drop policy if exists "casos lectura publica" on casos;
+drop policy if exists "caso_videos lectura publica" on caso_videos;
+revoke select on casos from anon, authenticated;
+revoke select on caso_videos from anon, authenticated;
