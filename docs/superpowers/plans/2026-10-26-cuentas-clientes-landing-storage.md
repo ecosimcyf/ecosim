@@ -209,8 +209,9 @@ git commit -m "feat: login con Supabase Auth, reemplaza la contraseña única"
 
 **Files:**
 - Modify: `src/app/actions/admin.js`
-- Modify: `src/app/admin/page.js`
 - Modify: `src/app/admin/AdminPanel.jsx`
+
+(`src/app/admin/page.js` no necesita cambios: ya reenvía el objeto `datos` completo a `AdminPanel` sin leer campos específicos, así que simplemente recibe más campos sin tocarse.)
 
 **Interfaces:**
 - Consumes: `requerirAdmin()`, `requerirSuperAdmin()` (Tarea 2).
@@ -356,7 +357,7 @@ En `onFileChange`: `crearUrlSubidaVideo(datos.cuentaId, aSubir.size)` y, tras su
 
 - [ ] **Step 5: Mostrar el uso de storage**
 
-Incluir `usoStorageMb` (resultado de `usoStorageBytes` dividido entre 1024*1024, redondeado) en lo que devuelven `leerDatosAdmin`/`elegirCuentaAdmin` (Tarea 3), y mostrarlo junto al cupo de casos en `AdminPanel.jsx`: "Storage: X / Y MB".
+Incluir `usoStorageMb` (resultado de `usoStorageBytes` dividido entre 1024*1024, redondeado) en lo que devuelven `leerDatosAdmin`/`elegirCuentaAdmin` (Tarea 3), y mostrarlo junto al cupo de casos en `AdminPanel.jsx`: "Storage: X / Y MB". En la rama de `leerDatosAdmin` donde `rol==='super_admin'` y todavía no se eligió cuenta (`cuentaId: null`), `usoStorageMb` va en `null` igual que `cupoCasosPropios` — no corresponde calcularlo sin una cuenta elegida.
 
 - [ ] **Step 6: Verificar manualmente**
 
