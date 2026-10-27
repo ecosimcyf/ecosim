@@ -14,7 +14,7 @@ import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264 } from '@/lib/convertir-video';
 import {
   elegirCuentaAdmin, crearCuenta, actualizarEstadoSolicitud,
-  alternarCasoActivo, crearCaso, renombrarCaso, cambiarEspecieCaso, eliminarCaso,
+  alternarCasoActivo, crearCaso, renombrarCaso, describirCaso, cambiarEspecieCaso, eliminarCaso,
   addPunto, actualizarPunto, eliminarPunto,
   crearUrlSubidaVideo, guardarVideoCaso, quitarVideoCaso,
 } from '@/app/actions/admin';
@@ -249,6 +249,7 @@ export default function AdminPanel({ inicial }) {
   }
   async function activar(c) { fusionar(await alternarCasoActivo(datos.cuentaId, c.id, !c.activo)); }
   async function renombrar(id, nombre) { fusionar(await renombrarCaso(datos.cuentaId, id, nombre)); }
+  async function describir(id, descripcion) { fusionar(await describirCaso(datos.cuentaId, id, descripcion)); }
   async function cambiarEspecie(id, especie) { fusionar(await cambiarEspecieCaso(datos.cuentaId, id, especie)); }
   async function borrarCaso(id) {
     if (!confirm('¿Borrar este caso y todos sus videos?')) return;
@@ -561,6 +562,13 @@ export default function AdminPanel({ inicial }) {
             </label>
             <button className="btn small" onClick={() => editarVideos(c.id)}>Asignar videos</button>
             <button className="btn small danger" onClick={() => borrarCaso(c.id)}>Borrar</button>
+            <textarea
+              className="descripcion-caso"
+              defaultValue={c.descripcion || ''}
+              onBlur={(e) => describir(c.id, e.target.value)}
+              placeholder="Descripción para el estudiante (motivo de consulta, síntomas…). Se muestra antes de entrar al caso."
+              rows={2}
+            />
           </div>
         )) : <p className="muted">No hay casos todavía. Crea el primero abajo.</p>}
 

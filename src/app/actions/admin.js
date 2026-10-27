@@ -316,6 +316,14 @@ export async function renombrarCaso(cuentaId, casoId, nombre) {
   return leerTodo(supabase, cuentaId);
 }
 
+export async function describirCaso(cuentaId, casoId, descripcion) {
+  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
+  const supabase = crearClienteAdmin();
+  await supabase.from('casos').update({ descripcion: (descripcion || '').trim() }).eq('id', casoId).eq('cuenta_id', cuentaId);
+  return leerTodo(supabase, cuentaId);
+}
+
 export async function cambiarEspecieCaso(cuentaId, casoId, especie) {
   const { rol, cuentaId: miCuentaId } = await requerirAdmin();
   if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
