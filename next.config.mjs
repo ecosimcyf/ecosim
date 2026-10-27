@@ -13,6 +13,11 @@ const nextConfig = {
   // No anunciar el framework usado.
   poweredByHeader: false,
 
+  // Ya es el valor por defecto de Next.js, pero lo dejamos explícito: el
+  // navegador nunca debe poder reconstruir el código fuente original desde
+  // los archivos de producción.
+  productionBrowserSourceMaps: false,
+
   async headers() {
     return [{
       source: '/:path*',
