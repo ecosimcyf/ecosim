@@ -173,9 +173,21 @@ export async function elegirCuentaAdmin(cuentaId) {
   };
 }
 
-// Alta de una cuenta de cliente nueva: crea la fila en "cuentas", invita por
-// correo al usuario (Supabase Auth) y crea su perfil 'cliente' ligado a esa
-// cuenta. Solo el super_admin puede hacerlo.
+// Alta de una cuenta de cliente nueva: crea el usuario de Auth con una
+// contraseña temporal, la fila en "cuentas" y su perfil 'cliente' ligado a
+// esa cuenta. Solo el super_admin puede hacerlo.
+//
+// Antes se usaba inviteUserByEmail (manda un correo con un enlace mágico),
+// pero ese flujo no es compatible con el cliente de navegador (configurado
+// para PKCE): ningún cliente invitado podía llegar a iniciar sesión (ver
+// revisión final de rama). Por eso ahora se crea el usuario con una
+// contraseña temporal de un solo uso, que el super_admin copia y le pasa
+// al cliente por fuera — sin depender de correo saliente ni de SMTP.
+//
+// El orden importa: el usuario de Auth se crea PRIMERO. Si algo falla
+// después (slug duplicado, error de red…), lo único que puede quedar a
+// medias es un usuario de Auth sin cuenta/perfil — nunca una cuenta o un
+// perfil apuntando a un usuario que no llegó a existir.
 export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageMb, correo }) {
   await requerirSuperAdmin();
   const supabase = crearClienteAdmin();
@@ -184,9 +196,23 @@ export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageM
   const nombreLimpio = (nombre || '').trim();
   const correoLimpio = (correo || '').trim();
   if (!slugLimpio || !nombreLimpio || !correoLimpio) {
-    throw new Error('Completa slug, nombre y correo para crear la cuenta.');
+    return { error: 'Completa slug, nombre y correo para crear la cuenta.' };
   }
 
+  // 1. Contraseña temporal para el primer ingreso del cliente.
+  const tempPassword = randomUUID().replace(/-/g, '').slice(0, 12);
+
+  // 2. El usuario de Auth, PRIMERO.
+  const usuario = await supabase.auth.admin.createUser({
+    email: correoLimpio,
+    password: tempPassword,
+    email_confirm: true,
+  });
+  if (usuario.error) {
+    return { error: 'No se pudo crear el usuario: ' + usuario.error.message };
+  }
+
+  // 3. La cuenta (cliente/clínica), solo si el usuario se creó bien.
   const { data: nuevaCuenta, error } = await supabase
     .from('cuentas')
     .insert({
@@ -197,17 +223,26 @@ export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageM
     })
     .select('id').single();
   if (error) {
-    if (error.code === '23505') throw new Error('Ya existe una cuenta con ese slug.');
-    throw new Error('No se pudo crear la cuenta: ' + error.message);
+    const detalle = error.code === '23505' ? 'ya existe una cuenta con ese slug.' : error.message + '.';
+    return {
+      error: 'El usuario ya se creó con el correo ' + correoLimpio + '; bórralo desde Supabase ' +
+        '(Authentication → Users) si no vas a reintentar. No se pudo crear la cuenta: ' + detalle,
+    };
   }
 
-  const usuario = await supabase.auth.admin.inviteUserByEmail(correoLimpio);
-  if (usuario.error) {
-    throw new Error('La cuenta se creó, pero no se pudo invitar al correo: ' + usuario.error.message);
+  // 4. El perfil 'cliente', solo si la cuenta se creó bien.
+  const { error: errorPerfil } = await supabase
+    .from('perfiles')
+    .insert({ id: usuario.data.user.id, rol: 'cliente', cuenta_id: nuevaCuenta.id });
+  if (errorPerfil) {
+    return {
+      error: 'El usuario ya se creó con el correo ' + correoLimpio + ' y la cuenta "' + nombreLimpio +
+        '" también; bórralos desde Supabase (Authentication → Users y la tabla cuentas) si no vas a ' +
+        'reintentar. No se pudo crear el perfil: ' + errorPerfil.message,
+    };
   }
-  await supabase.from('perfiles').insert({ id: usuario.data.user.id, rol: 'cliente', cuenta_id: nuevaCuenta.id });
 
-  return { cuentas: await listarCuentasInterno(supabase) };
+  return { cuentas: await listarCuentasInterno(supabase), claveTemporal: tempPassword };
 }
 
 // ---------- solicitudes de contacto (solo super_admin) ----------
@@ -245,13 +280,17 @@ export async function crearCaso(cuentaId, nombre, especie) {
   if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
   const supabase = crearClienteAdmin();
 
-  // El cupo del plan solo limita lo que el CLIENTE añade por su cuenta; el
-  // super_admin precarga casos para cualquier cuenta sin tope.
+  // El cupo es TOTAL: cuenta todos los casos que tenga la cuenta, sin
+  // importar quién los creó (los que añade el cliente + los que el equipo
+  // precarga) — contarCasosDeCuenta no filtra por autor. Lo que distingue
+  // el rol es solo que este chequeo BLOQUEA al cliente; el super_admin
+  // puede seguir precargando casos sin que este if lo detenga (esos casos
+  // precargados sí cuentan para el total que ve el cliente después).
   if (rol === 'cliente') {
     const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios').eq('id', cuentaId).single();
     const n = await contarCasosDeCuenta(supabase, cuentaId);
     if (n >= cuenta.cupo_casos_propios) {
-      throw new Error('Llegaste al límite de casos de tu plan. Contacta a tu asesor para ampliarlo.');
+      return { error: 'Llegaste al límite de casos de tu plan. Contacta a tu asesor para ampliarlo.' };
     }
   }
 
@@ -359,11 +398,15 @@ export async function crearUrlSubidaVideo(cuentaId, tamanoBytes) {
     const { data: cuenta } = await supabase.from('cuentas').select('cupo_storage_mb').eq('id', cuentaId).single();
     const usoActual = await usoStorageBytes(supabase, cuentaId);
     if (usoActual + tamanoBytes > cuenta.cupo_storage_mb * 1024 * 1024) {
-      throw new Error('Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.');
+      return { error: 'Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.' };
     }
   }
 
-  const path = randomUUID() + '.mp4';
+  // El path empieza con la cuenta dueña: guardarVideoCaso lo exige antes de
+  // aceptar cualquier subida/reemplazo (ver Paso 1 de la revisión final —
+  // antes un path sin prefijo dejaba a un cliente apuntar al video de OTRA
+  // cuenta y, de paso, borrarlo).
+  const path = cuentaId + '/' + randomUUID() + '.mp4';
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(path);
   if (error) throw new Error('No se pudo preparar la subida: ' + error.message);
   return { path: data.path, token: data.token };
@@ -383,8 +426,37 @@ export async function guardarVideoCaso(cuentaId, casoId, puntoId, path, tamanoBy
     .from('casos').select('id').eq('id', casoId).eq('cuenta_id', cuentaId).maybeSingle();
   if (!propio) throw new Error('No autorizado');
 
+  // El path TAMBIÉN debe ser de esta cuenta (crearUrlSubidaVideo ya lo
+  // arma como "cuentaId/archivo.mp4"). Los videos públicos delatan su path
+  // en la URL, así que sin este chequeo un cliente podía mandar el path
+  // real de OTRA cuenta junto a un casoId suyo y lograr que lo
+  // "reasignáramos" — y, de paso, que el bloque de abajo borre el video
+  // anterior en ESE path, que es de otra cuenta. Un path viejo (subido
+  // antes de este fix, sin prefijo) sigue funcionando para LEER: esto
+  // solo bloquea escribir/reemplazar con un path ajeno.
+  if (!path.startsWith(cuentaId + '/')) throw new Error('No autorizado');
+
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   const url = data.publicUrl;
+
+  // Tamaño REAL del archivo ya subido a Storage — no el tamanoBytes que
+  // mandó el navegador, que un cliente podría falsear para saltarse el
+  // cupo. Si Storage no puede informarlo, caemos al valor del navegador
+  // (mejor comparar con algo que con nada).
+  const { data: info } = await supabase.storage.from(BUCKET).info(path);
+  const tamanoReal = info?.size ?? tamanoBytes;
+
+  // Mismo cálculo que ya hace crearUrlSubidaVideo, pero con el tamaño de
+  // verdad: si de todos modos se pasa del cupo, borramos lo que se acaba
+  // de subir y no guardamos la fila.
+  if (rol === 'cliente') {
+    const { data: cuenta } = await supabase.from('cuentas').select('cupo_storage_mb').eq('id', cuentaId).single();
+    const usoActual = await usoStorageBytes(supabase, cuentaId);
+    if (usoActual + tamanoReal > cuenta.cupo_storage_mb * 1024 * 1024) {
+      await borrarVideosStorage(supabase, [url]);
+      return { error: 'Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.' };
+    }
+  }
 
   // Si ya había un video en este punto/caso, borrar el archivo anterior.
   const { data: prev } = await supabase
@@ -394,7 +466,7 @@ export async function guardarVideoCaso(cuentaId, casoId, puntoId, path, tamanoBy
     await borrarVideosStorage(supabase, [prev.video_url]);
   }
 
-  await supabase.from('caso_videos').upsert({ caso_id: casoId, punto_id: puntoId, video_url: url, tamano_bytes: tamanoBytes });
+  await supabase.from('caso_videos').upsert({ caso_id: casoId, punto_id: puntoId, video_url: url, tamano_bytes: tamanoReal });
 
   // Devolvemos también el uso de storage ya actualizado: así el contador
   // del panel sube de inmediato tras la subida, sin recargar ni volver a

@@ -242,3 +242,25 @@ drop policy if exists "casos lectura publica" on casos;
 drop policy if exists "caso_videos lectura publica" on caso_videos;
 revoke select on casos from anon, authenticated;
 revoke select on caso_videos from anon, authenticated;
+
+-- ============================================================
+-- MIGRACIÓN (2026-10-26): cerrar "cuentas_publicas"
+-- ------------------------------------------------------------
+-- La vista "cuentas_publicas" (creada arriba, en la migración de cuentas)
+-- devolvía TODAS las cuentas (id, slug, nombre, activa) a cualquiera con
+-- la clave anon — cómodo para enumerar el listado completo de clientes
+-- del negocio desde afuera. resolverCuenta (src/lib/datos.js) solo
+-- necesita UNA cuenta por su slug, así que la reemplazamos por una
+-- función que devuelve justo eso.
+-- ------------------------------------------------------------
+create or replace function cuenta_por_slug(p_slug text)
+returns table (id text, slug text, nombre text, activa boolean)
+language sql security definer set search_path = public
+as $$
+  select id, slug, nombre, activa from cuentas where slug = p_slug;
+$$;
+grant execute on function cuenta_por_slug(text) to anon, authenticated;
+
+-- Al borrar la vista se van también sus permisos (el "grant select on
+-- cuentas_publicas" de arriba) — no hace falta un revoke aparte.
+drop view if exists cuentas_publicas;

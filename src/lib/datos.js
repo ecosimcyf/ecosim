@@ -16,13 +16,16 @@
 // 2026-10-26 en supabase/schema.sql).
 // ============================================================
 
-// Resuelve el slug de la URL (/c/[slug]) a su cuenta. Sigue siendo select
-// directo sobre la vista pública: no expone cupos ni nada sensible por
-// cuenta, así que no hace falta pasarla por una función RPC.
+// Resuelve el slug de la URL (/c/[slug]) a su cuenta, por función RPC.
+// Antes era un select directo sobre la vista "cuentas_publicas", que
+// devolvía TODAS las cuentas (nombre, slug, activa) a cualquiera con la
+// clave anon — cómodo para enumerar el listado completo de clientes desde
+// afuera. La función cuenta_por_slug solo devuelve la cuenta de ESE slug
+// (o ninguna fila si no existe), nunca el listado (ver migración
+// "cerrar cuentas_publicas" en supabase/schema.sql).
 export async function resolverCuenta(supabase, slug) {
-  const { data } = await supabase
-    .from('cuentas_publicas').select('id,slug,nombre,activa').eq('slug', slug).maybeSingle();
-  return data || null;
+  const { data } = await supabase.rpc('cuenta_por_slug', { p_slug: slug });
+  return data?.[0] || null;
 }
 
 // Menú: casos activos de ESTA cuenta que el estudiante puede elegir ahora

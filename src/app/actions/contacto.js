@@ -25,10 +25,14 @@ export async function enviarSolicitudContacto(_prevState, formData) {
   const hdrs = await headers();
   const ip = (hdrs.get('x-forwarded-for') || '').split(',')[0].trim() || 'desconocido';
 
-  if (estaBloqueado(ip)) {
+  // Prefijo propio: comparte el limitador (src/lib/ratelimit.js) con el
+  // login del panel (auth.js), que usa 'login:' — así un ataque contra
+  // alguno de los dos formularios no agota de paso los intentos del otro
+  // para la misma IP.
+  if (estaBloqueado('contacto:' + ip)) {
     return { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' };
   }
-  registrarIntento(ip);
+  registrarIntento('contacto:' + ip);
 
   if (!nombre || !correo) {
     return { error: 'Completa nombre y correo.' };

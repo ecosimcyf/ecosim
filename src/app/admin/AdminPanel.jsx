@@ -137,6 +137,15 @@ export default function AdminPanel({ inicial }) {
         cupoStorageMb: Number(nuevaCuentaCupoStorage) || 0,
         correo: nuevaCuentaCorreo,
       });
+      if (r.error) { alert(r.error); return; }
+      // La clave temporal se muestra UNA sola vez, antes de fusionar el
+      // resto del resultado al estado: no se vuelve a guardar en ningún
+      // lado, así que si se pierde este alert hay que resetear la
+      // contraseña del cliente a mano desde Supabase.
+      alert(
+        'Cuenta creada. Contraseña temporal para ' + nuevaCuentaCorreo + ': ' + r.claveTemporal +
+          ' — cópiala y pásasela al cliente, no se vuelve a mostrar.'
+      );
       fusionar(r);
       setNuevaCuentaSlug('');
       setNuevaCuentaNombre('');
@@ -230,7 +239,9 @@ export default function AdminPanel({ inicial }) {
   async function crear() {
     if (!nuevoNombre.trim()) { alert('Escribe un nombre para el caso.'); return; }
     try {
-      fusionar(await crearCaso(datos.cuentaId, nuevoNombre, nuevaEspecie));
+      const r = await crearCaso(datos.cuentaId, nuevoNombre, nuevaEspecie);
+      if (r.error) { alert(r.error); return; }
+      fusionar(r);
       setNuevoNombre('');
     } catch (err) {
       alert(err?.message || 'No se pudo crear el caso.');
@@ -271,11 +282,15 @@ export default function AdminPanel({ inicial }) {
         aSubir = new File([blob], 'video.mp4', { type: 'video/mp4' });
         setConvProgreso(null);
       }
-      const { path, token } = await crearUrlSubidaVideo(datos.cuentaId, aSubir.size);
+      const subida = await crearUrlSubidaVideo(datos.cuentaId, aSubir.size);
+      if (subida.error) { alert(subida.error); return; }
+      const { path, token } = subida;
       const supabase = crearClienteNavegador();
       const { error } = await supabase.storage.from('videos').uploadToSignedUrl(path, token, aSubir);
       if (error) throw error;
-      fusionar(await guardarVideoCaso(datos.cuentaId, casoEnEdicion, casoPuntoSel, path, aSubir.size));
+      const guardado = await guardarVideoCaso(datos.cuentaId, casoEnEdicion, casoPuntoSel, path, aSubir.size);
+      if (guardado.error) { alert(guardado.error); return; }
+      fusionar(guardado);
     } catch (err) {
       alert('No se pudo procesar el video: ' + (err?.message || err));
     } finally {
