@@ -125,9 +125,9 @@ export default function Home() {
         <div className="landing-showcase-frame">
           <div className="landing-showcase-dots"><span /><span /><span /></div>
           <Image
-            src="/landing/demo-maniqui.jpg"
+            src="/landing/demo-maniqui.png"
             width={800}
-            height={500}
+            height={455}
             alt="Maniquí interactivo de EcoSim con los puntos de ecografía sobre el cuerpo del paciente"
             style={{ width: '100%', height: 'auto' }}
           />

@@ -255,6 +255,7 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
 .desc-box {
   background: #070b11; border: 1px solid #2a3744; border-radius: 14px;
   padding: 26px 30px; width: 460px; max-width: 92vw;
+  max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); overflow-y: auto;
   display: flex; flex-direction: column; gap: 14px; text-align: left;
 }
 .desc-box-nombre { color: #7fe0e8; font-size: 17px; }
@@ -390,15 +391,15 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
   --l-border: #dce9eb;
   --l-text: #102b33;
   --l-text-soft: #4c6770;
-  --l-text-faint: #85a0a8;
-  --l-primary: #0891b2;
-  --l-primary-dark: #066a84;
+  --l-text-faint: #4c6770; /* antes más clara (#85a0a8): no pasaba AA (2.65:1) */
+  --l-primary: #0891b2; /* acento: iconos, bordes, checks — no para texto blanco encima (3.68:1, no pasa) */
+  --l-primary-dark: #066a84; /* fondo de botón + texto de marca sobre fondo claro (AA ok) */
+  --l-primary-darker: #055166; /* hover de botón */
   --l-accent-soft: #e3f8fb;
   background: var(--l-bg);
   color: var(--l-text);
   min-height: 100vh;
 }
-.landing a { color: inherit; }
 
 /* ---- Barra superior ---- */
 .landing-bar {
@@ -416,10 +417,10 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
 }
 .landing-login:hover { color: var(--l-text); background: var(--l-accent-soft); }
 .landing-cta-nav {
-  background: var(--l-primary); color: #fff; font-size: 13.5px; font-weight: 700;
+  background: var(--l-primary-dark); color: #fff; font-size: 13.5px; font-weight: 700;
   text-decoration: none; padding: 10px 16px; border-radius: 9px; transition: background .15s;
 }
-.landing-cta-nav:hover { background: var(--l-primary-dark); }
+.landing-cta-nav:hover { background: var(--l-primary-darker); }
 
 /* ---- Hero ---- */
 .landing-hero { text-align: center; padding: 84px 24px 52px; max-width: 760px; margin: 0 auto; }
@@ -441,8 +442,8 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
   text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
   transition: background .15s, border-color .15s, transform .15s, box-shadow .15s;
 }
-.landing-btn-primary { background: var(--l-primary); color: #fff; box-shadow: 0 10px 22px -10px rgba(8,145,178,.55); }
-.landing-btn-primary:hover { background: var(--l-primary-dark); transform: translateY(-1px); }
+.landing-btn-primary { background: var(--l-primary-dark); color: #fff; box-shadow: 0 10px 22px -10px rgba(8,145,178,.55); }
+.landing-btn-primary:hover { background: var(--l-primary-darker); transform: translateY(-1px); }
 .landing-btn-outline { background: var(--l-surface); color: var(--l-text); border-color: var(--l-border); }
 .landing-btn-outline:hover { border-color: var(--l-primary); color: var(--l-primary-dark); }
 
@@ -471,7 +472,7 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
 /* ---- Secciones genéricas ---- */
 .landing-section { max-width: 980px; margin: 0 auto; padding: 56px 24px; text-align: center; }
 .landing-section-head { max-width: 560px; margin: 0 auto 36px; }
-.landing-eyebrow { color: var(--l-primary); font-size: 13px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; margin: 0 0 10px; }
+.landing-eyebrow { color: var(--l-primary-dark); font-size: 13px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; margin: 0 0 10px; }
 .landing-section h2 { color: var(--l-text); font-size: 27px; font-weight: 800; margin: 0 0 12px; letter-spacing: -.3px; }
 .landing-parrafo { color: var(--l-text-soft); font-size: 15.5px; line-height: 1.65; max-width: 640px; margin: 0 auto; }
 
@@ -492,11 +493,11 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
 
 /* ---- Banner CTA ---- */
 .landing-banner {
-  background: linear-gradient(135deg, var(--l-primary), var(--l-primary-dark));
+  background: linear-gradient(135deg, var(--l-primary-dark), var(--l-primary-darker));
   margin: 12px 0; padding: 54px 24px; text-align: center; color: #fff;
 }
 .landing-banner h2 { font-size: 25px; font-weight: 800; margin: 0 0 12px; letter-spacing: -.3px; }
-.landing-banner p { font-size: 15.5px; opacity: .92; margin: 0 auto 26px; max-width: 480px; line-height: 1.55; }
+.landing-banner p { font-size: 15.5px; color: rgba(255,255,255,.96); margin: 0 auto 26px; max-width: 480px; line-height: 1.55; }
 .landing-banner .landing-btn-primary { background: #fff; color: var(--l-primary-dark); box-shadow: 0 10px 24px -10px rgba(0,0,0,.35); }
 .landing-banner .landing-btn-primary:hover { background: #eafcff; }
 
@@ -516,10 +517,10 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
 .contacto-form textarea { resize: vertical; min-height: 86px; }
 .contacto-form .btn-primary {
   font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
-  background: var(--l-primary); color: #fff; border: none; border-radius: 10px; padding: 13px 20px;
+  background: var(--l-primary-dark); color: #fff; border: none; border-radius: 10px; padding: 13px 20px;
   transition: background .15s;
 }
-.contacto-form .btn-primary:hover { background: var(--l-primary-dark); }
+.contacto-form .btn-primary:hover { background: var(--l-primary-darker); }
 .contacto-form .btn-primary:disabled { opacity: .6; cursor: default; }
 .landing-form-error { color: #c0392b; font-size: 13px; }
 
@@ -536,14 +537,23 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
   border-top: 1px solid var(--l-border); padding: 26px 24px; text-align: center;
   color: var(--l-text-faint); font-size: 13px;
 }
+.landing-footer a { color: inherit; }
+
+/* Deja hueco bajo la barra fija (70px) al saltar a un ancla. */
+#demo, #contacto { scroll-margin-top: 90px; }
 
 /* ---- Aparición al hacer scroll: solo fundido + subida leve, nada de
-   parallax. Respeta prefers-reduced-motion. ---- */
-[data-reveal] { opacity: 0; transform: translateY(18px); transition: opacity .65s ease-out, transform .65s ease-out; }
-[data-reveal].is-visible { opacity: 1; transform: none; }
-@media (prefers-reduced-motion: reduce) {
-  [data-reveal] { transition: none; opacity: 1; transform: none; }
+   parallax. Respeta prefers-reduced-motion.
+   Visible por defecto (progressive enhancement): si JS no corre o
+   tarda, el contenido —incluido el formulario de contacto— ya está ahí.
+   El propio ScrollReveal.jsx agrega .reveal-armar recién cuando confirma
+   que puede animar, y ESE estado es el que arranca invisible. ---- */
+[data-reveal] { opacity: 1; transform: none; }
+[data-reveal].reveal-armar {
+  opacity: 0; transform: translateY(18px);
+  transition: opacity .65s ease-out, transform .65s ease-out;
 }
+[data-reveal].reveal-armar.is-visible { opacity: 1; transform: none; }
 
 @media (max-width: 860px) {
   .landing-showcase { grid-template-columns: 1fr; gap: 32px; }

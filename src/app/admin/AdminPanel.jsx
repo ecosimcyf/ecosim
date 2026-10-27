@@ -568,6 +568,7 @@ export default function AdminPanel({ inicial }) {
               onBlur={(e) => describir(c.id, e.target.value)}
               placeholder="Descripción para el estudiante (motivo de consulta, síntomas…). Se muestra antes de entrar al caso."
               rows={2}
+              maxLength={500}
             />
           </div>
         )) : <p className="muted">No hay casos todavía. Crea el primero abajo.</p>}

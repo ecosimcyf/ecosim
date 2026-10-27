@@ -1,9 +1,16 @@
 'use client';
 // Revela las secciones marcadas con data-reveal a medida que entran en
 // pantalla (fade + subida leve). Sin parallax ni scroll-jacking — solo un
-// fundido. Respeta prefers-reduced-motion y no bloquea el contenido si
-// JavaScript tarda: cada sección ya es legible, solo aparece transparente
-// hasta que el observer la marca.
+// fundido.
+//
+// Progressive enhancement: en globals.css, [data-reveal] arranca VISIBLE
+// (opacity:1). Solo cuando este componente confirma que puede animar
+// agrega la clase "reveal-armar" (que recién ahí arranca invisible) y
+// después "is-visible" al entrar en pantalla. Si JS no corre, tarda, o el
+// navegador no tiene IntersectionObserver, el contenido —incluido el
+// formulario de contacto— ya estaba visible desde el primer render y
+// nunca se oculta. También respeta prefers-reduced-motion (ahí ni se
+// arma: se deja tal cual, visible).
 import { useEffect } from 'react';
 
 export default function ScrollReveal() {
@@ -11,10 +18,14 @@ export default function ScrollReveal() {
     const elementos = document.querySelectorAll('[data-reveal]');
     if (!elementos.length) return;
 
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      elementos.forEach((el) => el.classList.add('is-visible'));
+    if (
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+      typeof IntersectionObserver === 'undefined'
+    ) {
       return;
     }
+
+    elementos.forEach((el) => el.classList.add('reveal-armar'));
 
     const observer = new IntersectionObserver(
       (entradas) => {
@@ -25,7 +36,7 @@ export default function ScrollReveal() {
           }
         });
       },
-      { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
+      { threshold: 0 }
     );
     elementos.forEach((el) => observer.observe(el));
     return () => observer.disconnect();

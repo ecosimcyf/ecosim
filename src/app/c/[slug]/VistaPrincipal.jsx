@@ -264,7 +264,10 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
               <div
                 key={c.id} className="caso-card" role="button" tabIndex={0}
                 onClick={() => clickCaso(c)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clickCaso(c); } }}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return; // deja que el botón "Ver descripción" maneje su propia tecla
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clickCaso(c); }
+                }}
               >
                 <div className="caso-card-nombre">{c.nombre}</div>
                 <div className="caso-card-especie">{MANIQUIES.nombre(c.especie)}</div>
