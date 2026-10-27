@@ -286,7 +286,11 @@ export default function AdminPanel({ inicial }) {
       if (subida.error) { alert(subida.error); return; }
       const { path, token } = subida;
       const supabase = crearClienteNavegador();
-      const { error } = await supabase.storage.from('videos').uploadToSignedUrl(path, token, aSubir);
+      // Cada path es un UUID nuevo que nunca se reescribe (un reemplazo sube
+      // a un path distinto), así que el archivo es inmutable: puede cachear
+      // casi para siempre en vez del valor por defecto de Supabase (1 hora).
+      const { error } = await supabase.storage.from('videos')
+        .uploadToSignedUrl(path, token, aSubir, { cacheControl: '31536000' });
       if (error) throw error;
       const guardado = await guardarVideoCaso(datos.cuentaId, casoEnEdicion, casoPuntoSel, path, aSubir.size);
       if (guardado.error) { alert(guardado.error); return; }
