@@ -25,7 +25,7 @@ export default function FormularioContacto() {
         {pending ? 'Enviando…' : 'Enviar solicitud'}
       </button>
       {state?.error && (
-        <div className="msg" style={{ color: '#e0a0a0' }}>{state.error}</div>
+        <div className="landing-form-error">{state.error}</div>
       )}
     </form>
   );

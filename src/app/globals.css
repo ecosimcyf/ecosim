@@ -6,6 +6,10 @@
 
 * { box-sizing: border-box; }
 
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
 html, body {
   margin: 0;
   min-height: 100%;
@@ -374,60 +378,183 @@ input:focus, select:focus, textarea:focus { border-color: #3fc6cf; }
 
 /* ============================================================
    LANDING (página pública en "/")
-   Mismos tonos que el resto de la app (fondo oscuro, acento cian,
-   tarjetas #070b11, bordes #18212b) — ninguna paleta nueva.
+   Paleta e tipografía PROPIAS, claras — desligadas a propósito del
+   tema oscuro/clínico del resto de la app (ese queda igual, es la
+   herramienta; esto es lo que la vende). Un solo hilo de continuidad:
+   el mismo cian de marca, en una versión más oscura para que funcione
+   sobre fondo claro.
    ============================================================ */
+.landing {
+  --l-bg: #f5fbfc;
+  --l-surface: #ffffff;
+  --l-border: #dce9eb;
+  --l-text: #102b33;
+  --l-text-soft: #4c6770;
+  --l-text-faint: #85a0a8;
+  --l-primary: #0891b2;
+  --l-primary-dark: #066a84;
+  --l-accent-soft: #e3f8fb;
+  background: var(--l-bg);
+  color: var(--l-text);
+  min-height: 100vh;
+}
+.landing a { color: inherit; }
+
+/* ---- Barra superior ---- */
 .landing-bar {
-  position: sticky; top: 0; z-index: 2; background: #05080d;
-  border-bottom: 1px solid #18212b;
-  display: flex; align-items: center; justify-content: space-between; padding: 14px 22px;
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(245, 251, 252, .88); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--l-border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 28px;
 }
-.landing-marca { color: #3fc6cf; font-size: 16px; letter-spacing: 3px; }
+.landing-marca { color: var(--l-primary-dark); font-size: 17px; font-weight: 800; letter-spacing: 2.5px; }
+.landing-nav-links { display: flex; align-items: center; gap: 10px; }
 .landing-login {
-  color: #8b949c; font-size: 13px; text-decoration: none;
-  border: 1px solid #2a3744; border-radius: 8px; padding: 7px 14px; transition: color .15s, border-color .15s;
+  color: var(--l-text-soft); font-size: 14px; text-decoration: none; font-weight: 600;
+  padding: 9px 10px; border-radius: 8px; transition: color .15s, background .15s;
 }
-.landing-login:hover { color: #c4ccd3; border-color: #3a4a59; }
+.landing-login:hover { color: var(--l-text); background: var(--l-accent-soft); }
+.landing-cta-nav {
+  background: var(--l-primary); color: #fff; font-size: 13.5px; font-weight: 700;
+  text-decoration: none; padding: 10px 16px; border-radius: 9px; transition: background .15s;
+}
+.landing-cta-nav:hover { background: var(--l-primary-dark); }
 
-.landing-hero { text-align: center; padding: 64px 24px 48px; max-width: 640px; margin: 0 auto; }
-.landing-hero h1 { color: #c4ccd3; font-size: 34px; font-weight: 500; margin: 0 0 14px; letter-spacing: .5px; }
-.landing-hero-frase { color: #8b949c; font-size: 17px; line-height: 1.5; margin: 0; }
+/* ---- Hero ---- */
+.landing-hero { text-align: center; padding: 84px 24px 52px; max-width: 760px; margin: 0 auto; }
+.landing-hero-badge {
+  display: inline-block; background: var(--l-accent-soft); color: var(--l-primary-dark);
+  font-size: 12.5px; font-weight: 800; letter-spacing: .6px; padding: 7px 16px; border-radius: 999px;
+  margin-bottom: 22px;
+}
+.landing-hero h1 {
+  color: var(--l-text); font-size: 44px; font-weight: 800; line-height: 1.15;
+  margin: 0 0 18px; letter-spacing: -.5px;
+}
+.landing-hero h1 span { color: var(--l-primary); }
+.landing-hero-frase { color: var(--l-text-soft); font-size: 18px; line-height: 1.6; margin: 0 auto 32px; max-width: 560px; }
+.landing-hero-ctas { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 30px; }
+.landing-btn {
+  font-family: inherit; font-size: 15.5px; font-weight: 700; cursor: pointer;
+  padding: 14px 26px; border-radius: 11px; border: 1px solid transparent;
+  text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
+  transition: background .15s, border-color .15s, transform .15s, box-shadow .15s;
+}
+.landing-btn-primary { background: var(--l-primary); color: #fff; box-shadow: 0 10px 22px -10px rgba(8,145,178,.55); }
+.landing-btn-primary:hover { background: var(--l-primary-dark); transform: translateY(-1px); }
+.landing-btn-outline { background: var(--l-surface); color: var(--l-text); border-color: var(--l-border); }
+.landing-btn-outline:hover { border-color: var(--l-primary); color: var(--l-primary-dark); }
 
-.landing-section { max-width: 880px; margin: 0 auto; padding: 36px 24px; text-align: center; }
-.landing-section h2 { color: #3fc6cf; font-size: 20px; font-weight: 500; margin: 0 0 22px; }
-.landing-parrafo { color: #8b949c; font-size: 15px; line-height: 1.6; max-width: 620px; margin: 0 auto; }
+.landing-chips { display: flex; gap: 10px 24px; justify-content: center; flex-wrap: wrap; }
+.landing-chip { display: flex; align-items: center; gap: 7px; color: var(--l-text-faint); font-size: 13.5px; font-weight: 600; }
+.landing-chip svg { width: 15px; height: 15px; color: var(--l-primary); flex-shrink: 0; }
 
-.landing-features { display: flex; flex-wrap: wrap; justify-content: center; gap: 16px; }
+/* ---- Vitrina (captura real de la app) ---- */
+.landing-showcase {
+  max-width: 1080px; margin: 0 auto; padding: 16px 24px 80px;
+  display: grid; grid-template-columns: 1.1fr .9fr; gap: 50px; align-items: center;
+}
+.landing-showcase-frame {
+  background: #0b1720; border-radius: 16px; padding: 10px;
+  box-shadow: 0 30px 60px -22px rgba(15,40,50,.35); border: 1px solid var(--l-border);
+}
+.landing-showcase-dots { display: flex; gap: 6px; padding: 4px 6px 10px; }
+.landing-showcase-dots span { width: 9px; height: 9px; border-radius: 50%; background: #2a3744; display: block; }
+.landing-showcase-frame img { display: block; width: 100%; border-radius: 9px; }
+.landing-showcase-texto h2 { font-size: 26px; font-weight: 800; margin: 0 0 14px; letter-spacing: -.3px; }
+.landing-showcase-texto p { color: var(--l-text-soft); font-size: 15.5px; line-height: 1.6; margin: 0 0 20px; }
+.landing-showcase-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 13px; }
+.landing-showcase-lista li { display: flex; gap: 11px; color: var(--l-text); font-size: 14.5px; line-height: 1.5; }
+.landing-showcase-lista svg { width: 19px; height: 19px; color: var(--l-primary); flex-shrink: 0; margin-top: 1px; }
+
+/* ---- Secciones genéricas ---- */
+.landing-section { max-width: 980px; margin: 0 auto; padding: 56px 24px; text-align: center; }
+.landing-section-head { max-width: 560px; margin: 0 auto 36px; }
+.landing-eyebrow { color: var(--l-primary); font-size: 13px; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; margin: 0 0 10px; }
+.landing-section h2 { color: var(--l-text); font-size: 27px; font-weight: 800; margin: 0 0 12px; letter-spacing: -.3px; }
+.landing-parrafo { color: var(--l-text-soft); font-size: 15.5px; line-height: 1.65; max-width: 640px; margin: 0 auto; }
+
+/* ---- Funcionalidades (bento) ---- */
+.landing-features { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; text-align: left; }
 .feature-card {
-  width: 240px; text-align: left; background: #070b11; border: 1px solid #18212b;
-  border-radius: 12px; padding: 18px 20px; transition: border-color .15s, background .15s;
+  background: var(--l-surface); border: 1px solid var(--l-border); border-radius: 16px;
+  padding: 26px 26px 24px; transition: border-color .18s, box-shadow .18s, transform .18s;
 }
-.feature-card:hover { border-color: #3fc6cf; background: #0b121a; }
-.feature-card h3 { color: #c4ccd3; font-size: 15px; font-weight: 500; margin: 0 0 8px; }
-.feature-card p { color: #8b949c; font-size: 13.5px; line-height: 1.5; margin: 0; }
+.feature-card:hover { border-color: var(--l-primary); box-shadow: 0 16px 32px -18px rgba(8,145,178,.3); transform: translateY(-2px); }
+.feature-card-icono {
+  width: 42px; height: 42px; border-radius: 11px; background: var(--l-accent-soft);
+  color: var(--l-primary-dark); display: flex; align-items: center; justify-content: center; margin-bottom: 16px;
+}
+.feature-card-icono svg { width: 22px; height: 22px; }
+.feature-card h3 { color: var(--l-text); font-size: 16.5px; font-weight: 700; margin: 0 0 8px; }
+.feature-card p { color: var(--l-text-soft); font-size: 14px; line-height: 1.55; margin: 0; }
 
+/* ---- Banner CTA ---- */
+.landing-banner {
+  background: linear-gradient(135deg, var(--l-primary), var(--l-primary-dark));
+  margin: 12px 0; padding: 54px 24px; text-align: center; color: #fff;
+}
+.landing-banner h2 { font-size: 25px; font-weight: 800; margin: 0 0 12px; letter-spacing: -.3px; }
+.landing-banner p { font-size: 15.5px; opacity: .92; margin: 0 auto 26px; max-width: 480px; line-height: 1.55; }
+.landing-banner .landing-btn-primary { background: #fff; color: var(--l-primary-dark); box-shadow: 0 10px 24px -10px rgba(0,0,0,.35); }
+.landing-banner .landing-btn-primary:hover { background: #eafcff; }
+
+/* ---- Contacto ---- */
 .contacto-form {
-  display: flex; flex-direction: column; gap: 12px; max-width: 420px;
-  margin: 26px auto 0; background: #070b11; border: 1px solid #18212b;
-  border-radius: 14px; padding: 26px 30px; text-align: left;
+  display: flex; flex-direction: column; gap: 13px; max-width: 460px;
+  margin: 0 auto; background: var(--l-surface); border: 1px solid var(--l-border);
+  border-radius: 16px; padding: 30px 32px; text-align: left;
+  box-shadow: 0 20px 44px -26px rgba(15,40,50,.25);
 }
-.contacto-form textarea {
-  font-family: inherit; font-size: 14px; color: #c4ccd3;
-  background: #0b121a; border: 1px solid #2a3744; border-radius: 8px;
-  padding: 9px 11px; outline: none; resize: vertical; min-height: 80px;
+.contacto-form input, .contacto-form textarea {
+  font-family: inherit; font-size: 14.5px; color: var(--l-text);
+  background: #fbfeff; border: 1px solid var(--l-border); border-radius: 9px;
+  padding: 11px 13px; outline: none; transition: border-color .15s;
 }
-.contacto-form textarea:focus { border-color: #3fc6cf; }
+.contacto-form input:focus, .contacto-form textarea:focus { border-color: var(--l-primary); }
+.contacto-form textarea { resize: vertical; min-height: 86px; }
+.contacto-form .btn-primary {
+  font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+  background: var(--l-primary); color: #fff; border: none; border-radius: 10px; padding: 13px 20px;
+  transition: background .15s;
+}
+.contacto-form .btn-primary:hover { background: var(--l-primary-dark); }
+.contacto-form .btn-primary:disabled { opacity: .6; cursor: default; }
+.landing-form-error { color: #c0392b; font-size: 13px; }
 
 .contacto-ok {
-  max-width: 420px; margin: 26px auto 0; background: #070b11; border: 1px solid #2f7e86;
-  border-radius: 14px; padding: 26px 30px; text-align: center;
+  max-width: 460px; margin: 0 auto; background: var(--l-surface); border: 1px solid var(--l-primary);
+  border-radius: 16px; padding: 34px 32px; text-align: center;
+  box-shadow: 0 20px 44px -26px rgba(15,40,50,.25);
 }
-.contacto-ok-titulo { color: #7fe0e8; font-size: 16px; margin-bottom: 8px; }
-.contacto-ok p { color: #8b949c; font-size: 14px; line-height: 1.5; margin: 0; }
+.contacto-ok-titulo { color: var(--l-primary-dark); font-size: 17px; font-weight: 800; margin-bottom: 8px; }
+.contacto-ok p { color: var(--l-text-soft); font-size: 14.5px; line-height: 1.55; margin: 0; }
 
+/* ---- Pie ---- */
+.landing-footer {
+  border-top: 1px solid var(--l-border); padding: 26px 24px; text-align: center;
+  color: var(--l-text-faint); font-size: 13px;
+}
+
+/* ---- Aparición al hacer scroll: solo fundido + subida leve, nada de
+   parallax. Respeta prefers-reduced-motion. ---- */
+[data-reveal] { opacity: 0; transform: translateY(18px); transition: opacity .65s ease-out, transform .65s ease-out; }
+[data-reveal].is-visible { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal] { transition: none; opacity: 1; transform: none; }
+}
+
+@media (max-width: 860px) {
+  .landing-showcase { grid-template-columns: 1fr; gap: 32px; }
+  .landing-features { grid-template-columns: 1fr; }
+}
 @media (max-width: 480px) {
-  .landing-hero { padding: 44px 20px 36px; }
-  .landing-hero h1 { font-size: 28px; }
-  .feature-card { width: 100%; }
-  .contacto-form, .contacto-ok { padding: 22px; }
+  .landing-hero { padding: 56px 20px 40px; }
+  .landing-hero h1 { font-size: 32px; }
+  .landing-bar { padding: 13px 18px; }
+  .landing-login { display: none; }
+  .landing-cta-nav { padding: 9px 12px; font-size: 12.5px; }
+  .contacto-form, .contacto-ok { padding: 24px 22px; }
+  .landing-banner { padding: 44px 20px; }
 }
