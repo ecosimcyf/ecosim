@@ -52,8 +52,34 @@ function FechaLocal({ iso }) {
   return <span>{texto}</span>;
 }
 
+// Cupo como barra: más fácil de leer de un vistazo que solo el número.
+// Cambia de color cuando se acerca o llega al tope (mismo lenguaje que
+// los 3 estados del token del maniquí: cian / amarillo / rojo).
+function BarraCupo({ etiqueta, usado, tope, unidad = '' }) {
+  const pct = tope > 0 ? clamp(0, 100, (usado / tope) * 100) : (usado > 0 ? 100 : 0);
+  const clase = pct >= 100 ? 'cupo-lleno' : pct >= 80 ? 'cupo-alto' : '';
+  return (
+    <div className="cupo">
+      <div className="cupo-fila">
+        <span>{etiqueta}</span>
+        <span><strong>{usado}{unidad}</strong> / {tope}{unidad}</span>
+      </div>
+      <div className="cupo-barra">
+        <div className={'cupo-relleno ' + clase} style={{ width: pct + '%' }} />
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPanel({ inicial }) {
   const [datos, setDatos] = useState(inicial);
+
+  // Qué sección se ve (solo aplica si hay más de una, es decir
+  // super_admin: cliente no tiene ni Cuentas ni Solicitudes). Arranca en
+  // "cuentas" solo si todavía no hay ninguna elegida.
+  const [seccion, setSeccion] = useState(
+    () => (inicial.rol === 'super_admin' && !inicial.cuentaId) ? 'cuentas' : 'simulador'
+  );
 
   // Selector / alta de cuentas (solo super_admin)
   const [cambiandoCuenta, setCambiandoCuenta] = useState(false);
@@ -326,6 +352,8 @@ export default function AdminPanel({ inicial }) {
   const videosDelCaso = (caso && datos.videosPorCaso?.[caso.id]) || {};
 
   const hayCuenta = !!datos.cuentaId;
+  const esSuperAdmin = datos.rol === 'super_admin';
+  const solicitudesNuevas = (datos.solicitudes || []).filter((s) => s.estado === 'nueva').length;
 
   return (
     <div className="admin-panel">
@@ -334,8 +362,34 @@ export default function AdminPanel({ inicial }) {
         style={{ display: 'none' }} onChange={onFileChange}
       />
 
+      {/* -------- Nav entre secciones (solo tiene sentido con más de una,
+          es decir, para super_admin) -------- */}
+      {esSuperAdmin && (
+        <nav className="admin-nav">
+          <button
+            className={'admin-nav-tab' + (seccion === 'cuentas' ? ' act' : '')}
+            onClick={() => setSeccion('cuentas')}
+          >
+            Cuentas
+          </button>
+          <button
+            className={'admin-nav-tab' + (seccion === 'solicitudes' ? ' act' : '')}
+            onClick={() => setSeccion('solicitudes')}
+          >
+            Solicitudes
+            {solicitudesNuevas > 0 && <span className="admin-nav-badge">{solicitudesNuevas}</span>}
+          </button>
+          <button
+            className={'admin-nav-tab' + (seccion === 'simulador' ? ' act' : '')}
+            onClick={() => setSeccion('simulador')}
+          >
+            Simulador
+          </button>
+        </nav>
+      )}
+
       {/* -------- Cuentas de clientes (solo super_admin) -------- */}
-      {datos.rol === 'super_admin' && (
+      {esSuperAdmin && seccion === 'cuentas' && (
         <section className="card">
           <h3>Cuentas de clientes</h3>
           <p className="muted">
@@ -401,7 +455,7 @@ export default function AdminPanel({ inicial }) {
       )}
 
       {/* -------- Solicitudes de contacto (solo super_admin) -------- */}
-      {datos.rol === 'super_admin' && (
+      {esSuperAdmin && seccion === 'solicitudes' && (
         <section className="card">
           <h3>Solicitudes</h3>
           <p className="muted">
@@ -435,6 +489,7 @@ export default function AdminPanel({ inicial }) {
         </section>
       )}
 
+      {(!esSuperAdmin || seccion === 'simulador') && <>
       {/* -------- Casos activos -------- */}
       <section className="card">
         <h3>Casos activos</h3>
@@ -449,14 +504,10 @@ export default function AdminPanel({ inicial }) {
             : <span className="warn">Ningún caso activo — los estudiantes ven el menú vacío</span>}
         </div>
         {datos.cupoCasosPropios != null && (
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Casos propios usados: <span className="accent">{(datos.casos || []).length}</span> de {datos.cupoCasosPropios}
-          </div>
+          <BarraCupo etiqueta="Casos propios" usado={(datos.casos || []).length} tope={datos.cupoCasosPropios} />
         )}
         {datos.cupoStorageMb != null && (
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Storage: <span className="accent">{datos.usoStorageMb ?? 0}</span> / {datos.cupoStorageMb} MB
-          </div>
+          <BarraCupo etiqueta="Storage" usado={datos.usoStorageMb ?? 0} tope={datos.cupoStorageMb} unidad=" MB" />
         )}
       </section>
 
@@ -660,6 +711,7 @@ export default function AdminPanel({ inicial }) {
           </div>
         </section>
       )}
+      </>}
 
       {/* -------- Vista previa de video -------- */}
       {previewUrl && (
