@@ -255,6 +255,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     return (
       <div className="menu-casos">
         <div className="marca">ECOSIM</div>
+        <p className="menu-casos-sub">Elige un caso para practicar la ecografía</p>
         {avisoCasoDesactivado && (
           <div className="aviso-caso">El profesor desactivó este caso.</div>
         )}
@@ -289,7 +290,9 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
         {vistaDescripcion && (
           <div className="overlay" onClick={cerrarDescripcion}>
             <div className="desc-box" onClick={(e) => e.stopPropagation()}>
+              <div className="desc-box-eyebrow">Descripción del caso</div>
               <div className="desc-box-nombre">{vistaDescripcion.caso.nombre}</div>
+              <div className="desc-box-divider" />
               <div className="desc-box-texto">{vistaDescripcion.caso.descripcion}</div>
               <button className="btn btn-primary" onClick={cerrarDescripcion}>
                 {vistaDescripcion.entrarAlCerrar ? 'Continuar' : 'Cerrar'}
@@ -314,6 +317,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   const { especie, puntos } = datos;
   const esLado = MANIQUIES.esLado(vista);
   const puntosVista = puntos.filter((p) => (p.vista || 'ventral') === vista);
+  const casoActual = casosActivos.find((c) => c.id === casoSeleccionado);
 
   return (
     <div className="estudiante">
@@ -367,6 +371,11 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
           <button className="tab" onClick={volverAlMenu} title="Volver al menú de casos">
             ← Casos
           </button>
+          {casoActual?.descripcion && (
+            <button className="tab" onClick={() => verDescripcion(casoActual)}>
+              Descripción
+            </button>
+          )}
           {VISTAS.map((v) => (
             <button
               key={v.id}
@@ -438,6 +447,21 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
               </tbody>
             </table>
             <button className="btn small" onClick={() => setAyuda(false)}>Cerrar (F1)</button>
+          </div>
+        </div>
+      )}
+
+      {/* Descripción del caso, pedida desde dentro (botón "Descripción" de arriba) */}
+      {vistaDescripcion && (
+        <div className="overlay" onClick={cerrarDescripcion}>
+          <div className="desc-box" onClick={(e) => e.stopPropagation()}>
+            <div className="desc-box-eyebrow">Descripción del caso</div>
+            <div className="desc-box-nombre">{vistaDescripcion.caso.nombre}</div>
+            <div className="desc-box-divider" />
+            <div className="desc-box-texto">{vistaDescripcion.caso.descripcion}</div>
+            <button className="btn btn-primary" onClick={cerrarDescripcion}>
+              {vistaDescripcion.entrarAlCerrar ? 'Continuar' : 'Cerrar'}
+            </button>
           </div>
         </div>
       )}

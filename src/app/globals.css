@@ -267,6 +267,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   align-items: center; justify-content: center; gap: 18px; text-align: center; padding: 24px;
 }
 .menu-casos .marca { color: var(--accent); font-size: 36px; letter-spacing: 5px; opacity: .8; }
+.menu-casos-sub { color: var(--text-faint); font-size: 14px; margin: -8px 0 4px; }
 .menu-casos .txt { color: var(--text-soft); font-size: 16px; max-width: 420px; }
 .aviso-caso { color: var(--warn); font-size: 14px; }
 .menu-casos-grid {
@@ -282,14 +283,20 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .caso-card-especie { font-size: 12px; color: var(--accent); }
 .caso-card-ver-desc { margin-top: 10px; }
 .desc-box {
-  background: var(--bg-1); border: 1px solid var(--border); border-radius: 14px;
-  padding: 26px 30px; width: 460px; max-width: 92vw;
+  background: var(--bg-1); border: 1px solid var(--accent-border); border-radius: 16px;
+  padding: 30px 32px; width: 460px; max-width: 92vw;
   max-height: calc(100vh - 40px); max-height: calc(100dvh - 40px); overflow-y: auto;
-  display: flex; flex-direction: column; gap: 14px; text-align: left;
+  display: flex; flex-direction: column; gap: 6px; text-align: left;
+  box-shadow: 0 26px 60px -20px rgba(0, 0, 0, .7), 0 0 0 1px rgba(63, 198, 207, .08);
 }
-.desc-box-nombre { color: var(--accent-bright); font-size: 17px; }
-.desc-box-texto { color: var(--text); font-size: 14.5px; line-height: 1.5; white-space: pre-wrap; }
-.desc-box .btn { align-self: center; }
+.desc-box-eyebrow {
+  color: var(--accent); font-size: 11px; font-weight: 600;
+  letter-spacing: 1.5px; text-transform: uppercase;
+}
+.desc-box-nombre { color: var(--text); font-size: 19px; font-weight: 600; }
+.desc-box-divider { height: 1px; background: var(--border-soft); margin: 10px 0 2px; }
+.desc-box-texto { color: var(--text-soft); font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+.desc-box .btn { align-self: stretch; margin-top: 12px; }
 
 /* Aviso "gira el teléfono" — oculto por defecto; solo se muestra en móvil
    en vertical (ver media query al final). */
