@@ -501,6 +501,7 @@ export default function AdminPanel({ inicial }) {
           <div
             ref={canvasPuntosRef}
             className={'mq-canvas' + (esLadoPuntos ? ' lado' : '') + (guias ? '' : ' guias-ocultas')}
+            style={{ '--mq-ratio': MANIQUIES.ratio(especiePuntos, vistaPuntos) }}
             onPointerDown={(e) => {
               if (!e.target.closest('.mq-token') && !e.target.closest('.mq-pop')) setPuntoSel(null);
             }}
@@ -610,6 +611,7 @@ export default function AdminPanel({ inicial }) {
           <div className="mq-stage">
             <div
               className={'mq-canvas' + (esLadoCaso ? ' lado' : '') + (guias ? '' : ' guias-ocultas')}
+              style={{ '--mq-ratio': MANIQUIES.ratio(especieCaso, vistaCaso) }}
               onPointerDown={(e) => {
                 if (!e.target.closest('.mq-token') && !e.target.closest('.mq-pop')) setCasoPuntoSel(null);
               }}

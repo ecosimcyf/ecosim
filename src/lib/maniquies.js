@@ -242,6 +242,20 @@ function svgLado(inner, espejo, etiqueta) {
   return `<svg viewBox="${VIEWBOX_LADO}" preserveAspectRatio="xMidYMid meet" class="mq-svg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${etiqueta}">${contenido}</svg>`;
 }
 
+// -------------------- PERRO: fotos reales (reemplazan el SVG) --------------------
+// Igual que las vistas vectoriales, cada entrada define su propia relación de
+// aspecto (ancho/alto) — las fotos no tienen por qué compartir la del dibujo
+// que reemplazan. .mq-canvas la lee de --mq-ratio (ver ratio() más abajo).
+const PERRO_FOTO = {
+  ventral: { src: '/maniquies/perro-ventral.png', ratio: 0.6, etiqueta: 'Maniquí de perro en vista ventral' },
+  izq: { src: '/maniquies/perro-izq.png', ratio: 2.4, etiqueta: 'Perro — lado izquierdo' },
+  der: { src: '/maniquies/perro-der.png', ratio: 2.4, etiqueta: 'Perro — lado derecho' },
+};
+
+function imgArte(foto) {
+  return `<img src="${foto.src}" alt="${foto.etiqueta}" class="mq-svg mq-foto" draggable="false" />`;
+}
+
 export const MANIQUIES = {
   viewBox: VIEWBOX,
   viewBoxLado: VIEWBOX_LADO,
@@ -249,10 +263,17 @@ export const MANIQUIES = {
   gato: GATO,
   // vista: 'ventral' (por debajo) | 'izq' (lado izquierdo) | 'der' (lado derecho)
   svg(especie, vista) {
+    if (especie === 'perro' && PERRO_FOTO[vista]) return imgArte(PERRO_FOTO[vista]);
     const g = especie === 'gato';
     if (vista === 'izq') return svgLado(g ? GATO_LADO_INNER : PERRO_LADO_INNER, false, (g ? 'Gato' : 'Perro') + ' — lado izquierdo');
     if (vista === 'der') return svgLado(g ? GATO_LADO_INNER : PERRO_LADO_INNER, true, (g ? 'Gato' : 'Perro') + ' — lado derecho');
     return g ? GATO : PERRO;
+  },
+  // Relación ancho/alto del arte actual, para que .mq-canvas (y el cálculo
+  // de ancho del panel en vista lateral) se ajusten a ella vía --mq-ratio.
+  ratio(especie, vista) {
+    if (especie === 'perro' && PERRO_FOTO[vista]) return PERRO_FOTO[vista].ratio;
+    return vista === 'izq' || vista === 'der' ? 660 / 380 : 380 / 660;
   },
   esLado(vista) { return vista === 'izq' || vista === 'der'; },
   nombreVista(vista) {

@@ -362,7 +362,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       </div>
 
       {/* Panel del maniquí */}
-      <div className={'panel-maniqui' + (esLado ? ' lado' : '')}>
+      <div className={'panel-maniqui' + (esLado ? ' lado' : '')} style={{ '--mq-ratio': MANIQUIES.ratio(especie, vista) }}>
         <div className="tabs">
           <button className="tab" onClick={volverAlMenu} title="Volver al menú de casos">
             ← Casos
