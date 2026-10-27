@@ -1,0 +1,22 @@
+name: Build
+
+# Corre "npm run build" en cada Pull Request contra main, antes de poder
+# mergear — si algo no compila, se ve en rojo en el PR. No necesita
+# variables de entorno: el build no hace llamadas a Supabase en tiempo de
+# compilación (las páginas que lo necesitan son dinámicas).
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
