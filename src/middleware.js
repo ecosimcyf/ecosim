@@ -1,25 +1,25 @@
 // ============================================================
 // Middleware: protege el panel de administración.
-// Si alguien entra a /admin sin una cookie de sesión válida, lo mandamos
-// a /admin/login. (La propia /admin/login se deja pasar siempre.)
+// Si alguien entra a /admin sin sesión de Supabase Auth, lo mandamos a
+// /admin/login. (La propia /admin/login se deja pasar siempre.)
+//
+// actualizarSesion() refresca la sesión en CADA petición (necesario para
+// que el token de Supabase no caduque) y de paso dice quién es el
+// usuario, si hay alguno.
 // ============================================================
 import { NextResponse } from 'next/server';
-import { verificarToken, COOKIE_SESION } from '@/lib/session';
+import { actualizarSesion } from '@/lib/supabase/middleware';
 
 export async function middleware(request) {
   const { pathname } = request.nextUrl;
+  const { response, usuario } = await actualizarSesion(request);
 
-  // La pantalla de login es pública.
-  if (pathname.startsWith('/admin/login')) return NextResponse.next();
-
-  const token = request.cookies.get(COOKIE_SESION)?.value;
-  const ok = await verificarToken(token, process.env.ADMIN_SESSION_SECRET);
-  if (!ok) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/admin/login';
-    return NextResponse.redirect(url);
+  const esAdmin = pathname.startsWith('/admin');
+  const esLogin = pathname.startsWith('/admin/login');
+  if (esAdmin && !esLogin && !usuario) {
+    return NextResponse.redirect(new URL('/admin/login', request.url));
   }
-  return NextResponse.next();
+  return response;
 }
 
 // Solo se ejecuta en /admin y sus subrutas.

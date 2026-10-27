@@ -135,3 +135,132 @@ on conflict (id) do nothing;
 -- activo en config queda con activo=true). "config"/"caso_activo_id"
 -- quedan sin uso a partir de ahora, pero no hace falta borrarlos.
 -- ============================================================
+
+-- ============================================================
+-- MIGRACIÓN (2026-10-26): cuentas por cliente, cupos y solicitudes
+-- ============================================================
+create table if not exists cuentas (
+  id text primary key default 'cuenta-' || substr(md5(random()::text), 1, 8),
+  slug text not null unique,
+  nombre text not null,
+  cupo_casos_propios int not null default 0,
+  cupo_storage_mb int not null default 0,
+  activa boolean not null default true,
+  creada_en timestamptz not null default now()
+);
+
+create table if not exists perfiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  rol text not null check (rol in ('super_admin','cliente')),
+  cuenta_id text references cuentas(id) on delete set null
+  -- rol='cliente' debe traer cuenta_id; rol='super_admin' lo deja null.
+  -- Se valida en código (actions/admin.js), no con un check de SQL, porque
+  -- el alta ocurre en 2 pasos (usuario de Auth, luego esta fila).
+);
+
+insert into cuentas (id, slug, nombre, cupo_casos_propios, cupo_storage_mb)
+values ('cuenta-demo', 'demo', 'EcoSim (demo)', 9999, 9999)
+on conflict (id) do nothing;
+
+alter table casos add column if not exists cuenta_id text references cuentas(id);
+update casos set cuenta_id = 'cuenta-demo' where cuenta_id is null;
+alter table casos alter column cuenta_id set not null;
+
+alter table caso_videos add column if not exists tamano_bytes bigint;
+
+create table if not exists solicitudes_contacto (
+  id bigint generated always as identity primary key,
+  nombre text not null,
+  clinica text,
+  correo text not null,
+  telefono text,
+  mensaje text,
+  estado text not null default 'nueva'
+    check (estado in ('nueva','contactada','convertida','descartada')),
+  creada_en timestamptz not null default now()
+);
+
+alter table cuentas enable row level security;
+alter table perfiles enable row level security;
+alter table solicitudes_contacto enable row level security;
+-- Sin policies públicas en estas 3 tablas: solo las toca el servidor con
+-- service_role (igual que ya hace admin.js con el resto de tablas).
+grant all on cuentas, perfiles, solicitudes_contacto to service_role;
+
+-- Vista pública para resolver "slug -> cuenta" sin exponer cupos ni toda
+-- la tabla cuentas al rol anónimo (mismo patrón que puntos_publicos).
+create or replace view cuentas_publicas
+  with (security_invoker = false)
+  as select id, slug, nombre, activa from cuentas;
+grant select on cuentas_publicas to anon, authenticated;
+
+-- ============================================================
+-- MIGRACIÓN (2026-10-26): lectura pública de casos/caso_videos solo por
+-- función (cierra la lectura directa por REST, que no filtraba por cuenta)
+-- ------------------------------------------------------------
+create or replace function casos_activos_de_cuenta(p_cuenta_id text)
+returns table (id text, nombre text, descripcion text, especie text)
+language sql security definer set search_path = public
+as $$
+  select c.id, c.nombre, c.descripcion, c.especie
+  from casos c
+  join cuentas cu on cu.id = c.cuenta_id
+  where c.cuenta_id = p_cuenta_id and cu.activa and c.activo
+  order by c.nombre;
+$$;
+grant execute on function casos_activos_de_cuenta(text) to anon, authenticated;
+
+create or replace function caso_publico(p_cuenta_id text, p_caso_id text)
+returns table (id text, nombre text, especie text)
+language sql security definer set search_path = public
+as $$
+  select c.id, c.nombre, c.especie
+  from casos c
+  join cuentas cu on cu.id = c.cuenta_id
+  where c.cuenta_id = p_cuenta_id and cu.activa and c.activo and c.id = p_caso_id;
+$$;
+grant execute on function caso_publico(text, text) to anon, authenticated;
+
+create or replace function videos_de_caso_publico(p_cuenta_id text, p_caso_id text)
+returns table (punto_id text, video_url text)
+language sql security definer set search_path = public
+as $$
+  select cv.punto_id, cv.video_url
+  from caso_videos cv
+  join casos c on c.id = cv.caso_id
+  join cuentas cu on cu.id = c.cuenta_id
+  where c.cuenta_id = p_cuenta_id and c.id = p_caso_id and c.activo and cu.activa;
+$$;
+grant execute on function videos_de_caso_publico(text, text) to anon, authenticated;
+
+-- Esto es lo que de verdad cierra el hueco: antes, cualquiera con la clave
+-- anon podía pedir TODOS los casos de TODAS las cuentas por `/rest/v1/casos`
+-- directo. Ahora solo se puede pedir "los de esta cuenta" vía las funciones
+-- de arriba. puntos_publicos y cuentas_publicas NO cambian (sin dato
+-- sensible por cuenta en ninguna de las dos).
+drop policy if exists "casos lectura publica" on casos;
+drop policy if exists "caso_videos lectura publica" on caso_videos;
+revoke select on casos from anon, authenticated;
+revoke select on caso_videos from anon, authenticated;
+
+-- ============================================================
+-- MIGRACIÓN (2026-10-26): cerrar "cuentas_publicas"
+-- ------------------------------------------------------------
+-- La vista "cuentas_publicas" (creada arriba, en la migración de cuentas)
+-- devolvía TODAS las cuentas (id, slug, nombre, activa) a cualquiera con
+-- la clave anon — cómodo para enumerar el listado completo de clientes
+-- del negocio desde afuera. resolverCuenta (src/lib/datos.js) solo
+-- necesita UNA cuenta por su slug, así que la reemplazamos por una
+-- función que devuelve justo eso.
+-- ------------------------------------------------------------
+create or replace function cuenta_por_slug(p_slug text)
+returns table (id text, slug text, nombre text, activa boolean)
+language sql security definer set search_path = public
+as $$
+  select id, slug, nombre, activa from cuentas where slug = p_slug;
+$$;
+grant execute on function cuenta_por_slug(text) to anon, authenticated;
+
+-- Al borrar la vista se van también sus permisos (el "grant select on
+-- cuentas_publicas" de arriba) — no hace falta un revoke aparte.
+drop view if exists cuentas_publicas;

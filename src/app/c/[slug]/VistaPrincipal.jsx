@@ -1,10 +1,10 @@
 'use client';
 // ============================================================
-// Vista del estudiante.
+// Vista del estudiante, dentro de una cuenta (/c/[slug]).
 //
-// Primero se ve un MENÚ con los casos activos (puede haber varios a la
-// vez). Al elegir uno se cargan sus datos y se PRECARGAN todos sus
-// videos en memoria, mostrando una barra de progreso — así, al mantener
+// Primero se ve un MENÚ con los casos activos de ESTA cuenta (puede haber
+// varios a la vez). Al elegir uno se cargan sus datos y se PRECARGAN todos
+// sus videos en memoria, mostrando una barra de progreso — así, al mantener
 // presionado un punto, el video ya está listo y se reproduce al instante.
 // Los videos de los demás casos activos nunca se descargan.
 //
@@ -34,10 +34,11 @@ function hayVideos(datos) {
   return !!(datos && datos.puntos && datos.puntos.some((p) => p.videoUrl));
 }
 
-export default function VistaPrincipal({ casosActivosIniciales }) {
+export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   const [casosActivos, setCasosActivos] = useState(casosActivosIniciales);
   const [casoSeleccionado, setCasoSeleccionado] = useState(null); // null => menú
   const [avisoCasoDesactivado, setAvisoCasoDesactivado] = useState(false);
+  const [vistaDescripcion, setVistaDescripcion] = useState(null); // {caso, entrarAlCerrar} | null
 
   const [datos, setDatos] = useState(null); // datos del caso elegido (null en el menú)
   const [vista, setVista] = useState('ventral');
@@ -53,7 +54,7 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
   const videoRef = useRef(null);
   const graciaRef = useRef(null);
   const blobsRef = useRef({}); // punto_id -> blob URL (video ya descargado)
-  const casoSeleccionadoRef = useRef(null); // espejo de casoSeleccionado para el canal realtime
+  const casoSeleccionadoRef = useRef(null); // espejo de casoSeleccionado para el sondeo
 
   const irAReposo = useCallback(() => setVideoUrl(null), []);
 
@@ -67,7 +68,7 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
     setCasoSeleccionado(casoId);
     setDatos(null);
     const supabase = crearClienteNavegador();
-    const d = await cargarDatosDeCaso(supabase, casoId);
+    const d = await cargarDatosDeCaso(supabase, casoId, cuentaId);
     if (!d.casoId) {
       // Pudo desactivarse justo entre que se listó y se eligió.
       setAvisoCasoDesactivado(true);
@@ -77,13 +78,29 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
     setVideoUrl(null);
     setVista('ventral');
     setDatos(d);
-  }, []);
+  }, [cuentaId]);
 
   const volverAlMenu = useCallback(() => {
     setCasoSeleccionado(null);
     setDatos(null);
     setVideoUrl(null);
   }, []);
+
+  // -------- Descripción del caso: "Ver descripción" desde el menú (se
+  // queda en el menú al cerrar) o al tocar la tarjeta para entrar (al
+  // cerrar, recién ahí se abre el caso) --------
+  function clickCaso(c) {
+    if (c.descripcion) setVistaDescripcion({ caso: c, entrarAlCerrar: true });
+    else abrirCaso(c.id);
+  }
+  function verDescripcion(c) {
+    setVistaDescripcion({ caso: c, entrarAlCerrar: false });
+  }
+  function cerrarDescripcion() {
+    const v = vistaDescripcion;
+    setVistaDescripcion(null);
+    if (v?.entrarAlCerrar) abrirCaso(v.caso.id);
+  }
 
   // -------- Pantalla completa --------
   useEffect(() => {
@@ -97,19 +114,19 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
     return () => document.removeEventListener('fullscreenchange', alCambiar);
   }, []);
 
-  // -------- Refrescar la lista de casos activos: tiempo real + sondeo --------
-  // Supabase Realtime filtra "postgres_changes" según RLS usando la fila
-  // NUEVA: cuando un caso pasa de activo a inactivo, esa fila ya no es
-  // visible para el rol anónimo, así que ese evento en concreto nunca llega
-  // (limitación conocida de Supabase, no corregible desde la policy sin
-  // volver a exponer los casos inactivos). El sondeo cada 15s es la red de
-  // seguridad que sí detecta esa desactivación; el canal en tiempo real
-  // sigue dando respuesta instantánea para los demás cambios (activar un
-  // caso nuevo, renombrar uno ya activo, etc).
+  // -------- Refrescar la lista de casos activos: solo sondeo --------
+  // "casos"/"caso_videos" ya no tienen select directo para el rol anónimo
+  // (se cerró el hueco que dejaba leer los casos de CUALQUIER cuenta por la
+  // REST API; ver migración 2026-10-26 en supabase/schema.sql), así que
+  // Supabase Realtime (que necesitaba ese mismo acceso amplio para mandar
+  // los "postgres_changes") ya no puede avisar de cambios en esta tabla.
+  // El sondeo cada 15s, que antes era solo la red de seguridad para el caso
+  // de una desactivación (Realtime no lo notifica por RLS), ahora es el
+  // ÚNICO mecanismo: el menú puede tardar hasta 15s en reflejar un cambio.
   useEffect(() => {
     const supabase = crearClienteNavegador();
     const recargarLista = async () => {
-      const lista = await listarCasosActivos(supabase);
+      const lista = await listarCasosActivos(supabase, cuentaId);
       setCasosActivos(lista);
       const abiertoId = casoSeleccionadoRef.current;
       if (abiertoId && !lista.some((c) => c.id === abiertoId)) {
@@ -119,13 +136,9 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
         setVideoUrl(null);
       }
     };
-    const canal = supabase
-      .channel('casos-cambios')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'casos' }, recargarLista)
-      .subscribe();
     const sondeo = setInterval(recargarLista, 15000);
-    return () => { supabase.removeChannel(canal); clearInterval(sondeo); };
-  }, []);
+    return () => clearInterval(sondeo);
+  }, [cuentaId]);
 
   // -------- Precarga de todos los videos del caso elegido --------
   useEffect(() => {
@@ -205,7 +218,11 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
     const onKey = (e) => {
       if (e.key === 'F1') { e.preventDefault(); setAyuda((a) => !a); return; }
       if (e.key === 'F11') { e.preventDefault(); alternarPantallaCompleta(); return; }
-      if (e.key === 'Escape') { if (ayuda) setAyuda(false); else irAReposo(); return; }
+      if (e.key === 'Escape') {
+        if (vistaDescripcion) { cerrarDescripcion(); return; }
+        if (ayuda) setAyuda(false); else irAReposo();
+        return;
+      }
       if (e.code === 'Space' && videoUrl) {
         e.preventDefault();
         const v = videoRef.current;
@@ -219,7 +236,7 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [ayuda, videoUrl, irAReposo]);
+  }, [ayuda, videoUrl, irAReposo, vistaDescripcion]);
 
   // -------- Presionar / soltar un punto --------
   const presionar = (p, e) => {
@@ -244,15 +261,41 @@ export default function VistaPrincipal({ casosActivosIniciales }) {
         {casosActivos.length ? (
           <div className="menu-casos-grid">
             {casosActivos.map((c) => (
-              <button key={c.id} className="caso-card" onClick={() => abrirCaso(c.id)}>
+              <div
+                key={c.id} className="caso-card" role="button" tabIndex={0}
+                onClick={() => clickCaso(c)}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return; // deja que el botón "Ver descripción" maneje su propia tecla
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clickCaso(c); }
+                }}
+              >
                 <div className="caso-card-nombre">{c.nombre}</div>
                 <div className="caso-card-especie">{MANIQUIES.nombre(c.especie)}</div>
-                {c.descripcion && <div className="caso-card-desc">{c.descripcion}</div>}
-              </button>
+                {c.descripcion && (
+                  <button
+                    type="button" className="btn small caso-card-ver-desc"
+                    onClick={(e) => { e.stopPropagation(); verDescripcion(c); }}
+                  >
+                    Ver descripción
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         ) : (
           <div className="txt">Esperando a que el profesor active un caso…</div>
+        )}
+
+        {vistaDescripcion && (
+          <div className="overlay" onClick={cerrarDescripcion}>
+            <div className="desc-box" onClick={(e) => e.stopPropagation()}>
+              <div className="desc-box-nombre">{vistaDescripcion.caso.nombre}</div>
+              <div className="desc-box-texto">{vistaDescripcion.caso.descripcion}</div>
+              <button className="btn btn-primary" onClick={cerrarDescripcion}>
+                {vistaDescripcion.entrarAlCerrar ? 'Continuar' : 'Cerrar'}
+              </button>
+            </div>
+          </div>
         )}
       </div>
     );

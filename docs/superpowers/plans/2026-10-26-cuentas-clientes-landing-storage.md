@@ -31,6 +31,7 @@
 - Cupo de casos en el límite exacto: crear hasta el cupo funciona, el siguiente se bloquea con el mensaje de plan, no con un error genérico de Postgres. → Tarea 3.
 - Cupo de storage: un solo video que por sí mismo ya excede el cupo restante se bloquea ANTES de subir, no a mitad de la subida. → Tarea 4.
 - Un estudiante visita `/c/<slug>` de una cuenta suspendida (`activa=false`) o un slug inexistente — debe ver un aviso genérico, nunca un error técnico ni datos de otra cuenta. → Tarea 5.
+- Alguien con la clave `anon` (pública, extraíble del JS del navegador) consulta `casos`/`caso_videos` por `select` directo vía REST, sin pasar por `/c/<slug>` — debe fallar por falta de permiso; solo las 3 funciones RPC (scoped por cuenta) pueden leerlos. Hallazgo real de la Tarea 3 sobre código previo a este plan, cerrado ampliando la Tarea 5. → Tarea 5.
 
 ---
 
@@ -209,8 +210,9 @@ git commit -m "feat: login con Supabase Auth, reemplaza la contraseña única"
 
 **Files:**
 - Modify: `src/app/actions/admin.js`
-- Modify: `src/app/admin/page.js`
 - Modify: `src/app/admin/AdminPanel.jsx`
+
+(`src/app/admin/page.js` no necesita cambios: ya reenvía el objeto `datos` completo a `AdminPanel` sin leer campos específicos, así que simplemente recibe más campos sin tocarse.)
 
 **Interfaces:**
 - Consumes: `requerirAdmin()`, `requerirSuperAdmin()` (Tarea 2).
@@ -356,7 +358,7 @@ En `onFileChange`: `crearUrlSubidaVideo(datos.cuentaId, aSubir.size)` y, tras su
 
 - [ ] **Step 5: Mostrar el uso de storage**
 
-Incluir `usoStorageMb` (resultado de `usoStorageBytes` dividido entre 1024*1024, redondeado) en lo que devuelven `leerDatosAdmin`/`elegirCuentaAdmin` (Tarea 3), y mostrarlo junto al cupo de casos en `AdminPanel.jsx`: "Storage: X / Y MB".
+Incluir `usoStorageMb` (resultado de `usoStorageBytes` dividido entre 1024*1024, redondeado) en lo que devuelven `leerDatosAdmin`/`elegirCuentaAdmin` (Tarea 3), y mostrarlo junto al cupo de casos en `AdminPanel.jsx`: "Storage: X / Y MB". En la rama de `leerDatosAdmin` donde `rol==='super_admin'` y todavía no se eligió cuenta (`cuentaId: null`), `usoStorageMb` va en `null` igual que `cupoCasosPropios` — no corresponde calcularlo sin una cuenta elegida.
 
 - [ ] **Step 6: Verificar manualmente**
 
@@ -375,14 +377,71 @@ git commit -m "feat: cupo de storage por cuenta"
 
 ## Task 5: Ruta pública `/c/[slug]`
 
+> **Ampliado el 2026-10-26, antes de dispatchear esta tarea:** el implementador de la Tarea 3 encontró que las policies públicas de `casos`/`caso_videos` (de antes de este plan) dejan a CUALQUIERA con la clave `anon` (pública por diseño, va en el JS del navegador) leer, por la REST API de Supabase directa — sin pasar por esta app — los casos activos de TODAS las cuentas a la vez; para `caso_videos` ni siquiera hace falta que el caso esté activo. El usuario confirmó cerrarlo del todo: en vez de que el público lea `casos`/`caso_videos` por `select` directo, lee por 3 funciones RPC nuevas que filtran por cuenta adentro, y se revoca el `select` directo a esas 2 tablas. Costo aceptado: se pierde el push instantáneo de Realtime (que necesitaba ese mismo acceso amplio); queda el sondeo de 15s que ya existía como respaldo, así que el menú del estudiante se sigue actualizando solo, con hasta 15s de atraso.
+
 **Files:**
+- Modify: `supabase/schema.sql` (3 funciones RPC + revocar grants, bloque de migración nuevo — Task 1 ya está cerrada, esto no la reabre)
 - Modify: `src/lib/datos.js`
 - Create: `src/app/c/[slug]/page.js`
 - Move: `src/app/VistaPrincipal.jsx` → `src/app/c/[slug]/VistaPrincipal.jsx`
 
 **Interfaces:**
-- Produces: `resolverCuenta(supabase, slug): Promise<{id,slug,nombre,activa}|null>`.
-- Modifica firmas: `listarCasosActivos(supabase, cuentaId)`, `cargarDatosDeCaso(supabase, casoId, cuentaId)`.
+- Produces: `resolverCuenta(supabase, slug): Promise<{id,slug,nombre,activa}|null>` (sigue leyendo `cuentas_publicas` por `select` directo — esa vista no cambia, no expone nada sensible por cuenta).
+- Modifica firmas: `listarCasosActivos(supabase, cuentaId)`, `cargarDatosDeCaso(supabase, casoId, cuentaId)` — mismas firmas que antes, pero ahora implementadas con `.rpc(...)` en vez de `.from(...).select(...)`.
+
+- [ ] **Step 0: Migración SQL — funciones RPC + revocar acceso directo**
+
+Agregar a `supabase/schema.sql`:
+
+```sql
+-- ============================================================
+-- MIGRACIÓN (2026-10-26): lectura pública de casos/caso_videos solo por
+-- función (cierra la lectura directa por REST, que no filtraba por cuenta)
+-- ------------------------------------------------------------
+create or replace function casos_activos_de_cuenta(p_cuenta_id text)
+returns table (id text, nombre text, descripcion text, especie text)
+language sql security definer set search_path = public
+as $$
+  select c.id, c.nombre, c.descripcion, c.especie
+  from casos c
+  join cuentas cu on cu.id = c.cuenta_id
+  where c.cuenta_id = p_cuenta_id and cu.activa and c.activo
+  order by c.nombre;
+$$;
+grant execute on function casos_activos_de_cuenta(text) to anon, authenticated;
+
+create or replace function caso_publico(p_cuenta_id text, p_caso_id text)
+returns table (id text, nombre text, especie text)
+language sql security definer set search_path = public
+as $$
+  select c.id, c.nombre, c.especie
+  from casos c
+  join cuentas cu on cu.id = c.cuenta_id
+  where c.cuenta_id = p_cuenta_id and cu.activa and c.activo and c.id = p_caso_id;
+$$;
+grant execute on function caso_publico(text, text) to anon, authenticated;
+
+create or replace function videos_de_caso_publico(p_cuenta_id text, p_caso_id text)
+returns table (punto_id text, video_url text)
+language sql security definer set search_path = public
+as $$
+  select cv.punto_id, cv.video_url
+  from caso_videos cv
+  join casos c on c.id = cv.caso_id
+  where c.cuenta_id = p_cuenta_id and c.id = p_caso_id and c.activo;
+$$;
+grant execute on function videos_de_caso_publico(text, text) to anon, authenticated;
+
+-- Esto es lo que de verdad cierra el hueco: antes, cualquiera con la clave
+-- anon podía pedir TODOS los casos de TODAS las cuentas por `/rest/v1/casos`
+-- directo. Ahora solo se puede pedir "los de esta cuenta" vía las funciones
+-- de arriba. puntos_publicos y cuentas_publicas NO cambian (sin dato
+-- sensible por cuenta en ninguna de las dos).
+drop policy if exists "casos lectura publica" on casos;
+drop policy if exists "caso_videos lectura publica" on caso_videos;
+revoke select on casos from anon, authenticated;
+revoke select on caso_videos from anon, authenticated;
+```
 
 - [ ] **Step 1: `resolverCuenta(supabase, slug)` en `src/lib/datos.js`**
 
@@ -394,17 +453,22 @@ export async function resolverCuenta(supabase, slug) {
 }
 ```
 
-- [ ] **Step 2: `listarCasosActivos(supabase, cuentaId)` filtra por cuenta**
+- [ ] **Step 2: Reescribir `listarCasosActivos(supabase, cuentaId)` para usar la función RPC**
 
-Agregar `.eq('cuenta_id', cuentaId)` al `select` existente.
+```js
+export async function listarCasosActivos(supabase, cuentaId) {
+  const { data } = await supabase.rpc('casos_activos_de_cuenta', { p_cuenta_id: cuentaId });
+  return data || [];
+}
+```
 
-- [ ] **Step 3: `cargarDatosDeCaso(supabase, casoId, cuentaId)` filtra por cuenta**
+- [ ] **Step 3: Reescribir `cargarDatosDeCaso(supabase, casoId, cuentaId)` para usar las funciones RPC**
 
-En el primer `select` (el que trae `especie` del caso), agregar `.eq('cuenta_id', cuentaId)`. Si no hay fila (caso de otra cuenta, o no existe), sigue devolviendo `{ casoId: null }` igual que hoy.
+Paso 1 (traer el caso): `const { data: filas } = await supabase.rpc('caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId }); const caso = filas?.[0];` — si no hay fila, sigue devolviendo `{ casoId: null }` igual que hoy. Paso 2 (`puntos_publicos`): sin cambios, sigue siendo `select` directo. Paso 3 (videos): `const { data: videos } = await supabase.rpc('videos_de_caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId });` en vez del `select` a `caso_videos`. El resto de la función (armar `mapa`/`lista`) no cambia.
 
-- [ ] **Step 4: Mover `VistaPrincipal.jsx` a `src/app/c/[slug]/VistaPrincipal.jsx`**
+- [ ] **Step 4: Mover `VistaPrincipal.jsx` a `src/app/c/[slug]/VistaPrincipal.jsx`, quitar la suscripción de Realtime**
 
-Añadir una prop `cuentaId`. Pasarla en las 2 llamadas del lado del cliente que hoy llaman a `listarCasosActivos`/`cargarDatosDeCaso` (en `abrirCaso` y en `recargarLista`, dentro del efecto de tiempo real).
+Añadir una prop `cuentaId`. Pasarla en las 2 llamadas del lado del cliente que hoy llaman a `listarCasosActivos`/`cargarDatosDeCaso` (en `abrirCaso` y en `recargarLista`, dentro del efecto de tiempo real). **Quitar la suscripción `supabase.channel('casos-cambios').on('postgres_changes', ...)`** del efecto de tiempo real (ya no recibiría nada: `casos` perdió su grant directo de lectura para `anon`) — dejar SOLO el `setInterval(recargarLista, 15000)` que ya existe como respaldo, sin canal que crear ni limpiar. Actualizar el comentario del efecto para explicar que ahora el sondeo de 15s es el único mecanismo, no un respaldo del canal.
 
 - [ ] **Step 5: Crear `src/app/c/[slug]/page.js`**
 
@@ -412,7 +476,7 @@ Server Component: `const { slug } = await params;`; `crearClienteServidor()`; `c
 
 - [ ] **Step 6: Verificar manualmente**
 
-Con una cuenta de prueba con 1-2 casos activos (de la Tarea 3): visitar `/c/<su-slug>` → el menú muestra solo esos casos. Visitar `/c/slug-que-no-existe` → aviso genérico. Poner `activa=false` a mano en SQL y recargar → mismo aviso genérico — caso de Review Focus. Activar/desactivar un caso desde el panel sigue reflejándose en tiempo real en esta ruta.
+Con una cuenta de prueba con 1-2 casos activos (de la Tarea 3): visitar `/c/<su-slug>` → el menú muestra solo esos casos. Visitar `/c/slug-que-no-existe` → aviso genérico. Poner `activa=false` a mano en SQL y recargar → mismo aviso genérico — caso de Review Focus. Activar/desactivar un caso desde el panel se refleja en esta ruta en máximo ~15s (ya no al instante — cambio aceptado, ver nota de arriba). **Nuevo, importante:** con el proyecto de prueba de la Tarea 8, confirmar que la clave `anon` YA NO puede leer `casos`/`caso_videos` por `select` directo (debe dar error de permiso vía `curl` o el Table Editor de Supabase), solo por las 3 funciones RPC.
 
 (`src/app/page.js` queda SIN tocar en esta tarea — sigue mostrando el simulador global viejo hasta la Tarea 6. Así ambas rutas conviven sin romper nada mientras se prueba.)
 
@@ -422,15 +486,18 @@ Con una cuenta de prueba con 1-2 casos activos (de la Tarea 3): visitar `/c/<su-
 
 ```bash
 git add -A
-git commit -m "feat: ruta publica /c/[slug] por cuenta"
+git commit -m "feat: ruta publica /c/[slug] por cuenta, lectura via RPC"
 ```
 
 ---
 
 ## Task 6: Landing page en `/` + formulario de contacto
 
+> **Nota de la Tarea 5:** `src/app/VistaPrincipal.jsx` (el archivo viejo, global) sigue existiendo — la Tarea 5 copió su versión por-cuenta a `src/app/c/[slug]/VistaPrincipal.jsx` en vez de moverlo, porque moverlo habría roto el import de `src/app/page.js` antes de que esta tarea lo reescribiera. Esta tarea, al reemplazar `page.js`, debe BORRAR el `src/app/VistaPrincipal.jsx` viejo (queda huérfano, nadie más lo importa).
+
 **Files:**
 - Modify: `src/app/page.js` (se reemplaza por completo)
+- Delete: `src/app/VistaPrincipal.jsx` (huérfano desde la Tarea 5, ver nota arriba)
 - Create: `src/app/actions/contacto.js`
 - Create: `src/app/FormularioContacto.jsx`
 - Modify: `src/app/globals.css` (estilos de la landing)
@@ -448,7 +515,7 @@ git commit -m "feat: ruta publica /c/[slug] por cuenta"
 
 - [ ] **Step 3: Reescribir `src/app/page.js`**
 
-Server Component estático (sin llamadas a Supabase): portada (nombre + una frase), funcionalidades (lista fija: maniquí interactivo perro/gato, casos con descripción y video, varios casos activos con menú de selección, actualización en tiempo real), "para quién es" (clínicas, universidades, programas de formación), `<FormularioContacto />`, y un enlace `<a href="/admin/login">Iniciar sesión</a>`.
+Server Component estático (sin llamadas a Supabase): portada (nombre + una frase), funcionalidades (lista fija: maniquí interactivo perro/gato, casos con descripción y video, varios casos activos con menú de selección, actualización automática cuando el profesor activa/desactiva un caso — decir "automática", no "en tiempo real": desde la Tarea 5 es por sondeo cada 15s, no instantáneo), "para quién es" (clínicas, universidades, programas de formación), `<FormularioContacto />`, y un enlace `<a href="/admin/login">Iniciar sesión</a>`. Borrar `src/app/VistaPrincipal.jsx` (ver nota al inicio de esta tarea) como parte de este mismo paso.
 
 - [ ] **Step 4: Estilos en `src/app/globals.css`**
 
@@ -528,18 +595,128 @@ git commit -m "feat: panel de solicitudes de contacto"
 
 ---
 
-## Task 8: Desplegar y migrar producción
+## Task 8: Arreglos de la revisión final de rama
+
+> **Por qué existe esta tarea:** la revisión final de toda la rama (tras las Tareas 1-7, todas individualmente aprobadas) encontró 2 problemas Critical y varios Important que ninguna revisión de tarea aislada podía ver, porque cada una solo veía su propio diff. El usuario ya resolvió las 3 decisiones de producto que esto requería (ver cada fix abajo). Esta tarea cierra todo antes de desplegar — la Tarea 9 (antes Tarea 8) es el despliegue en sí.
+
+**Files:**
+- Modify: `src/app/actions/admin.js` (fixes 1, 3, 4, 5)
+- Modify: `src/app/actions/auth.js` (fix 2: nueva acción `cambiarContrasena`; fix 7: prefijo del rate-limit)
+- Modify: `src/app/actions/contacto.js` (fix 7: prefijo del rate-limit)
+- Create: `src/app/admin/cambiar-clave/page.js` (fix 2)
+- Modify: `src/app/admin/page.js` (fix 2: link a "Cambiar contraseña" junto a "Cerrar sesión"; fix de regalo — Minor #16 de la revisión: si el usuario autenticado no tiene fila en `perfiles`, mostrar un aviso claro en vez de que la página reviente)
+- Modify: `src/app/admin/AdminPanel.jsx` (fixes 2, 3: mostrar la clave temporal una vez; adaptar los call-sites que ahora pueden recibir `{error}`)
+- Modify: `src/lib/datos.js` (fix 6: `resolverCuenta` usa la función nueva)
+- Modify: `supabase/schema.sql` (fix 6: nueva función `cuenta_por_slug`, se quita la vista `cuentas_publicas`)
+- Modify: `README.md`, `.env.local.example` (fix 8)
+
+**Interfaces:**
+- Modifica: `crearCuenta(...)` ahora devuelve `{ cuentas, claveTemporal }` en éxito, o `{ error }` en vez de `throw` para fallos esperables (slug duplicado, fallo al crear el usuario).
+- Modifica: `crearCaso(...)` y `crearUrlSubidaVideo(...)` devuelven `{ error }` en vez de `throw` solo para el mensaje de cupo (el `throw` de "No autorizado" por permiso NO cambia — sigue igual en estas y en todas las demás funciones).
+- Produces: `cambiarContrasena(_prevState, formData): Promise<{ok?: true, error?: string}>` en `auth.js`.
+- Produces: `resolverCuenta(supabase, slug)` ahora vía `.rpc('cuenta_por_slug', ...)` en vez de `.from('cuentas_publicas')`.
+
+- [ ] **Step 1 (fix Critical #1 — un cliente puede borrar el video de otra cuenta pasando el `path` de otra cuenta):**
+
+  En `crearUrlSubidaVideo`, cambiar `const path = randomUUID() + '.mp4';` por `const path = cuentaId + '/' + randomUUID() + '.mp4';` (el path ahora empieza con la cuenta dueña).
+
+  En `guardarVideoCaso(cuentaId, casoId, puntoId, path, tamanoBytes)`, después del chequeo de pertenencia del `casoId` que ya existe, agregar: `if (!path.startsWith(cuentaId + '/')) throw new Error('No autorizado');` — un `path` que no empiece con la cuenta del que llama se rechaza, sin importar qué `casoId` haya pasado. Los videos viejos (subidos antes de este fix, sin el prefijo) siguen funcionando para LEER — este chequeo solo bloquea subir/reemplazar con un path ajeno, no rompe nada existente.
+
+- [ ] **Step 2 (fix Critical #2 — un cliente invitado nunca puede iniciar sesión; decisión del usuario: contraseña temporal):**
+
+  En `crearCuenta`, cambiar el orden y el mecanismo: (1) generar `const tempPassword = randomUUID().replace(/-/g, '').slice(0, 12);`, (2) crear el usuario PRIMERO con `supabase.auth.admin.createUser({ email: correo.trim(), password: tempPassword, email_confirm: true })` (ya no `inviteUserByEmail` — no depende de correo saliente ni de configurar SMTP), (3) solo si eso funciona, insertar la fila en `cuentas`, (4) solo si eso funciona, insertar en `perfiles`. Revisar el error de CADA paso y devolver un `{ error }` claro y específico si falla — si falla el paso 3 o 4 después de que el paso 2 ya creó el usuario, decirlo explícitamente en el mensaje (p. ej. "...el usuario ya se creó con ese correo; bórralo desde Supabase si no vas a reintentar"). Si todo sale bien, devolver `{ cuentas: await listarCuentasInterno(supabase), claveTemporal: tempPassword }`.
+
+  En `AdminPanel.jsx`, el handler que llama `crearCuenta` muestra la clave temporal una sola vez (p. ej. `alert('Cuenta creada. Contraseña temporal para ' + correo + ': ' + r.claveTemporal + ' — cópiala y pásasela al cliente, no se vuelve a mostrar.')`) antes de fusionar el resto del resultado al estado.
+
+  Crear `src/app/actions/auth.js` → `cambiarContrasena(_prevState, formData)`: lee `nueva` del formData, exige mínimo 8 caracteres (si no, `{ error: 'La contraseña debe tener al menos 8 caracteres.' }`), llama `crearClienteServidorAuth().auth.updateUser({ password: nueva })`, devuelve `{ error }` o `{ ok: true }`.
+
+  Crear `src/app/admin/cambiar-clave/page.js`: página cliente con `useActionState(cambiarContrasena, {})`, mismo patrón visual que `admin/login/page.js` — un campo de contraseña nueva, botón, mensaje de error o de éxito. Ya queda protegida por el middleware existente (el matcher ya cubre `/admin/:path*`). Esto también resuelve lo que la Tarea 9 (antes 8) Step 5 marcaba como "no bloqueante": ahora CUALQUIER admin (super_admin incluido) puede cambiar su propia contraseña temporal.
+
+  En `src/app/admin/page.js`, agregar un link "Cambiar contraseña" hacia `/admin/cambiar-clave` junto al botón "Cerrar sesión". De paso (hallazgo Minor #16 de la revisión): si `leerDatosAdmin()` falla porque el usuario autenticado no tiene fila en `perfiles` (cuenta a medio crear, ver el manejo de errores del Step 2), mostrar un mensaje claro ("Tu cuenta todavía no está activa. Contacta a tu asesor.") en vez de dejar que la página reviente con un error de servidor sin manejar.
+
+- [ ] **Step 3 (fix Important #3 — en producción, los mensajes de cupo/error se reemplazan por un genérico en inglés):**
+
+  Next.js oculta el mensaje real de cualquier `Error` lanzado desde una Server Action en el build de producción (solo se ve completo en `next dev`— por eso ninguna revisión de tarea lo notó). Cambiar, SOLO para los mensajes que el usuario debe poder leer (cupo de casos, cupo de storage, los errores de `crearCuenta` del Step 2): en vez de `throw new Error('Llegaste al límite...')`, hacer `return { error: 'Llegaste al límite...' }`. **No tocar** los `throw new Error('No autorizado')` de permiso — esos quedan igual a propósito (no son mensajes que el usuario normal deba ver).
+
+  Afectado en `admin.js`: el bloque de cupo dentro de `crearCaso`, el bloque de cupo dentro de `crearUrlSubidaVideo` (más lo que agrega el Step 4 de abajo), y los errores de `crearCuenta` (Step 2).
+
+  En `AdminPanel.jsx`, los 3 handlers que llaman a estas funciones (`crear()` para `crearCaso`, el handler de subida para `crearUrlSubidaVideo`/`guardarVideoCaso`, y el nuevo handler de `crearCuenta` del Step 2) deben revisar `if (resultado.error) { alert(resultado.error); return; }` ANTES de fusionar el resultado al estado — igual que ya hace `FormularioContacto.jsx` con `state.error`.
+
+- [ ] **Step 4 (fix Important #4 — el cupo de storage confía en el tamaño que manda el navegador, sin verificarlo):**
+
+  En `guardarVideoCaso`, después de confirmar que el `casoId`/`path` son del que llama (Steps 1 y ya existente) pero ANTES de guardar la fila: pedir el tamaño REAL del archivo ya subido con `const { data: info } = await supabase.storage.from(BUCKET).info(path);` y usar `info?.size` (si está disponible) en vez de confiar en el `tamanoBytes` que mandó el navegador. Si `rol === 'cliente'`, volver a comparar ese tamaño real contra el cupo restante (mismo cálculo que ya hace `crearUrlSubidaVideo`, pero con el número de verdad); si se pasa, borrar el archivo recién subido (`borrarVideosStorage`) y devolver `{ error: 'Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.' }` en vez de guardar la fila. Guardar siempre `tamano_bytes` con el tamaño REAL (de `info`), no el que mandó el navegador.
+
+- [ ] **Step 5 (fix Important #5 — comentario engañoso; decisión del usuario: el cupo es total, como ya hace el código):**
+
+  El código de `crearCaso` ya cuenta TODOS los casos de la cuenta (propios + precargados por el equipo) contra `cupo_casos_propios` — eso es lo correcto, confirmado con el usuario. Solo corregir el comentario que dice lo contrario (algo como "el cupo limita lo que crea el cliente, no lo que el equipo precarga") para que diga que el cupo es total: cuántos casos puede tener la cuenta en total, sin importar quién los creó.
+
+- [ ] **Step 6 (fix Important #6 — `cuentas_publicas` deja ver el listado completo de clientes; decisión del usuario: cerrarlo):**
+
+  En `supabase/schema.sql`, agregar:
+
+  ```sql
+  create or replace function cuenta_por_slug(p_slug text)
+  returns table (id text, slug text, nombre text, activa boolean)
+  language sql security definer set search_path = public
+  as $$
+    select id, slug, nombre, activa from cuentas where slug = p_slug;
+  $$;
+  grant execute on function cuenta_por_slug(text) to anon, authenticated;
+
+  drop view if exists cuentas_publicas;
+  ```
+
+  (Al borrar la vista se van también sus permisos — no hace falta un `revoke` aparte.)
+
+  En `src/lib/datos.js`, reescribir `resolverCuenta`:
+
+  ```js
+  export async function resolverCuenta(supabase, slug) {
+    const { data } = await supabase.rpc('cuenta_por_slug', { p_slug: slug });
+    return data?.[0] || null;
+  }
+  ```
+
+  Nadie más usa `cuentas_publicas` directamente (confirmar con grep antes de borrar la vista).
+
+- [ ] **Step 7 (fix Important #7 — el límite de intentos del login y el del formulario de contacto comparten el mismo contador por IP):**
+
+  En `src/app/actions/auth.js` (`login`), cambiar las 3 llamadas (`estaBloqueado`, `registrarIntento`, `limpiarIntentos`) para usar `'login:' + ip` en vez de `ip` solo. En `src/app/actions/contacto.js` (`enviarSolicitudContacto`), usar `'contacto:' + ip`. No hace falta tocar `ratelimit.js` — ya recibe la clave como string, solo cambia qué string le mandan.
+
+- [ ] **Step 8 (fix Important #8 — README y .env.local.example desactualizados; el revisor final pide que esto bloquee el merge, no que quede diferido):**
+
+  Actualizar `README.md`: quitar las instrucciones de generar `ADMIN_PASSWORD_HASH`/`ADMIN_SESSION_SECRET`; agregar que el primer super_admin se crea con `node --env-file=.env.local scripts/crear-super-admin.mjs <correo> <contraseña>`; cambiar cualquier referencia a que los estudiantes entran por `/` (ahora es `/c/<slug>`) y a que el menú se actualiza "en tiempo real" (ahora cada 15s); quitar referencias a archivos que ya no existen (`src/lib/session.js`, `src/app/VistaPrincipal.jsx` en su ubicación vieja). Agregar una sección breve sobre configuración de Supabase Auth necesaria: desactivar "Allow new users to sign up" en Authentication → Settings (si no, cualquiera podría registrarse directo contra `/auth/v1/signup` con la clave anon — no obtendría datos, pero consume el cupo de correos y puede hacer fallar el panel de un usuario sin perfil, ver Step 2).
+
+  Actualizar `.env.local.example`: quitar `ADMIN_PASSWORD_HASH`/`ADMIN_SESSION_SECRET` (ya no los lee nada).
+
+- [ ] **Step 9: `npm run build`**
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add -A
+git commit -m "fix: arreglos de la revision final de rama (critical + important)"
+```
+
+---
+
+## Task 9: Desplegar y migrar producción
+
+> **Orden corregido tras la revisión final de rama:** el orden original (migrar todo, después mergear) tenía una ventana real: en cuanto se revocara el acceso directo a `casos`/`caso_videos` (parte de la migración de la Tarea 5), la versión VIEJA de `/` —todavía desplegada en ese momento, que lee esas tablas directo— mostraría el menú vacío a cualquier estudiante que entrara en esa ventana. El orden de abajo lo evita: las funciones RPC se crean ANTES de desplegar (aditivo, no rompe nada viejo), y el acceso directo se revoca RECIÉN DESPUÉS de confirmar que el código nuevo ya está en producción.
 
 **Files:** ninguno (tarea operativa).
 
-- [ ] **Step 1:** Confirmar que las Tareas 1-7 se probaron de punta a punta en el proyecto de Supabase de PRUEBA (no producción).
-- [ ] **Step 2:** Pushear la rama `cuentas-clientes` a `ecosimcyf/ecosim` y abrir un Pull Request contra `main` (sin `gh` CLI en este equipo: dar el enlace de compare `https://github.com/ecosimcyf/ecosim/compare/main...cuentas-clientes?expand=1`). Repetir las verificaciones manuales de las Tareas 2-7 en el preview de Vercel.
-- [ ] **Step 3:** Correr la migración SQL de la Tarea 1 contra el proyecto de Supabase de PRODUCCIÓN desde el SQL Editor.
+- [ ] **Step 1:** Confirmar que las Tareas 1-8 se probaron de punta a punta en el proyecto de Supabase de PRUEBA (no producción). **Imprescindible, señalado por la revisión final:** subir un video real como cliente y otro como super_admin, y confirmar que `caso_videos.tamano_bytes` queda con el tamaño real y que el contador de uso del panel se mueve. Desde el fix del cupo de storage, `.info()` de Supabase Storage es imprescindible para CADA subida (ya no hay respaldo al tamaño que manda el navegador) — nunca se probó contra un Supabase real en todo este plan, así que es la primera vez que ese camino corre de verdad.
+- [ ] **Step 2:** Pushear la rama `cuentas-clientes` a `ecosimcyf/ecosim` y abrir un Pull Request contra `main` (sin `gh` CLI en este equipo: dar el enlace de compare `https://github.com/ecosimcyf/ecosim/compare/main...cuentas-clientes?expand=1`). Repetir las verificaciones manuales de las Tareas 2-8 en el preview de Vercel — con un build de PRODUCCIÓN real (el preview de Vercel ya lo es), no `next dev`, porque el fix del Step 3 de la Tarea 8 (mensajes de error) solo se puede confirmar así.
+- [ ] **Step 3:** Contra el proyecto de Supabase de PRODUCCIÓN, desde el SQL Editor, en este orden:
+  1. La migración completa de la Tarea 1 (tablas `cuentas`/`perfiles`, `casos.cuenta_id`, etc.), **agregando además** `alter table casos alter column cuenta_id set default 'cuenta-demo';` al final (no estaba en la Tarea 1 — es un respaldo temporal para esta ventana de despliegue, se quita en el Step 7).
+  2. Solo la parte de CREACIÓN de la migración de la Tarea 5 (las 3 funciones `casos_activos_de_cuenta`/`caso_publico`/`videos_de_caso_publico` + sus `grant execute`) y la función nueva `cuenta_por_slug` + `grant execute` de la Tarea 8 — **sin** correr todavía los `drop policy`/`revoke select`/`drop view` de esas mismas migraciones. Esto es aditivo: el código viejo (que todavía lee las tablas directo) sigue funcionando exactamente igual, y dejas listas las funciones que el código nuevo va a necesitar apenas se despliegue.
 - [ ] **Step 4:** Confirmar en producción que los casos existentes quedaron con `cuenta_id='cuenta-demo'` y que `/c/demo` los muestra igual que antes del cambio.
-- [ ] **Step 5:** Correr `scripts/crear-super-admin.mjs` contra producción para Pablo (y David, cuando esté listo), con contraseñas temporales. (Supabase Auth no tiene todavía un flujo de "cambiar mi propia contraseña" en el panel — anotado como posible mejora futura, no bloqueante.)
-- [ ] **Step 6:** Fusionar el Pull Request a `main` (despliegue a producción).
-- [ ] **Step 7:** Avisar a los estudiantes/usuarios actuales del nuevo enlace `/c/demo` — el viejo `/` ya no es el simulador. Incluir volver a "Añadir a la pantalla de inicio" en el móvil si lo habían hecho: el manifiesto (`src/app/manifest.js`, `start_url: '/'`) ahora abre la landing, no el simulador directamente.
-- [ ] **Step 8:** Vigilar Supabase → Settings → Usage (storage/egress) las primeras semanas tras el lanzamiento.
+- [ ] **Step 5:** Correr `scripts/crear-super-admin.mjs` contra producción para Pablo (y David, cuando esté listo) — con la Tarea 8 ya hecha, pueden cambiar esa contraseña temporal ellos mismos desde `/admin/cambiar-clave` en su primer ingreso.
+- [ ] **Step 6:** Fusionar el Pull Request a `main` (despliegue a producción) — ahora sí es seguro: las funciones que el código nuevo necesita ya existen (Step 3.2), y el acceso directo todavía no se revocó, así que no hay ventana donde nada funcione.
+- [ ] **Step 7:** Una vez confirmado que `main` está desplegado y `/c/demo` funciona con el código nuevo: correr el resto de las migraciones de las Tareas 5 y 8 que quedó pendiente — `drop policy`/`revoke select` sobre `casos`/`caso_videos`, `drop view cuentas_publicas` — y recién ahí quitar el respaldo temporal: `alter table casos alter column cuenta_id drop default;`. Esto es lo que de verdad cierra el hueco de seguridad que motivó la Tarea 5 — no quedó cerrado hasta este paso.
+- [ ] **Step 8:** Avisar a los estudiantes/usuarios actuales del nuevo enlace `/c/demo` — el viejo `/` ya no es el simulador. Incluir volver a "Añadir a la pantalla de inicio" en el móvil si lo habían hecho: el manifiesto (`src/app/manifest.js`, `start_url: '/'`) ahora abre la landing, no el simulador directamente.
+- [ ] **Step 9:** Vigilar Supabase → Settings → Usage (storage/egress) las primeras semanas tras el lanzamiento.
 
 ---
 

@@ -1,53 +1,59 @@
 'use server';
 // ============================================================
-// Acciones de login / logout del administrador.
+// Acciones de login / logout del administrador, con Supabase Auth.
 // ============================================================
-import bcrypt from 'bcryptjs';
-import { cookies, headers } from 'next/headers';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { crearToken, COOKIE_SESION } from '@/lib/session';
+import { crearClienteServidorAuth } from '@/lib/supabase/server';
 import { estaBloqueado, registrarIntento, limpiarIntentos } from '@/lib/ratelimit';
 
 export async function login(_prevState, formData) {
-  const pass = String(formData.get('password') || '');
+  const correo = String(formData.get('correo') || '');
+  const password = String(formData.get('password') || '');
 
   // Identificar el origen para el límite de intentos.
   const hdrs = await headers();
   const ip = (hdrs.get('x-forwarded-for') || '').split(',')[0].trim() || 'desconocido';
 
-  if (estaBloqueado(ip)) {
+  // Prefijo propio: el formulario de contacto de la landing usa el mismo
+  // limitador (src/lib/ratelimit.js) pero con su propio prefijo
+  // ('contacto:'), así que un ataque contra uno de los dos formularios no
+  // agota de paso los intentos del otro para la misma IP.
+  if (estaBloqueado('login:' + ip)) {
     return { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' };
   }
 
-  // El hash se guarda en base64 para que los signos "$" del hash bcrypt no
-  // se rompan al leer el archivo .env (Next.js interpreta "$" como variable).
-  // Si llegara el hash crudo ($2a$...) —p. ej. puesto a mano en Vercel—
-  // también se acepta tal cual.
-  let hash = process.env.ADMIN_PASSWORD_HASH || '';
-  if (hash && !hash.startsWith('$2')) {
-    try { hash = Buffer.from(hash, 'base64').toString('utf8'); } catch {}
-  }
-  const ok = hash && bcrypt.compareSync(pass, hash);
-  if (!ok) {
-    registrarIntento(ip);
-    return { error: 'Contraseña incorrecta.' };
+  const { error } = await crearClienteServidorAuth().auth.signInWithPassword({
+    email: correo,
+    password,
+  });
+  if (error) {
+    registrarIntento('login:' + ip);
+    return { error: 'Correo o contraseña incorrectos.' };
   }
 
-  limpiarIntentos(ip);
-  const token = await crearToken(process.env.ADMIN_SESSION_SECRET);
-  const cookieStore = await cookies();
-  cookieStore.set(COOKIE_SESION, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 8 * 60 * 60, // 8 horas
-  });
+  limpiarIntentos('login:' + ip);
   redirect('/admin');
 }
 
 export async function logout() {
-  const cookieStore = await cookies();
-  cookieStore.delete(COOKIE_SESION);
+  await crearClienteServidorAuth().auth.signOut();
   redirect('/admin/login');
+}
+
+// Cualquier admin (super_admin o cliente) cambia su propia contraseña —
+// pensado sobre todo para que el cliente reemplace la contraseña temporal
+// que le dio el super_admin al crear su cuenta (ver crearCuenta en
+// actions/admin.js), pero sirve igual para cualquier otra cuenta de admin.
+// Protegida por el middleware existente (su matcher ya cubre /admin/:path*).
+export async function cambiarContrasena(_prevState, formData) {
+  const nueva = String(formData.get('nueva') || '');
+  if (nueva.length < 8) {
+    return { error: 'La contraseña debe tener al menos 8 caracteres.' };
+  }
+  const { error } = await crearClienteServidorAuth().auth.updateUser({ password: nueva });
+  if (error) {
+    return { error: error.message };
+  }
+  return { ok: true };
 }
