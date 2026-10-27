@@ -426,25 +426,48 @@ export async function guardarVideoCaso(cuentaId, casoId, puntoId, path, tamanoBy
     .from('casos').select('id').eq('id', casoId).eq('cuenta_id', cuentaId).maybeSingle();
   if (!propio) throw new Error('No autorizado');
 
-  // El path TAMBIÉN debe ser de esta cuenta (crearUrlSubidaVideo ya lo
-  // arma como "cuentaId/archivo.mp4"). Los videos públicos delatan su path
-  // en la URL, así que sin este chequeo un cliente podía mandar el path
+  // El path TAMBIÉN debe ser de esta cuenta, y con la forma EXACTA que
+  // genera crearUrlSubidaVideo: "cuentaId/" + un uuid + ".mp4" (36 + 4
+  // caracteres). No basta con mirar el prefijo con startsWith: un path
+  // como "cuentaId/../../../../auth/v1/admin/users" TAMBIÉN "empieza con
+  // cuentaId/" como string, y más abajo se lo pasamos tal cual a
+  // supabase.storage.info(path) —una petición que hace el SERVIDOR con la
+  // clave service_role—, así que un path raro ahí podía forjar una
+  // petición privilegiada contra otra ruta de la API, no solo leer/
+  // escribir Storage. Los videos públicos delatan su path en la URL, así
+  // que sin validar esto a fondo un cliente también podía mandar el path
   // real de OTRA cuenta junto a un casoId suyo y lograr que lo
   // "reasignáramos" — y, de paso, que el bloque de abajo borre el video
   // anterior en ESE path, que es de otra cuenta. Un path viejo (subido
-  // antes de este fix, sin prefijo) sigue funcionando para LEER: esto
-  // solo bloquea escribir/reemplazar con un path ajeno.
-  if (!path.startsWith(cuentaId + '/')) throw new Error('No autorizado');
+  // antes de este fix, sin el prefijo de cuenta) sigue funcionando para
+  // LEER: esto solo bloquea escribir/reemplazar con un path que no tenga
+  // esta forma exacta.
+  if (!path.startsWith(cuentaId + '/') || !/^[0-9a-f-]{36}\.mp4$/.test(path.slice(cuentaId.length + 1))) {
+    throw new Error('No autorizado');
+  }
 
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   const url = data.publicUrl;
 
   // Tamaño REAL del archivo ya subido a Storage — no el tamanoBytes que
   // mandó el navegador, que un cliente podría falsear para saltarse el
-  // cupo. Si Storage no puede informarlo, caemos al valor del navegador
-  // (mejor comparar con algo que con nada).
-  const { data: info } = await supabase.storage.from(BUCKET).info(path);
-  const tamanoReal = info?.size ?? tamanoBytes;
+  // cupo. Fallamos CERRADO si Storage no puede confirmar un tamaño de
+  // verdad (error, o info.size que no es un número finito >= 0 — p. ej.
+  // un path que nunca se llegó a subir): borramos lo que haya en ese path
+  // y rechazamos, en vez de caer de vuelta a tamanoBytes. Caer a
+  // tamanoBytes era el hueco: un cliente podía mandar el path de un
+  // archivo inexistente junto con un tamanoBytes negativo enorme —
+  // info.size salía undefined, el cupo se "verificaba" contra ese
+  // negativo (nunca lo supera) y ese número quedaba guardado en
+  // tamano_bytes, dejando el cupo de storage de esa cuenta roto para
+  // siempre (usoStorageBytes suma esa fila negativa en cada chequeo
+  // futuro, así que ya nunca vuelve a bloquear nada).
+  const { data: info, error: errorInfo } = await supabase.storage.from(BUCKET).info(path);
+  if (errorInfo || typeof info?.size !== 'number' || !Number.isFinite(info.size) || info.size < 0) {
+    await supabase.storage.from(BUCKET).remove([path]);
+    return { error: 'No se pudo verificar el video subido. Intenta de nuevo.' };
+  }
+  const tamanoReal = info.size;
 
   // Mismo cálculo que ya hace crearUrlSubidaVideo, pero con el tamaño de
   // verdad: si de todos modos se pasa del cupo, borramos lo que se acaba
