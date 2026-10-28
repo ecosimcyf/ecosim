@@ -354,18 +354,18 @@ export async function eliminarCaso(cuentaId, casoId) {
 // ---------- puntos (catálogo global del maniquí) ----------
 // Solo el super_admin los toca: son compartidos por TODAS las cuentas.
 
-export async function addPunto({ especie, vista }) {
+export async function addPunto(cuentaId, { especie, vista }) {
   await requerirSuperAdmin();
   const supabase = crearClienteAdmin();
   const { data: nuevo } = await supabase
     .from('puntos')
     .insert({ especie: especieOk(especie), vista: vistaOk(vista), nombre: 'Punto nuevo', x: 50, y: 45 })
     .select('id').single();
-  const datos = await leerTodo(supabase);
+  const datos = await leerTodo(supabase, cuentaId);
   return { ...datos, nuevoPuntoId: nuevo?.id || null };
 }
 
-export async function actualizarPunto(puntoId, campos) {
+export async function actualizarPunto(cuentaId, puntoId, campos) {
   await requerirSuperAdmin();
   const supabase = crearClienteAdmin();
   const limpio = {};
@@ -375,16 +375,16 @@ export async function actualizarPunto(puntoId, campos) {
   if (campos.vista) limpio.vista = vistaOk(campos.vista);
   if (campos.especie) limpio.especie = especieOk(campos.especie);
   if (Object.keys(limpio).length) await supabase.from('puntos').update(limpio).eq('id', puntoId);
-  return leerTodo(supabase);
+  return leerTodo(supabase, cuentaId);
 }
 
-export async function eliminarPunto(puntoId) {
+export async function eliminarPunto(cuentaId, puntoId) {
   await requerirSuperAdmin();
   const supabase = crearClienteAdmin();
   const { data: vids } = await supabase.from('caso_videos').select('video_url').eq('punto_id', puntoId);
   await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
   await supabase.from('puntos').delete().eq('id', puntoId); // cascade borra sus caso_videos
-  return leerTodo(supabase);
+  return leerTodo(supabase, cuentaId);
 }
 
 // ---------- videos por caso ----------
