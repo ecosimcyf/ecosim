@@ -518,8 +518,10 @@ export default function AdminPanel({ inicial }) {
         )}
       </section>
 
-      {/* -------- Maniquí: puntos del cuerpo -------- */}
-      {hayCuenta && (
+      {/* -------- Maniquí: puntos del cuerpo (solo super_admin: el
+          catálogo de puntos es global y compartido por todas las
+          cuentas, ver comentario en actions/admin.js) -------- */}
+      {hayCuenta && esSuperAdmin && (
       <section className="card">
         <div className="editor-head">
           <h3>Maniquí — puntos del cuerpo</h3>
