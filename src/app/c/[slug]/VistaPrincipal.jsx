@@ -50,11 +50,14 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   const [soportaPantallaCompleta, setSoportaPantallaCompleta] = useState(false);
   // Estado de la precarga de videos.
   const [precarga, setPrecarga] = useState({ cargando: false, pct: 0 });
+  // Falló la carga del caso (red caída): se ofrece reintentar o volver.
+  const [errorCarga, setErrorCarga] = useState(false);
 
   const videoRef = useRef(null);
   const graciaRef = useRef(null);
   const blobsRef = useRef({}); // punto_id -> blob URL (video ya descargado)
   const casoSeleccionadoRef = useRef(null); // espejo de casoSeleccionado para el sondeo
+  const cargaIdRef = useRef(0); // descarta respuestas de un caso que ya no es el elegido
 
   const irAReposo = useCallback(() => setVideoUrl(null), []);
 
@@ -64,11 +67,21 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
 
   // -------- Elegir un caso del menú / volver al menú --------
   const abrirCaso = useCallback(async (casoId) => {
+    const miCarga = ++cargaIdRef.current;
     setAvisoCasoDesactivado(false);
+    setErrorCarga(false);
     setCasoSeleccionado(casoId);
     setDatos(null);
-    const supabase = crearClienteNavegador();
-    const d = await cargarDatosDeCaso(supabase, casoId, cuentaId);
+    let d;
+    try {
+      d = await cargarDatosDeCaso(crearClienteNavegador(), casoId, cuentaId);
+    } catch {
+      d = { casoId: null, error: true };
+    }
+    // Si mientras tanto el estudiante volvió al menú o eligió otro caso,
+    // esta respuesta ya no le corresponde.
+    if (miCarga !== cargaIdRef.current) return;
+    if (d.error) { setErrorCarga(true); return; }
     if (!d.casoId) {
       // Pudo desactivarse justo entre que se listó y se eligió.
       setAvisoCasoDesactivado(true);
@@ -78,9 +91,17 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     setVideoUrl(null);
     setVista('ventral');
     setDatos(d);
+    // Precarga las 3 fotos del maniquí de esta especie: así al cambiar de
+    // vista la foto ya está y no se ven los puntos flotando sobre un hueco.
+    ['ventral', 'izq', 'der'].forEach((v) => {
+      const src = MANIQUIES.src(d.especie, v);
+      if (src) { const img = new Image(); img.src = src; }
+    });
   }, [cuentaId]);
 
   const volverAlMenu = useCallback(() => {
+    cargaIdRef.current++;
+    setErrorCarga(false);
     setCasoSeleccionado(null);
     setDatos(null);
     setVideoUrl(null);
@@ -127,6 +148,11 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     const supabase = crearClienteNavegador();
     const recargarLista = async () => {
       const lista = await listarCasosActivos(supabase, cuentaId);
+      // null = la consulta falló (red caída): se conserva lo que había y se
+      // reintenta en el siguiente sondeo. NUNCA se interpreta como "el
+      // profesor desactivó todo", o un corte de Wi-Fi sacaría a toda la
+      // clase de su caso.
+      if (!lista) return;
       setCasosActivos(lista);
       const abiertoId = casoSeleccionadoRef.current;
       if (abiertoId && !lista.some((c) => c.id === abiertoId)) {
@@ -143,7 +169,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   // -------- Precarga de todos los videos del caso elegido --------
   useEffect(() => {
     // Soltar los blobs del caso anterior.
-    Object.values(blobsRef.current).forEach((u) => URL.revokeObjectURL(u));
+    new Set(Object.values(blobsRef.current)).forEach((u) => URL.revokeObjectURL(u));
     blobsRef.current = {};
 
     if (!datos || !datos.casoId || !hayVideos(datos)) {
@@ -153,37 +179,53 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
 
     let vigente = true;
     const controladores = [];
-    const conVideo = datos.puntos.filter((p) => p.videoUrl);
+    // Varios puntos pueden compartir el mismo archivo: se descarga una sola
+    // vez por URL y el blob se reparte entre todos sus puntos.
+    const urls = [...new Set(datos.puntos.filter((p) => p.videoUrl).map((p) => p.videoUrl))];
     setPrecarga({ cargando: true, pct: 0 });
 
-    let totalBytes = 0;
-    let hechosBytes = 0;
+    // Progreso por video: hasta conocer el tamaño real de cada uno, cuenta
+    // como "una parte" igual que los demás. Así la barra no salta hacia
+    // atrás cada vez que llega la cabecera de un video nuevo.
+    const progreso = urls.map(() => 0); // 0..1 por video
+    let pctMostrado = 0;
     const actualizar = () => {
       if (!vigente) return;
-      const pct = totalBytes ? Math.min(99, Math.round((hechosBytes / totalBytes) * 100)) : 0;
-      setPrecarga({ cargando: true, pct });
+      const pct = Math.min(99, Math.round((progreso.reduce((s, x) => s + x, 0) / urls.length) * 100));
+      if (pct > pctMostrado) { pctMostrado = pct; setPrecarga({ cargando: true, pct }); }
     };
 
     (async () => {
-      await Promise.all(conVideo.map(async (p) => {
+      await Promise.all(urls.map(async (url, i) => {
         const ctrl = new AbortController();
         controladores.push(ctrl);
+        // Un video que no termina en 60 s se abandona (se usará la URL
+        // directa al tocar el punto): la pantalla de carga nunca se queda
+        // pegada por una conexión colgada.
+        const limite = setTimeout(() => ctrl.abort(), 60000);
         try {
-          const resp = await fetch(p.videoUrl, { signal: ctrl.signal });
-          totalBytes += Number(resp.headers.get('content-length')) || 0;
+          const resp = await fetch(url, { signal: ctrl.signal });
+          if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
+          const total = Number(resp.headers.get('content-length')) || 0;
           const reader = resp.body.getReader();
           const trozos = [];
+          let hechos = 0;
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
             trozos.push(value);
-            hechosBytes += value.length;
-            actualizar();
+            hechos += value.length;
+            if (total) { progreso[i] = Math.min(1, hechos / total); actualizar(); }
           }
           if (!vigente) return;
-          blobsRef.current[p.id] = URL.createObjectURL(new Blob(trozos, { type: 'video/mp4' }));
+          const blob = URL.createObjectURL(new Blob(trozos, { type: 'video/mp4' }));
+          datos.puntos.filter((p) => p.videoUrl === url).forEach((p) => { blobsRef.current[p.id] = blob; });
         } catch {
           // Si un video falla al precargar, se usará su URL directa como respaldo.
+        } finally {
+          clearTimeout(limite);
+          progreso[i] = 1;
+          actualizar();
         }
       }));
       if (vigente) setPrecarga({ cargando: false, pct: 100 });
@@ -192,7 +234,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     return () => {
       vigente = false;
       controladores.forEach((c) => { try { c.abort(); } catch {} });
-      Object.values(blobsRef.current).forEach((u) => URL.revokeObjectURL(u));
+      new Set(Object.values(blobsRef.current)).forEach((u) => URL.revokeObjectURL(u));
       blobsRef.current = {};
     };
   }, [datos]);
@@ -213,6 +255,35 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     }
   }, [videoUrl]);
 
+  // -------- Congelar / descongelar (tecla Espacio o botón en pantalla) --------
+  // Mientras está congelado, soltar el punto NO vuelve al reposo: así en el
+  // móvil (sin teclado) se puede congelar con el botón y estudiar la imagen
+  // con el dedo fuera del maniquí.
+  const congeladoRef = useRef(false);
+  const presionadoRef = useRef(false); // ¿hay un dedo/clic sobre un punto ahora?
+  useEffect(() => { congeladoRef.current = congelado; }, [congelado]);
+  const alternarCongelado = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    // El ref se actualiza YA (no espera al siguiente render): si el dedo
+    // se levanta del punto justo después de tocar «Congelar», soltar()
+    // tiene que ver el estado nuevo.
+    const nuevo = !congeladoRef.current;
+    congeladoRef.current = nuevo;
+    setCongelado(nuevo);
+    if (nuevo) {
+      v.pause();
+      if (graciaRef.current) { clearTimeout(graciaRef.current); graciaRef.current = null; }
+    } else {
+      v.play().catch(() => {});
+      // Si ya no hay un dedo sobre el punto, al descongelar se vuelve al
+      // reposo con el mismo margen de siempre.
+      if (!presionadoRef.current) {
+        graciaRef.current = setTimeout(() => { graciaRef.current = null; setVideoUrl(null); }, GRACIA_TACTIL_MS);
+      }
+    }
+  }, []);
+
   // -------- Atajos de teclado --------
   useEffect(() => {
     const onKey = (e) => {
@@ -225,28 +296,25 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       }
       if (e.code === 'Space' && videoUrl) {
         e.preventDefault();
-        const v = videoRef.current;
-        if (!v) return;
-        setCongelado((c) => {
-          const nuevo = !c;
-          if (nuevo) v.pause(); else v.play().catch(() => {});
-          return nuevo;
-        });
+        alternarCongelado();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [ayuda, videoUrl, irAReposo, vistaDescripcion]);
+  }, [ayuda, videoUrl, irAReposo, vistaDescripcion, alternarCongelado]);
 
   // -------- Presionar / soltar un punto --------
   const presionar = (p, e) => {
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    presionadoRef.current = true;
     if (graciaRef.current) { clearTimeout(graciaRef.current); graciaRef.current = null; }
     // Usa el video ya precargado (blob); si no, la URL directa como respaldo.
     setVideoUrl(blobsRef.current[p.id] || p.videoUrl || null);
   };
   const soltar = () => {
+    presionadoRef.current = false;
     if (graciaRef.current) clearTimeout(graciaRef.current);
+    if (congeladoRef.current) { graciaRef.current = null; return; }
     graciaRef.current = setTimeout(() => { graciaRef.current = null; irAReposo(); }, GRACIA_TACTIL_MS);
   };
 
@@ -304,12 +372,27 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     );
   }
 
-  // -------- Caso elegido, pero sus datos todavía no llegaron --------
+  // -------- Caso elegido, pero sus datos todavía no llegaron (o fallaron) --------
   if (!datos) {
     return (
       <div className="espera">
         <div className="marca">ECOSIM</div>
-        <div className="txt">Cargando caso…</div>
+        {errorCarga ? (
+          <>
+            <div className="txt">No se pudo cargar el caso. Revisa tu conexión a internet.</div>
+            <div className="espera-acciones">
+              <button className="btn btn-primary" onClick={() => abrirCaso(casoSeleccionado)}>Reintentar</button>
+              <button className="btn" onClick={volverAlMenu}>← Volver a los casos</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="txt">Cargando caso…</div>
+            <div className="espera-acciones">
+              <button className="btn small" onClick={volverAlMenu}>← Volver a los casos</button>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -342,6 +425,9 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
             <div className="carga-barra"><div className="carga-relleno" style={{ width: precarga.pct + '%' }} /></div>
             <div className="carga-pct">{precarga.pct}%</div>
             <div className="carga-sub">Se cargan una sola vez para que luego respondan al instante.</div>
+            <button className="btn small carga-saltar" onClick={() => setPrecarga({ cargando: false, pct: 100 })}>
+              Empezar sin esperar
+            </button>
           </div>
         </div>
       )}
@@ -362,6 +448,16 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
           </div>
         )}
         {videoUrl && congelado && <div className="freeze-tag">❚❚ Congelado</div>}
+        {videoUrl && (
+          <button
+            type="button"
+            className="btn small btn-congelar"
+            onClick={alternarCongelado}
+            aria-pressed={congelado}
+          >
+            {congelado ? '▶ Seguir' : '❚❚ Congelar'}
+          </button>
+        )}
         <div className="esc-hint">Espacio = congelar · F1 = ayuda</div>
       </div>
 

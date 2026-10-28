@@ -12,17 +12,20 @@ export const metadata = {
 };
 
 export default async function AdminPage() {
-  // Si el usuario autenticado no tiene fila en "perfiles" (p. ej. una
-  // cuenta a medio crear: el usuario de Auth se creó pero la cuenta o el
-  // perfil fallaron después — ver el manejo de errores de crearCuenta en
-  // actions/admin.js), requerirAdmin() lanza "No autorizado" y sin este
-  // try/catch la página reventaría con un error de servidor sin manejar.
+  // leerDatosAdmin() lanza un error con "codigo" cuando no se puede entrar
+  // (sin perfil, cuenta desactivada o borrada, sesión cerrada) y su mensaje
+  // ya viene listo para mostrarse. Cualquier otro error (Supabase caído,
+  // red) NO es culpa de la cuenta: se dice eso, en vez del engañoso
+  // "tu cuenta no está activa" de antes.
   let datos = null;
   let errorCuenta = null;
   try {
     datos = await leerDatosAdmin();
-  } catch {
-    errorCuenta = 'Tu cuenta todavía no está activa. Contacta a tu asesor.';
+  } catch (err) {
+    console.error('[admin] no se pudo cargar el panel:', err);
+    errorCuenta = err?.codigo
+      ? err.message
+      : 'No se pudo cargar el panel. Revisa tu conexión y recarga la página en unos segundos.';
   }
 
   return (

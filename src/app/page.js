@@ -24,7 +24,7 @@ const FUNCIONALIDADES = [
   {
     titulo: 'Maniquí interactivo',
     texto:
-      'Un maniquí de perro o gato dibujado en pantalla, con puntos táctiles sobre cada zona de interés: el estudiante elige dónde apoyar el transductor, igual que lo haría sobre un paciente real.',
+      'Un maniquí de perro o gato en pantalla, visto por debajo y por ambos lados, con puntos táctiles sobre cada zona de interés: el estudiante elige dónde apoyar el transductor, igual que lo haría sobre un paciente real.',
     icono: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="3" />
@@ -60,7 +60,7 @@ const FUNCIONALIDADES = [
   {
     titulo: 'Siempre al día',
     texto:
-      'Cuando el profesor activa o desactiva un caso, el menú de los estudiantes se actualiza solo, de forma automática: nadie tiene que recargar la página.',
+      'Cuando el profesor activa o desactiva un caso, el menú de los estudiantes se actualiza solo en unos segundos: nadie tiene que recargar la página.',
     icono: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 12a8 8 0 0 1 14-5.3L21 9" />

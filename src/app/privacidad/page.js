@@ -36,13 +36,21 @@ export default function Privacidad() {
           <li><strong>Si eres estudiante y practicas un caso por el enlace de tu institución:</strong> ningún dato personal. No pedimos usuario, no usamos cookies ni guardamos nada en tu navegador — lo verificamos directamente y no se guarda ningún identificador tuyo.</li>
         </ul>
 
-        <h2>3. Para qué usamos tus datos</h2>
+        <h2>3. Para qué usamos tus datos y por cuánto tiempo</h2>
         <ul>
           <li>Responder a tu solicitud de contacto y, si se concreta, gestionar la cuenta de tu institución.</li>
           <li>Darte acceso al panel de administración si eres cliente.</li>
           <li>Dar soporte cuando lo necesites.</li>
         </ul>
         <p>No vendemos ni compartimos tus datos con terceros para fines publicitarios.</p>
+        <p>
+          El formulario de contacto solo se envía si marcas la casilla de
+          autorización; guardamos la fecha en que lo hiciste. Conservamos los
+          datos de una solicitud mientras haya una conversación comercial
+          abierta y, como máximo, dos años después del último contacto; los
+          de una cuenta cliente, mientras la cuenta exista. Si borras tu
+          cuenta desde el panel, tus datos de acceso se eliminan de inmediato.
+        </p>
 
         <h2>4. Con quién se comparten</h2>
         <p>
@@ -54,6 +62,13 @@ export default function Privacidad() {
           <li><strong>Supabase</strong> — base de datos, autenticación y almacenamiento de archivos.</li>
           <li><strong>Vercel</strong> — alojamiento del sitio web.</li>
         </ul>
+        <p>
+          Los servidores de estos proveedores pueden estar fuera de Colombia
+          (por ejemplo, en Estados Unidos). Al autorizar el tratamiento de tus
+          datos aceptas también esa transferencia internacional, que se hace
+          solo con proveedores que ofrecen niveles adecuados de protección
+          de datos.
+        </p>
 
         <h2>5. Cookies</h2>
         <p>

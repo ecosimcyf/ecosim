@@ -19,6 +19,8 @@ export async function generateMetadata({ params }) {
   return {
     title: cuenta ? `${cuenta.nombre} — EcoSim` : 'EcoSim',
     robots: { index: false, follow: false },
+    // Manifiesto propio de esta cuenta (ver manifest.webmanifest/route.js).
+    manifest: `/c/${encodeURIComponent(slug)}/manifest.webmanifest`,
   };
 }
 
@@ -36,6 +38,7 @@ export default async function PaginaCuenta({ params }) {
     );
   }
 
-  const casosActivosIniciales = await listarCasosActivos(supabase, cuenta.id);
+  // null = no se pudo consultar; el sondeo del cliente lo vuelve a intentar.
+  const casosActivosIniciales = (await listarCasosActivos(supabase, cuenta.id)) || [];
   return <VistaPrincipal casosActivosIniciales={casosActivosIniciales} cuentaId={cuenta.id} />;
 }
