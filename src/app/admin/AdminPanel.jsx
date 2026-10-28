@@ -11,13 +11,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
-import { puedeReproducir, convertirAH264 } from '@/lib/convertir-video';
+import { puedeReproducir, convertirAH264, duracionDe } from '@/lib/convertir-video';
 import {
   elegirCuentaAdmin, crearCuenta, eliminarCuenta, actualizarEstadoSolicitud,
   alternarCasoActivo, crearCaso, renombrarCaso, describirCaso, cambiarEspecieCaso, eliminarCaso,
   addPunto, actualizarPunto, eliminarPunto,
   crearUrlSubidaVideo, guardarVideoCaso, quitarVideoCaso,
 } from '@/app/actions/admin';
+
+// Tope de duración por video: clips cortos alcanzan igual para mostrar un
+// punto de ecografía, y mantienen el storage (y el costo) bajo control.
+const DURACION_MAX_SEG = 10;
 
 const VISTAS = [
   { id: 'ventral', label: 'Por debajo' },
@@ -354,6 +358,19 @@ export default function AdminPanel({ inicial }) {
     setSubiendo(true);
     setConvProgreso(null);
     try {
+      // Rechazar clips largos ANTES de convertir/subir nada (la conversión
+      // es lo más lento del proceso). Si la duración no se pudo leer
+      // (navegador raro, archivo corrupto), se deja pasar: ya fallará más
+      // adelante con un error más claro al intentar reproducirlo/convertirlo.
+      const duracion = await duracionDe(file);
+      if (duracion != null && duracion > DURACION_MAX_SEG) {
+        alert(
+          'Este video dura ' + Math.round(duracion) + ' segundos. El máximo permitido es ' +
+            DURACION_MAX_SEG + ' segundos — recórtalo y vuelve a intentar.'
+        );
+        return;
+      }
+
       // Si el navegador NO puede reproducir el video (p. ej. MPEG-4 Parte 2
       // de los ecógrafos), lo convertimos a H.264 aquí mismo antes de subir.
       let aSubir = file;
@@ -777,6 +794,11 @@ export default function AdminPanel({ inicial }) {
                   {subiendo && convProgreso !== null && (
                     <div style={{ fontSize: 11, color: '#8b949c', marginBottom: 6 }}>
                       (puede tardar 1-3 min; no cierres esta ventana)
+                    </div>
+                  )}
+                  {!subiendo && (
+                    <div style={{ fontSize: 11, color: '#8b949c', marginBottom: 6 }}>
+                      Máximo {DURACION_MAX_SEG} segundos por video.
                     </div>
                   )}
                   <div className="row" style={{ margin: 0 }}>

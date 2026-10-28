@@ -29,6 +29,22 @@ async function cargarFFmpeg() {
   return ffmpegPromesa;
 }
 
+// Duración del video en segundos (o null si no se pudo leer). Se usa para
+// rechazar clips demasiado largos ANTES de convertir/subir nada.
+export function duracionDe(file) {
+  return new Promise((resolve) => {
+    const v = document.createElement('video');
+    const url = URL.createObjectURL(file);
+    let hecho = false;
+    const fin = (r) => { if (hecho) return; hecho = true; clearTimeout(t); URL.revokeObjectURL(url); resolve(r); };
+    const t = setTimeout(() => fin(null), 8000);
+    v.preload = 'metadata';
+    v.onloadedmetadata = () => fin(Number.isFinite(v.duration) ? v.duration : null);
+    v.onerror = () => fin(null);
+    v.src = url;
+  });
+}
+
 // ¿El navegador puede reproducir este archivo tal cual? Así no reconvertimos
 // videos que ya son H.264 (evita perder calidad y tiempo).
 export function puedeReproducir(file) {
