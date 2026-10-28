@@ -8,15 +8,17 @@
 // globals.css. Plus Jakarta Sans vía next/font (self-hosted, sin pedirla
 // en runtime a Google).
 import Image from 'next/image';
-import { Plus_Jakarta_Sans } from 'next/font/google';
 import FormularioContacto from './FormularioContacto';
 import ScrollReveal from './landing/ScrollReveal';
+import LandingHeader from './landing/LandingHeader';
+import LandingFooter from './landing/LandingFooter';
+import { jakarta } from './landing/fuente';
 
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  weight: ['500', '600', '700', '800'],
-  display: 'swap',
-});
+export const metadata = {
+  title: 'EcoSim — Simulador de ecografía veterinaria para enseñar sin depender de pacientes',
+  description:
+    'Tus estudiantes practican ecografía en un maniquí interactivo con casos reales grabados en pacientes de verdad. Cada cuenta, sus propios casos — funciona en cualquier dispositivo, sin instalar nada.',
+};
 
 const FUNCIONALIDADES = [
   {
@@ -95,13 +97,7 @@ export default function Home() {
     <div className={'landing ' + jakarta.className}>
       <ScrollReveal />
 
-      <header className="landing-bar">
-        <span className="landing-marca">ECOSIM</span>
-        <nav className="landing-nav-links">
-          <a className="landing-login" href="/admin/login">Iniciar sesión</a>
-          <a className="landing-cta-nav" href="#contacto">Hablar con un asesor</a>
-        </nav>
-      </header>
+      <LandingHeader />
 
       <section className="landing-hero">
         <span className="landing-hero-badge">ECOSIM · SIMULADOR DE ECOGRAFÍA</span>
@@ -192,9 +188,7 @@ export default function Home() {
         <FormularioContacto />
       </section>
 
-      <footer className="landing-footer">
-        © {new Date().getFullYear()} EcoSim · <a href="/admin/login">Iniciar sesión</a>
-      </footer>
+      <LandingFooter />
     </div>
   );
 }

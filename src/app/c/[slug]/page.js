@@ -10,6 +10,18 @@ import VistaPrincipal from './VistaPrincipal';
 // Siempre datos frescos (no cachear la página).
 export const dynamic = 'force-dynamic';
 
+// Enlace privado de cada cuenta: no debe indexarse ni salir en buscadores.
+// El título sí usa el nombre real de la cuenta cuando existe, para que la
+// pestaña del navegador diga algo útil mientras el estudiante practica.
+export async function generateMetadata({ params }) {
+  const { slug } = await params;
+  const cuenta = await resolverCuenta(crearClienteServidor(), slug);
+  return {
+    title: cuenta ? `${cuenta.nombre} — EcoSim` : 'EcoSim',
+    robots: { index: false, follow: false },
+  };
+}
+
 export default async function PaginaCuenta({ params }) {
   const { slug } = await params;
   const supabase = crearClienteServidor();

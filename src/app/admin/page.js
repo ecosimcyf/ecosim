@@ -6,6 +6,10 @@ import { logout } from '@/app/actions/auth';
 import AdminPanel from './AdminPanel';
 
 export const dynamic = 'force-dynamic';
+export const metadata = {
+  title: 'Panel de administración — EcoSim',
+  robots: { index: false, follow: false },
+};
 
 export default async function AdminPage() {
   // Si el usuario autenticado no tiene fila en "perfiles" (p. ej. una
