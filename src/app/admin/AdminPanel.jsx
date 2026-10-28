@@ -27,7 +27,7 @@ import {
 
 // Tope de duración por video: clips cortos alcanzan igual para mostrar un
 // punto de ecografía, y mantienen el storage (y el costo) bajo control.
-const DURACION_MAX_SEG = 10;
+const DURACION_MAX_SEG = 30;
 // Debe coincidir con file_size_limit del bucket (supabase/schema.sql).
 const MAX_MB_VIDEO = 50;
 
@@ -285,12 +285,16 @@ export default function AdminPanel({ inicial }) {
   }
 
   // El cliente borra SU PROPIA cuenta. Si tiene éxito, la Server Action
-  // cierra su sesión y redirige a /admin/login (la página cambia).
+  // cierra su sesión y devuelve {cuentaEliminada}; aquí se lleva al login.
+  // (No se usa redirect() en la acción: Next.js lo entrega al llamador
+  // como una excepción, y ejecutar() lo mostraba como "revisa tu conexión"
+  // aunque la cuenta sí se había borrado.)
   async function borrarCuentaPropia() {
     if (confirmBorrarCuenta.trim() !== (datos.cuentaNombre || '')) return;
     setBorrandoCuenta(true);
     const r = await ejecutar(() => eliminarCuenta(datos.cuentaId), { fusionarResultado: false });
-    if (!r) setBorrandoCuenta(false);
+    if (r?.cuentaEliminada) { window.location.href = '/admin/login?cuenta_eliminada=1'; return; }
+    setBorrandoCuenta(false);
   }
 
   // El super_admin borra la cuenta que tiene elegida en el selector.

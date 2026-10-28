@@ -27,7 +27,6 @@
 // como éxito.
 // ============================================================
 import { randomUUID, randomBytes } from 'node:crypto';
-import { redirect } from 'next/navigation';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { crearClienteServidorAuth } from '@/lib/supabase/server';
 
@@ -404,9 +403,10 @@ export async function restablecerClaveCuenta(cuentaId) {
 // borrar la SUYA; el super_admin puede borrar cualquiera.
 //
 // Si quien borra es el cliente dueño de la cuenta, se está borrando a sí
-// mismo: cerramos su sesión y lo mandamos a /admin/login. redirect()
-// funciona lanzando una excepción especial, por eso va FUERA de
-// conErrores (que la atraparía como un error cualquiera).
+// mismo: cerramos su sesión y devolvemos {cuentaEliminada: true}; el panel
+// lo lleva a /admin/login. No se usa redirect(): llamado desde el panel,
+// Next.js lo entrega como una excepción en el navegador, que se mostraba
+// como error de conexión aunque el borrado hubiera salido bien.
 export async function eliminarCuenta(cuentaId) {
   const r = await conErrores(async () => {
     const { rol } = await requerirAccesoCuenta(cuentaId);
@@ -445,8 +445,10 @@ export async function eliminarCuenta(cuentaId) {
   });
 
   if (r?.cerrarSesion) {
-    await crearClienteServidorAuth().auth.signOut();
-    redirect('/admin/login?cuenta_eliminada=1');
+    // Su usuario ya no existe: signOut puede responder con error, pero lo
+    // que importa es que borre las cookies de sesión de este navegador.
+    try { await crearClienteServidorAuth().auth.signOut(); } catch {}
+    return { cuentaEliminada: true };
   }
   return r;
 }

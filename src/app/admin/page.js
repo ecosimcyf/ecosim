@@ -6,6 +6,10 @@ import { logout } from '@/app/actions/auth';
 import AdminPanel from './AdminPanel';
 
 export const dynamic = 'force-dynamic';
+// Las Server Actions del panel corren en la función de esta página.
+// Borrar una cuenta con muchos videos encadena bastantes llamadas a
+// Supabase: 60 s de margen en vez de los 10 s que pueden tocar por defecto.
+export const maxDuration = 60;
 export const metadata = {
   title: 'Panel de administración — EcoSim',
   robots: { index: false, follow: false },
