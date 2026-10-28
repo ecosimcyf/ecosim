@@ -264,3 +264,40 @@ grant execute on function cuenta_por_slug(text) to anon, authenticated;
 -- Al borrar la vista se van también sus permisos (el "grant select on
 -- cuentas_publicas" de arriba) — no hace falta un revoke aparte.
 drop view if exists cuentas_publicas;
+
+-- ============================================================
+-- MIGRACIÓN (2026-10-28): los puntos del maniquí dejan de ser un
+-- catálogo global y pasan a ser propios de cada cuenta
+-- ------------------------------------------------------------
+-- Antes "puntos" no tenía cuenta_id: un solo catálogo compartido por
+-- TODAS las cuentas, que solo el super_admin podía tocar. Ahora cada
+-- cliente tiene control total sobre SUS propios puntos (mismo modelo
+-- que ya usa "casos"); lo único que sigue limitado es el storage
+-- (cupo_storage_mb), que es lo único que cuesta dinero de verdad.
+--
+-- Los puntos que ya existían (el catálogo compartido de antes) quedan
+-- asignados a la cuenta demo — igual que hizo la migración de "casos"
+-- de arriba con los casos que ya existían. Cualquier otra cuenta que
+-- ya tuviera puntos (p. ej. de pruebas) arranca vacía: el cliente los
+-- vuelve a crear a su gusto.
+-- ------------------------------------------------------------
+alter table puntos add column if not exists cuenta_id text references cuentas(id);
+update puntos set cuenta_id = 'cuenta-demo' where cuenta_id is null;
+alter table puntos alter column cuenta_id set not null;
+
+-- La vista "puntos_publicos" (arriba) ya no es segura de usar tal cual:
+-- no filtraba por cuenta, así que el estudiante de una clínica vería
+-- también los puntos (posición) de las demás. La reemplazamos por una
+-- función como videos_de_caso_publico, que sí filtra por cuenta.
+create or replace function puntos_publicos_de_cuenta(p_cuenta_id text, p_especie text)
+returns table (id text, vista text, x numeric, y numeric)
+language sql security definer set search_path = public
+as $$
+  select id, vista, x, y from puntos
+  where cuenta_id = p_cuenta_id and especie = p_especie;
+$$;
+grant execute on function puntos_publicos_de_cuenta(text, text) to anon, authenticated;
+
+-- Al borrar la vista se van también sus permisos (el "grant select on
+-- puntos_publicos" de arriba) — no hace falta un revoke aparte.
+drop view if exists puntos_publicos;

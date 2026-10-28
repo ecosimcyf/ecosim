@@ -10,10 +10,11 @@
 // que la app de escritorio devolvía store.getDatos() tras cada cambio.
 //
 // Multi-cuenta: cada "cliente" pertenece a una cuenta (perfiles.cuenta_id)
-// y solo puede ver/tocar los casos de ESA cuenta. El "super_admin" no
-// pertenece a ninguna cuenta: elige con qué cuenta trabajar desde el panel
-// (ver elegirCuentaAdmin) y es el único que puede tocar el catálogo global
-// de puntos del maniquí.
+// y solo puede ver/tocar los casos y puntos de ESA cuenta. El "super_admin"
+// no pertenece a ninguna cuenta: elige con qué cuenta trabajar desde el
+// panel (ver elegirCuentaAdmin) y puede tocar cualquier cuenta. Lo único
+// que limita a un cliente de verdad es su cupo de storage (cuesta dinero);
+// sobre sus propios casos y puntos tiene control total.
 // ============================================================
 import { randomUUID } from 'node:crypto';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
@@ -104,7 +105,9 @@ async function listarSolicitudesInterno(supabase) {
 // ajeno equivale a poder ver el video clínico de otro cliente).
 async function leerTodo(supabase, cuentaId) {
   const [puntosR, casosR, cvR] = await Promise.all([
-    supabase.from('puntos').select('id,especie,vista,nombre,x,y'),
+    cuentaId
+      ? supabase.from('puntos').select('id,especie,vista,nombre,x,y').eq('cuenta_id', cuentaId)
+      : { data: [] },
     cuentaId
       ? supabase.from('casos').select('id,nombre,descripcion,especie,activo').eq('cuenta_id', cuentaId).order('nombre')
       : { data: [] },
@@ -351,8 +354,9 @@ export async function eliminarCaso(cuentaId, casoId) {
   return leerTodo(supabase, cuentaId);
 }
 
-// ---------- puntos (catálogo global del maniquí) ----------
-// Solo el super_admin los toca: son compartidos por TODAS las cuentas.
+// ---------- puntos del maniquí (propios de cada cuenta) ----------
+// Mismo modelo de permiso que "casos": cualquier admin puede tocar los
+// puntos de SU cuenta; el super_admin puede tocar los de cualquiera.
 
 // Las 3 funciones de abajo atrapan CUALQUIER error y lo devuelven como
 // {error} en vez de dejarlo tirar — en build de PRODUCCIÓN, Next.js
@@ -363,11 +367,12 @@ export async function eliminarCaso(cuentaId, casoId) {
 // falla para quien lo ve en pantalla. Mismo patrón que crearCuenta.
 export async function addPunto(cuentaId, { especie, vista }) {
   try {
-    await requerirSuperAdmin();
+    const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+    if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
     const supabase = crearClienteAdmin();
     const { data: nuevo } = await supabase
       .from('puntos')
-      .insert({ especie: especieOk(especie), vista: vistaOk(vista), nombre: 'Punto nuevo', x: 50, y: 45 })
+      .insert({ cuenta_id: cuentaId, especie: especieOk(especie), vista: vistaOk(vista), nombre: 'Punto nuevo', x: 50, y: 45 })
       .select('id').single();
     const datos = await leerTodo(supabase, cuentaId);
     return { ...datos, nuevoPuntoId: nuevo?.id || null };
@@ -378,7 +383,8 @@ export async function addPunto(cuentaId, { especie, vista }) {
 
 export async function actualizarPunto(cuentaId, puntoId, campos) {
   try {
-    await requerirSuperAdmin();
+    const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+    if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
     const supabase = crearClienteAdmin();
     const limpio = {};
     if (typeof campos.nombre === 'string') limpio.nombre = campos.nombre.trim() || 'Punto';
@@ -386,7 +392,9 @@ export async function actualizarPunto(cuentaId, puntoId, campos) {
     if (typeof campos.y === 'number') limpio.y = campos.y;
     if (campos.vista) limpio.vista = vistaOk(campos.vista);
     if (campos.especie) limpio.especie = especieOk(campos.especie);
-    if (Object.keys(limpio).length) await supabase.from('puntos').update(limpio).eq('id', puntoId);
+    if (Object.keys(limpio).length) {
+      await supabase.from('puntos').update(limpio).eq('id', puntoId).eq('cuenta_id', cuentaId);
+    }
     return leerTodo(supabase, cuentaId);
   } catch (err) {
     return { error: err?.message || 'No se pudo guardar el punto.' };
@@ -395,11 +403,18 @@ export async function actualizarPunto(cuentaId, puntoId, campos) {
 
 export async function eliminarPunto(cuentaId, puntoId) {
   try {
-    await requerirSuperAdmin();
+    const { rol, cuentaId: miCuentaId } = await requerirAdmin();
+    if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
     const supabase = crearClienteAdmin();
+    // Verifica que el punto sea de ESTA cuenta ANTES de tocar storage: si
+    // solo filtráramos el delete final por cuenta_id, un id ajeno haría el
+    // delete un no-op pero ya habríamos borrado los videos de OTRA cuenta.
+    const { data: punto } = await supabase
+      .from('puntos').select('id').eq('id', puntoId).eq('cuenta_id', cuentaId).maybeSingle();
+    if (!punto) throw new Error('No autorizado');
     const { data: vids } = await supabase.from('caso_videos').select('video_url').eq('punto_id', puntoId);
     await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
-    await supabase.from('puntos').delete().eq('id', puntoId); // cascade borra sus caso_videos
+    await supabase.from('puntos').delete().eq('id', puntoId).eq('cuenta_id', cuentaId); // cascade borra sus caso_videos
     return leerTodo(supabase, cuentaId);
   } catch (err) {
     return { error: err?.message || 'No se pudo borrar el punto.' };

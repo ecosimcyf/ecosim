@@ -51,9 +51,12 @@ export async function cargarDatosDeCaso(supabase, casoId, cuentaId) {
   const caso = filas?.[0];
   if (!caso) return { casoId: null };
 
-  // 2. Todos los puntos de esa especie (SIN nombre: vista puntos_publicos).
+  // 2. Todos los puntos de ESTA cuenta y esa especie (SIN nombre: eso sería
+  // una pista), por función RPC — los puntos son propios de cada cuenta,
+  // así que no basta con filtrar por especie (ver migración 2026-10-28 en
+  // supabase/schema.sql).
   const { data: puntos } = await supabase
-    .from('puntos_publicos').select('id,especie,vista,x,y').eq('especie', caso.especie);
+    .rpc('puntos_publicos_de_cuenta', { p_cuenta_id: cuentaId, p_especie: caso.especie });
 
   // 3. Los videos que este caso asigna a cada punto, por función RPC.
   const { data: videos } = await supabase.rpc('videos_de_caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId });

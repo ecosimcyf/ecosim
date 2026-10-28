@@ -518,10 +518,8 @@ export default function AdminPanel({ inicial }) {
         )}
       </section>
 
-      {/* -------- Maniquí: puntos del cuerpo (solo super_admin: el
-          catálogo de puntos es global y compartido por todas las
-          cuentas, ver comentario en actions/admin.js) -------- */}
-      {hayCuenta && esSuperAdmin && (
+      {/* -------- Maniquí: puntos del cuerpo (propios de esta cuenta) -------- */}
+      {hayCuenta && (
       <section className="card">
         <div className="editor-head">
           <h3>Maniquí — puntos del cuerpo</h3>
@@ -539,7 +537,7 @@ export default function AdminPanel({ inicial }) {
           </div>
         </div>
         <p className="muted">
-          Define UNA sola vez las partes del cuerpo (su posición). Todos los
+          Define una sola vez las partes del cuerpo (su posición). Todos tus
           casos usan estos mismos puntos: lo único que cambia en cada caso es
           el video de cada punto.
         </p>
