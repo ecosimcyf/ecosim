@@ -498,17 +498,22 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   position: sticky; top: 0; z-index: 20;
   background: rgba(245, 251, 252, .88); backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--l-border);
-  display: flex; align-items: center; justify-content: space-between;
+  /* Logo | navegación (centrada en la página) | acciones */
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px;
   padding: 16px 28px;
 }
 .landing-marca { color: var(--l-primary-dark); font-size: 17px; font-weight: 800; letter-spacing: 2.5px; text-decoration: none; }
-.landing-nav-links { display: flex; align-items: center; gap: 18px; }
-/* Navegación por la página: texto simple, sin caja. */
-.landing-nav-secciones { display: flex; align-items: center; gap: 2px; }
-/* Acciones (sesión / asesor): botones, separados de lo anterior por una línea. */
-.landing-nav-acciones {
-  display: flex; align-items: center; gap: 10px;
-  padding-left: 18px; border-left: 1px solid var(--l-border);
+.landing-marca { justify-self: start; }
+/* Navegación por la página: texto simple, sin caja, en el centro. */
+.landing-nav-secciones { display: flex; align-items: center; gap: 4px; justify-self: center; }
+/* Acciones (sesión / asesor): botones, a la derecha. */
+.landing-nav-acciones { display: flex; align-items: center; gap: 10px; justify-self: end; }
+.landing-nav-acciones a, .landing-nav-seccion { white-space: nowrap; }
+/* Sin espacio para las tres zonas: se oculta la navegación del centro
+   (las secciones siguen a un scroll) y quedan logo + botones. */
+@media (max-width: 1000px) {
+  .landing-bar { grid-template-columns: auto 1fr; }
+  .landing-nav-secciones { display: none; }
 }
 .landing-login {
   color: var(--l-primary-dark); background: var(--l-surface); font-size: 13.5px; font-weight: 700;
@@ -788,8 +793,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 @media (max-width: 860px) {
   .landing-showcase { grid-template-columns: 1fr; gap: 32px; }
   .landing-pasos, .landing-features-3 { grid-template-columns: 1fr; }
-  .landing-nav-secciones { display: none; }
-  .landing-nav-acciones { padding-left: 0; border-left: none; }
   .landing-features { grid-template-columns: 1fr; }
 }
 @media (max-width: 480px) {
