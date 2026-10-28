@@ -58,6 +58,14 @@ export default function Terminos() {
           usa con otro fin. El cliente puede borrar sus propios casos y
           videos cuando quiera desde el panel de administración.
         </p>
+        <p>
+          EcoSim no se hace responsable por el mal uso que se le dé a ese
+          contenido, ni por material indebido o ilegal que un cliente llegue
+          a subir a la plataforma: esa responsabilidad es siempre de quien lo
+          sube. Por nuestra parte, procuramos mantener la plataforma libre de
+          ese tipo de contenido y, si lo detectamos, podemos eliminarlo y
+          suspender la cuenta responsable (ver sección 9, Terminación).
+        </p>
 
         <h2>5. Cupos y uso aceptable</h2>
         <p>
@@ -78,34 +86,49 @@ export default function Terminos() {
           almacenamiento, Vercel para el alojamiento web).
         </p>
 
-        <h2>7. Propiedad intelectual</h2>
+        <h2>7. Limitación de responsabilidad</h2>
+        <p>
+          En la medida que lo permita la ley, EcoSim no responde por daños
+          indirectos, lucro cesante, ni por las consecuencias de que el
+          servicio no esté disponible en un momento puntual — por ejemplo,
+          durante un examen o una clase (ver sección 6, Disponibilidad del
+          servicio). Si llegara a haber responsabilidad económica directa de
+          EcoSim por una falla del servicio o pérdida de información, esta
+          se limita al valor que el cliente haya pagado en los últimos 6
+          meses. Esta limitación no aplica a daños causados por dolo o
+          culpa grave de EcoSim.
+        </p>
+
+        <h2>8. Propiedad intelectual</h2>
         <p>
           El software, diseño y funcionamiento de EcoSim son de Pablo Suaza.
           El contenido que cada cliente carga (sus videos y casos) sigue
           siendo de su propiedad; EcoSim no reclama derechos sobre él.
         </p>
 
-        <h2>8. Terminación</h2>
+        <h2>9. Terminación</h2>
         <p>
-          El cliente puede dejar de usar el servicio cuando quiera. Si una
-          cuenta se cancela, EcoSim puede eliminar su contenido (casos y
-          videos) después de un tiempo razonable de aviso. EcoSim puede
-          suspender una cuenta que incumpla estos términos.
+          El cliente puede dejar de usar el servicio cuando quiera, incluso
+          borrando su propia cuenta por completo desde el panel de
+          administración (acción permanente, sin reversa). Si una cuenta se
+          cancela, EcoSim puede eliminar su contenido (casos y videos)
+          después de un tiempo razonable de aviso. EcoSim puede suspender
+          una cuenta que incumpla estos términos.
         </p>
 
-        <h2>9. Cambios a estos términos</h2>
+        <h2>10. Cambios a estos términos</h2>
         <p>
           EcoSim puede actualizar estos términos; los cambios importantes se
           avisan a los clientes activos por correo. Seguir usando el
           servicio después de un cambio implica aceptarlo.
         </p>
 
-        <h2>10. Ley aplicable</h2>
+        <h2>11. Ley aplicable</h2>
         <p>
           Estos términos se rigen por las leyes de Colombia.
         </p>
 
-        <h2>11. Contacto</h2>
+        <h2>12. Contacto</h2>
         <p>
           Para cualquier duda sobre estos términos, escribe a{' '}
           <a href="mailto:pablosuaza4@gmail.com">pablosuaza4@gmail.com</a>.
