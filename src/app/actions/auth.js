@@ -46,14 +46,42 @@ export async function logout() {
 // que le dio el super_admin al crear su cuenta (ver crearCuenta en
 // actions/admin.js), pero sirve igual para cualquier otra cuenta de admin.
 // Protegida por el middleware existente (su matcher ya cubre /admin/:path*).
+//
+// Pide la contraseña ACTUAL (así una sesión olvidada abierta en un
+// computador de la clínica no basta para quitarle la cuenta a su dueño) y
+// la nueva dos veces (un error de tipeo dejaría al cliente fuera).
 export async function cambiarContrasena(_prevState, formData) {
+  const actual = String(formData.get('actual') || '');
   const nueva = String(formData.get('nueva') || '');
-  if (nueva.length < 8) {
-    return { error: 'La contraseña debe tener al menos 8 caracteres.' };
+  const repetir = String(formData.get('repetir') || '');
+  if (!actual) return { error: 'Escribe tu contraseña actual.' };
+  if (nueva.length < 8) return { error: 'La contraseña nueva debe tener al menos 8 caracteres.' };
+  if (nueva !== repetir) return { error: 'Las dos contraseñas nuevas no coinciden.' };
+  if (nueva === actual) return { error: 'La contraseña nueva debe ser distinta de la actual.' };
+
+  const supabase = crearClienteServidorAuth();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user?.email) return { error: 'Tu sesión se cerró. Vuelve a iniciar sesión.' };
+
+  const hdrs = await headers();
+  const ip = (hdrs.get('x-forwarded-for') || '').split(',')[0].trim() || 'desconocido';
+  if (estaBloqueado('clave:' + ip)) {
+    return { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' };
   }
-  const { error } = await crearClienteServidorAuth().auth.updateUser({ password: nueva });
+  const { error: errActual } = await supabase.auth.signInWithPassword({ email: user.email, password: actual });
+  if (errActual) {
+    registrarIntento('clave:' + ip);
+    return { error: 'La contraseña actual no es correcta.' };
+  }
+  limpiarIntentos('clave:' + ip);
+
+  const { error } = await supabase.auth.updateUser({ password: nueva });
   if (error) {
-    return { error: error.message };
+    // Supabase responde en inglés; se traduce lo más común.
+    const m = error.message || '';
+    if (/different from the old/i.test(m)) return { error: 'La contraseña nueva debe ser distinta de la actual.' };
+    if (/weak|short|characters/i.test(m)) return { error: 'La contraseña es demasiado débil: usa más caracteres, mezclando letras y números.' };
+    return { error: 'No se pudo cambiar la contraseña. Inténtalo de nuevo.' };
   }
   return { ok: true };
 }

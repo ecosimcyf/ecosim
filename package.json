@@ -16,7 +16,6 @@
     "@supabase/supabase-js": "^2.47.12",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
-    "bcryptjs": "^2.4.3",
     "next": "^15.1.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

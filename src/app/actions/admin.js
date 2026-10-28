@@ -2,9 +2,10 @@
 // ============================================================
 // Acciones del panel de administración.
 //
-// TODAS comprueban primero la sesión de admin (requerirAdmin) y usan el
-// cliente "service_role", que salta la seguridad RLS. Así el navegador
-// (clave anon) nunca escribe directamente en las tablas.
+// TODAS comprueban primero la sesión de admin (requerirAdmin /
+// requerirAccesoCuenta) y usan el cliente "service_role", que salta la
+// seguridad RLS. Así el navegador (clave anon) nunca escribe directamente
+// en las tablas.
 //
 // Casi todas devuelven el estado COMPLETO y actualizado (leerTodo), igual
 // que la app de escritorio devolvía store.getDatos() tras cada cambio.
@@ -15,49 +16,150 @@
 // panel (ver elegirCuentaAdmin) y puede tocar cualquier cuenta. Lo único
 // que limita a un cliente de verdad es su cupo de storage (cuesta dinero);
 // sobre sus propios casos y puntos tiene control total.
+//
+// ERRORES: toda acción exportada pasa por conErrores(), que devuelve
+// {error: 'mensaje'} en vez de lanzar. En producción Next.js reemplaza el
+// mensaje de cualquier excepción sin atrapar en una Server Action por un
+// texto genérico en inglés, así que un throw() sería indistinguible de
+// cualquier otra falla para quien lo ve en pantalla. Y cada consulta a
+// Supabase se revisa con exigir(): antes los errores de escritura se
+// ignoraban y, por ejemplo, un borrado de cuenta a medias se informaba
+// como éxito.
 // ============================================================
-import { randomUUID } from 'node:crypto';
-import { redirect } from 'next/navigation';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { crearClienteServidorAuth } from '@/lib/supabase/server';
 
 const BUCKET = 'videos';
 const PREFIJO_PUBLICO = '/storage/v1/object/public/' + BUCKET + '/';
+// Debe coincidir con file_size_limit del bucket (supabase/schema.sql).
+const MAX_BYTES_VIDEO = 50 * 1024 * 1024;
 
-// ---------- helpers (no exportados) ----------
+// ---------- errores ----------
+
+// Error con un mensaje pensado para mostrarse tal cual en el panel.
+class ErrorAdmin extends Error {
+  constructor(mensaje, codigo) { super(mensaje); this.codigo = codigo; }
+}
+
+async function conErrores(fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error('[admin]', err);
+    if (err instanceof ErrorAdmin) return { error: err.message, codigo: err.codigo };
+    return { error: 'Algo falló al guardar. Revisa tu conexión e inténtalo de nuevo.' };
+  }
+}
+
+// Revisa la respuesta de una consulta de Supabase: si trae error, lo lanza.
+function exigir(resultado, que) {
+  if (resultado?.error) {
+    console.error('[admin] ' + que + ':', resultado.error);
+    throw new ErrorAdmin('No se pudo ' + que + '. Inténtalo de nuevo.');
+  }
+  return resultado;
+}
+
+// ---------- sesión y permisos ----------
 
 async function requerirAdmin() {
   const { data: { user } } = await crearClienteServidorAuth().auth.getUser();
-  if (!user) throw new Error('No autorizado');
-  const { data: perfil } = await crearClienteAdmin()
+  if (!user) throw new ErrorAdmin('Tu sesión se cerró. Vuelve a iniciar sesión.', 'sin-sesion');
+  const supabase = crearClienteAdmin();
+  const { data: perfil, error } = await supabase
     .from('perfiles').select('rol,cuenta_id').eq('id', user.id).maybeSingle();
-  if (!perfil) throw new Error('No autorizado');
-  return { rol: perfil.rol, cuentaId: perfil.cuenta_id };
+  if (error) throw new ErrorAdmin('No se pudo comprobar tu acceso. Revisa tu conexión.', 'error-red');
+  if (!perfil) throw new ErrorAdmin('Tu cuenta todavía no está activa. Contacta a tu asesor.', 'sin-perfil');
+
+  if (perfil.rol === 'cliente') {
+    if (!perfil.cuenta_id) throw new ErrorAdmin('Tu acceso no está ligado a ninguna cuenta. Contacta a tu asesor.', 'sin-perfil');
+    const { data: cuenta, error: errCuenta } = await supabase
+      .from('cuentas').select('activa').eq('id', perfil.cuenta_id).maybeSingle();
+    if (errCuenta) throw new ErrorAdmin('No se pudo comprobar tu acceso. Revisa tu conexión.', 'error-red');
+    if (!cuenta) throw new ErrorAdmin('Tu cuenta ya no existe. Contacta a tu asesor.', 'sin-perfil');
+    if (!cuenta.activa) throw new ErrorAdmin('Tu cuenta está desactivada. Contacta a tu asesor.', 'cuenta-inactiva');
+  }
+  return { rol: perfil.rol, cuentaId: perfil.cuenta_id, userId: user.id };
 }
 
 async function requerirSuperAdmin() {
   const r = await requerirAdmin();
-  if (r.rol !== 'super_admin') throw new Error('No autorizado');
+  if (r.rol !== 'super_admin') throw new ErrorAdmin('No autorizado.');
   return r;
 }
 
+// Cualquier admin, pero solo sobre SU cuenta (el super_admin, sobre
+// cualquiera que exista).
+async function requerirAccesoCuenta(cuentaId) {
+  const r = await requerirAdmin();
+  if (typeof cuentaId !== 'string' || !cuentaId) throw new ErrorAdmin('Elige una cuenta primero.');
+  if (r.rol === 'cliente' && cuentaId !== r.cuentaId) throw new ErrorAdmin('No autorizado.');
+  return r;
+}
+
+// ---------- validación ----------
+
 function especieOk(e) { return e === 'gato' ? 'gato' : 'perro'; }
 function vistaOk(v) { return v === 'izq' || v === 'der' ? v : 'ventral'; }
+function texto(v, max) { return String(v ?? '').trim().slice(0, max); }
+
+// "Clínica Norte" -> "clinica-norte". Solo minúsculas, números y guiones:
+// es lo que va en el enlace de los estudiantes (/c/<slug>).
+function normalizarSlug(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().trim().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-').replace(/^-|-$/g, '');
+}
+function slugValido(s) { return /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(s); }
+
+function cupo(v, nombre) {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > 1000000) {
+    throw new ErrorAdmin('El ' + nombre + ' debe ser un número entero de 0 en adelante.');
+  }
+  return n;
+}
+
+function correoValido(c) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c); }
+
+// 12 caracteres sin letras confundibles (0/O, 1/l/I) para dictarla sin errores.
+function claveTemporal() {
+  const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  return Array.from(randomBytes(12), (b) => abc[b % abc.length]).join('');
+}
+
+// ---------- helpers de datos (no exportados) ----------
+
+// Pide TODAS las filas de una consulta en tandas de 1000 (el máximo que
+// devuelve la API de Supabase por petición; sin esto, una cuenta con más
+// de 1000 videos sumaría mal su uso de storage).
+async function todasLasFilas(consulta, que) {
+  const filas = [];
+  for (let desde = 0; ; desde += 1000) {
+    const { data } = exigir(await consulta().range(desde, desde + 999), que);
+    filas.push(...(data || []));
+    if (!data || data.length < 1000) return filas;
+  }
+}
 
 // Borra de Storage los archivos de una lista de URLs públicas.
 async function borrarVideosStorage(supabase, urls) {
   const paths = (urls || [])
     .map((u) => (u || '').split(PREFIJO_PUBLICO)[1])
     .filter(Boolean);
-  if (paths.length) {
-    try { await supabase.storage.from(BUCKET).remove(paths); } catch {}
+  for (let i = 0; i < paths.length; i += 100) {
+    const { error } = await supabase.storage.from(BUCKET).remove(paths.slice(i, i + 100));
+    // No se corta la acción por esto: lo peor que deja es un archivo
+    // huérfano, que "Limpiar videos huérfanos" recoge después.
+    if (error) console.error('[admin] no se pudieron borrar videos de Storage:', error);
   }
 }
 
 // Cuántos casos tiene YA una cuenta (para comparar contra su cupo).
 async function contarCasosDeCuenta(supabase, cuentaId) {
-  const { count } = await supabase
-    .from('casos').select('id', { count: 'exact', head: true }).eq('cuenta_id', cuentaId);
+  const { count } = exigir(await supabase
+    .from('casos').select('id', { count: 'exact', head: true }).eq('cuenta_id', cuentaId), 'contar los casos');
   return count || 0;
 }
 
@@ -65,12 +167,14 @@ async function contarCasosDeCuenta(supabase, cuentaId) {
 // de storage). caso_videos no tiene cuenta_id propio, así que filtramos por
 // la cuenta de SU caso vía el embed "casos!inner(cuenta_id)".
 async function usoStorageBytes(supabase, cuentaId) {
-  const { data } = await supabase
+  const filas = await todasLasFilas(() => supabase
     .from('caso_videos')
     .select('tamano_bytes, casos!inner(cuenta_id)')
-    .eq('casos.cuenta_id', cuentaId);
-  return (data || []).reduce((s, r) => s + (r.tamano_bytes || 0), 0);
+    .eq('casos.cuenta_id', cuentaId), 'calcular el uso de almacenamiento');
+  return filas.reduce((s, r) => s + (r.tamano_bytes || 0), 0);
 }
+
+const aMb = (bytes) => Math.round(bytes / (1024 * 1024));
 
 // Lista de cuentas para el selector del super_admin — con cuánto ha
 // usado cada una (casos y storage), para ver de un vistazo quién se
@@ -79,12 +183,13 @@ async function usoStorageBytes(supabase, cuentaId) {
 // no es problema; si algún día hay cientos de cuentas, convendría una
 // sola consulta agregada en vez de este Promise.all.
 async function listarCuentasInterno(supabase) {
-  const { data } = await supabase
-    .from('cuentas').select('id,slug,nombre,activa,cupo_casos_propios,cupo_storage_mb').order('nombre');
+  const { data } = exigir(await supabase
+    .from('cuentas').select('id,slug,nombre,activa,cupo_casos_propios,cupo_storage_mb').order('nombre'),
+  'leer las cuentas');
   return Promise.all((data || []).map(async (c) => ({
     ...c,
     casosUsados: await contarCasosDeCuenta(supabase, c.id),
-    usoStorageMb: Math.round((await usoStorageBytes(supabase, c.id)) / (1024 * 1024)),
+    usoStorageMb: aMb(await usoStorageBytes(supabase, c.id)),
   })));
 }
 
@@ -92,20 +197,13 @@ async function listarCuentasInterno(supabase) {
 // Sin chequeo de permiso (como leerTodo): lo llaman las acciones exportadas
 // tras requerirSuperAdmin(), o leerDatosAdmin tras comprobar el rol.
 async function listarSolicitudesInterno(supabase) {
-  const { data } = await supabase
-    .from('solicitudes_contacto').select('*').order('creada_en', { ascending: false });
+  const { data } = exigir(await supabase
+    .from('solicitudes_contacto').select('*').order('creada_en', { ascending: false }).limit(500),
+  'leer las solicitudes');
   return data || [];
 }
 
 // Lee TODO el estado que necesita el panel para UNA cuenta.
-//
-// cuentaId es obligatorio para quien llama a leerTodo con intención de
-// mostrar los casos de una cuenta concreta (cliente, o super_admin que ya
-// eligió una). Si se omite (lo hacen addPunto/actualizarPunto/eliminarPunto,
-// que no reciben cuentaId — ver Paso 8), devolvemos "casos: []" y
-// "videosPorCaso: {}" en vez de TODOS los casos/videos de TODAS las
-// cuentas: así una función que no conoce la cuenta nunca reenvía por error
-// datos ajenos al navegador.
 //
 // caso_videos no tiene su propia columna cuenta_id (igual que en
 // usoStorageBytes, arriba), así que para filtrarla por cuenta usamos el
@@ -114,149 +212,188 @@ async function listarSolicitudesInterno(supabase) {
 // cada respuesta (el bucket "videos" es público, así que un video_url
 // ajeno equivale a poder ver el video clínico de otro cliente).
 async function leerTodo(supabase, cuentaId) {
-  const [puntosR, casosR, cvR] = await Promise.all([
-    cuentaId
-      ? supabase.from('puntos').select('id,especie,vista,nombre,x,y').eq('cuenta_id', cuentaId)
-      : { data: [] },
-    cuentaId
-      ? supabase.from('casos').select('id,nombre,descripcion,especie,activo').eq('cuenta_id', cuentaId).order('nombre')
-      : { data: [] },
-    cuentaId
-      ? supabase.from('caso_videos').select('caso_id,punto_id,video_url,casos!inner(cuenta_id)').eq('casos.cuenta_id', cuentaId)
-      : { data: [] },
+  const [puntos, casos, cv] = await Promise.all([
+    todasLasFilas(() => supabase.from('puntos').select('id,especie,vista,nombre,x,y')
+      .eq('cuenta_id', cuentaId).order('id'), 'leer los puntos'),
+    todasLasFilas(() => supabase.from('casos').select('id,nombre,descripcion,especie,activo')
+      .eq('cuenta_id', cuentaId).order('nombre'), 'leer los casos'),
+    todasLasFilas(() => supabase.from('caso_videos').select('caso_id,punto_id,video_url,casos!inner(cuenta_id)')
+      .eq('casos.cuenta_id', cuentaId), 'leer los videos'),
   ]);
 
   const videosPorCaso = {};
-  (cvR.data || []).forEach((r) => {
+  cv.forEach((r) => {
     if (!videosPorCaso[r.caso_id]) videosPorCaso[r.caso_id] = {};
     videosPorCaso[r.caso_id][r.punto_id] = r.video_url;
   });
 
-  const casos = (casosR.data || []).map((c) => ({
-    ...c,
-    numVideos: Object.keys(videosPorCaso[c.id] || {}).length,
-  }));
-
   return {
-    puntos: puntosR.data || [],
-    casos,
+    puntos,
+    casos: casos.map((c) => ({ ...c, numVideos: Object.keys(videosPorCaso[c.id] || {}).length })),
     videosPorCaso,
   };
 }
 
+// Estado completo de UNA cuenta para el panel, con su cupo y uso.
+async function leerCuenta(supabase, cuentaId) {
+  const { data: cuenta } = exigir(await supabase.from('cuentas')
+    .select('id,slug,nombre,activa,cupo_casos_propios,cupo_storage_mb').eq('id', cuentaId).maybeSingle(),
+  'leer la cuenta');
+  if (!cuenta) throw new ErrorAdmin('Esa cuenta ya no existe.');
+  const datos = await leerTodo(supabase, cuentaId);
+  return {
+    cuentaId,
+    cuentaNombre: cuenta.nombre,
+    cuentaSlug: cuenta.slug,
+    cupoCasosPropios: cuenta.cupo_casos_propios,
+    cupoStorageMb: cuenta.cupo_storage_mb,
+    usoStorageMb: aMb(await usoStorageBytes(supabase, cuentaId)),
+    ...datos,
+  };
+}
+
+// Mismo resultado que leerTodo + el uso de storage ya actualizado.
+async function leerTodoConUso(supabase, cuentaId) {
+  const datos = await leerTodo(supabase, cuentaId);
+  return { ...datos, usoStorageMb: aMb(await usoStorageBytes(supabase, cuentaId)) };
+}
+
+// El caso debe ser DE ESTA cuenta, verificado a nivel de consulta (no solo
+// por el chequeo de permiso): así un casoId ajeno nunca toca nada.
+async function casoDeCuenta(supabase, cuentaId, casoId) {
+  const { data } = exigir(await supabase.from('casos').select('id,especie')
+    .eq('id', casoId).eq('cuenta_id', cuentaId).maybeSingle(), 'leer el caso');
+  if (!data) throw new ErrorAdmin('Ese caso ya no existe.');
+  return data;
+}
+
 // ---------- lectura inicial ----------
 
+// La llama la página /admin (Server Component), que atrapa el error y
+// muestra un mensaje según su "codigo" (sin sesión, sin perfil, cuenta
+// desactivada, error de red). Por eso esta SÍ lanza, en vez de devolver
+// {error}.
 export async function leerDatosAdmin() {
   const { rol, cuentaId } = await requerirAdmin();
   const supabase = crearClienteAdmin();
   if (rol === 'super_admin') {
-    const cuentas = await listarCuentasInterno(supabase);
     return {
-      rol, cuentaId: null, cuentas,
+      rol, cuentaId: null,
+      cuentas: await listarCuentasInterno(supabase),
       cupoCasosPropios: null, cupoStorageMb: null, usoStorageMb: null,
       puntos: [], casos: [], videosPorCaso: {},
       solicitudes: await listarSolicitudesInterno(supabase),
     };
   }
-  const { data: cuenta } = await supabase.from('cuentas').select('nombre,cupo_casos_propios,cupo_storage_mb').eq('id', cuentaId).single();
-  const datos = await leerTodo(supabase, cuentaId);
-  const usoBytes = await usoStorageBytes(supabase, cuentaId);
-  return {
-    rol, cuentaId, cuentas: null,
-    cuentaNombre: cuenta.nombre,
-    cupoCasosPropios: cuenta.cupo_casos_propios,
-    cupoStorageMb: cuenta.cupo_storage_mb,
-    usoStorageMb: Math.round(usoBytes / (1024 * 1024)),
-    ...datos,
-  };
+  return { rol, cuentas: null, ...(await leerCuenta(supabase, cuentaId)) };
 }
 
 // El super_admin cambia de cuenta sin recargar la página.
 export async function elegirCuentaAdmin(cuentaId) {
-  await requerirSuperAdmin();
-  const supabase = crearClienteAdmin();
-  const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios,cupo_storage_mb').eq('id', cuentaId).single();
-  const datos = await leerTodo(supabase, cuentaId);
-  const usoBytes = await usoStorageBytes(supabase, cuentaId);
-  return {
-    cuentaId,
-    cupoCasosPropios: cuenta.cupo_casos_propios,
-    cupoStorageMb: cuenta.cupo_storage_mb,
-    usoStorageMb: Math.round(usoBytes / (1024 * 1024)),
-    ...datos,
-  };
+  return conErrores(async () => {
+    await requerirSuperAdmin();
+    return leerCuenta(crearClienteAdmin(), cuentaId);
+  });
 }
+
+// ---------- cuentas (solo super_admin) ----------
 
 // Alta de una cuenta de cliente nueva: crea el usuario de Auth con una
 // contraseña temporal, la fila en "cuentas" y su perfil 'cliente' ligado a
-// esa cuenta. Solo el super_admin puede hacerlo.
+// esa cuenta.
 //
-// Antes se usaba inviteUserByEmail (manda un correo con un enlace mágico),
-// pero ese flujo no es compatible con el cliente de navegador (configurado
-// para PKCE): ningún cliente invitado podía llegar a iniciar sesión (ver
-// revisión final de rama). Por eso ahora se crea el usuario con una
-// contraseña temporal de un solo uso, que el super_admin copia y le pasa
-// al cliente por fuera — sin depender de correo saliente ni de SMTP.
+// No se usa inviteUserByEmail (manda un enlace mágico): ese flujo no es
+// compatible con el cliente de navegador (configurado para PKCE). Por eso
+// se crea el usuario con una contraseña temporal, que el super_admin copia
+// y le pasa al cliente por fuera — sin depender de correo saliente.
 //
-// El orden importa: el usuario de Auth se crea PRIMERO. Si algo falla
-// después (slug duplicado, error de red…), lo único que puede quedar a
-// medias es un usuario de Auth sin cuenta/perfil — nunca una cuenta o un
-// perfil apuntando a un usuario que no llegó a existir.
+// El orden importa: la cuenta se crea PRIMERO (es lo que más falla: slug
+// repetido) y el usuario después; si el usuario o el perfil fallan, se
+// deshace lo hecho, para no dejar nada a medias.
 export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageMb, correo }) {
-  await requerirSuperAdmin();
-  const supabase = crearClienteAdmin();
+  return conErrores(async () => {
+    await requerirSuperAdmin();
+    const supabase = crearClienteAdmin();
 
-  const slugLimpio = (slug || '').trim();
-  const nombreLimpio = (nombre || '').trim();
-  const correoLimpio = (correo || '').trim();
-  if (!slugLimpio || !nombreLimpio || !correoLimpio) {
-    return { error: 'Completa slug, nombre y correo para crear la cuenta.' };
-  }
+    const slugLimpio = normalizarSlug(slug);
+    const nombreLimpio = texto(nombre, 120);
+    const correoLimpio = texto(correo, 200).toLowerCase();
+    if (!nombreLimpio) throw new ErrorAdmin('Escribe el nombre de la clínica.');
+    if (!slugValido(slugLimpio)) {
+      throw new ErrorAdmin('El enlace (slug) debe tener entre 3 y 40 letras, números o guiones, p. ej. "clinica-norte".');
+    }
+    if (!correoValido(correoLimpio)) throw new ErrorAdmin('Escribe un correo válido para el cliente.');
+    const cupoCasos = cupo(cupoCasosPropios, 'cupo de casos');
+    const cupoStorage = cupo(cupoStorageMb, 'cupo de almacenamiento');
 
-  // 1. Contraseña temporal para el primer ingreso del cliente.
-  const tempPassword = randomUUID().replace(/-/g, '').slice(0, 12);
+    const { data: nuevaCuenta, error } = await supabase
+      .from('cuentas')
+      .insert({ slug: slugLimpio, nombre: nombreLimpio, cupo_casos_propios: cupoCasos, cupo_storage_mb: cupoStorage })
+      .select('id').single();
+    if (error) {
+      if (error.code === '23505') throw new ErrorAdmin('Ya existe una cuenta con el enlace "' + slugLimpio + '".');
+      exigir({ error }, 'crear la cuenta');
+    }
 
-  // 2. El usuario de Auth, PRIMERO.
-  const usuario = await supabase.auth.admin.createUser({
-    email: correoLimpio,
-    password: tempPassword,
-    email_confirm: true,
+    const clave = claveTemporal();
+    const usuario = await supabase.auth.admin.createUser({ email: correoLimpio, password: clave, email_confirm: true });
+    if (usuario.error) {
+      await supabase.from('cuentas').delete().eq('id', nuevaCuenta.id);
+      const yaExiste = /already|registered|exists/i.test(usuario.error.message || '');
+      throw new ErrorAdmin(yaExiste
+        ? 'Ya hay un usuario con el correo ' + correoLimpio + '. No se creó la cuenta.'
+        : 'No se pudo crear el usuario. No se creó la cuenta.');
+    }
+
+    const { error: errorPerfil } = await supabase
+      .from('perfiles').insert({ id: usuario.data.user.id, rol: 'cliente', cuenta_id: nuevaCuenta.id });
+    if (errorPerfil) {
+      await supabase.auth.admin.deleteUser(usuario.data.user.id);
+      await supabase.from('cuentas').delete().eq('id', nuevaCuenta.id);
+      exigir({ error: errorPerfil }, 'crear el acceso del cliente');
+    }
+
+    return { cuentas: await listarCuentasInterno(supabase), claveTemporal: clave, correo: correoLimpio, slug: slugLimpio };
   });
-  if (usuario.error) {
-    return { error: 'No se pudo crear el usuario: ' + usuario.error.message };
-  }
+}
 
-  // 3. La cuenta (cliente/clínica), solo si el usuario se creó bien.
-  const { data: nuevaCuenta, error } = await supabase
-    .from('cuentas')
-    .insert({
-      slug: slugLimpio,
+// Editar nombre, cupos y si está activa (una cuenta desactivada no deja
+// entrar a su cliente al panel y su enlace de estudiantes deja de
+// funcionar, pero no se borra nada).
+export async function actualizarCuenta(cuentaId, { nombre, cupoCasosPropios, cupoStorageMb, activa }) {
+  return conErrores(async () => {
+    await requerirSuperAdmin();
+    const supabase = crearClienteAdmin();
+    const nombreLimpio = texto(nombre, 120);
+    if (!nombreLimpio) throw new ErrorAdmin('El nombre no puede quedar vacío.');
+    exigir(await supabase.from('cuentas').update({
       nombre: nombreLimpio,
-      cupo_casos_propios: Number(cupoCasosPropios) || 0,
-      cupo_storage_mb: Number(cupoStorageMb) || 0,
-    })
-    .select('id').single();
-  if (error) {
-    const detalle = error.code === '23505' ? 'ya existe una cuenta con ese slug.' : error.message + '.';
-    return {
-      error: 'El usuario ya se creó con el correo ' + correoLimpio + '; bórralo desde Supabase ' +
-        '(Authentication → Users) si no vas a reintentar. No se pudo crear la cuenta: ' + detalle,
-    };
-  }
+      cupo_casos_propios: cupo(cupoCasosPropios, 'cupo de casos'),
+      cupo_storage_mb: cupo(cupoStorageMb, 'cupo de almacenamiento'),
+      activa: !!activa,
+    }).eq('id', cuentaId), 'guardar la cuenta');
+    return { cuentas: await listarCuentasInterno(supabase), ...(await leerCuenta(supabase, cuentaId)) };
+  });
+}
 
-  // 4. El perfil 'cliente', solo si la cuenta se creó bien.
-  const { error: errorPerfil } = await supabase
-    .from('perfiles')
-    .insert({ id: usuario.data.user.id, rol: 'cliente', cuenta_id: nuevaCuenta.id });
-  if (errorPerfil) {
-    return {
-      error: 'El usuario ya se creó con el correo ' + correoLimpio + ' y la cuenta "' + nombreLimpio +
-        '" también; bórralos desde Supabase (Authentication → Users y la tabla cuentas) si no vas a ' +
-        'reintentar. No se pudo crear el perfil: ' + errorPerfil.message,
-    };
-  }
-
-  return { cuentas: await listarCuentasInterno(supabase), claveTemporal: tempPassword };
+// El cliente olvidó su contraseña: se le genera otra temporal (se muestra
+// una sola vez al super_admin, que se la pasa por fuera).
+export async function restablecerClaveCuenta(cuentaId) {
+  return conErrores(async () => {
+    await requerirSuperAdmin();
+    const supabase = crearClienteAdmin();
+    const { data: perfiles } = exigir(await supabase.from('perfiles').select('id').eq('cuenta_id', cuentaId),
+      'leer los accesos de la cuenta');
+    if (!perfiles?.length) throw new ErrorAdmin('Esta cuenta no tiene ningún acceso de administrador.');
+    const clave = claveTemporal();
+    const correos = [];
+    for (const p of perfiles) {
+      const r = await supabase.auth.admin.updateUserById(p.id, { password: clave });
+      exigir(r, 'cambiar la contraseña');
+      correos.push(r.data.user.email);
+    }
+    return { claveTemporal: clave, correos };
+  });
 }
 
 // Borra una cuenta COMPLETA y sin reversa: sus videos (Storage), sus
@@ -266,232 +403,269 @@ export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageM
 // borrar la SUYA; el super_admin puede borrar cualquiera.
 //
 // Si quien borra es el cliente dueño de la cuenta, se está borrando a sí
-// mismo: no tiene sentido devolverle datos (ya no tiene cuenta ni
-// sesión), así que cerramos su sesión y lo mandamos a /admin/login.
+// mismo: cerramos su sesión y devolvemos {cuentaEliminada: true}; el panel
+// lo lleva a /admin/login. No se usa redirect(): llamado desde el panel,
+// Next.js lo entrega como una excepción en el navegador, que se mostraba
+// como error de conexión aunque el borrado hubiera salido bien.
 export async function eliminarCuenta(cuentaId) {
-  // redirect() de Next funciona lanzando una excepción especial que su
-  // propio framework atrapa más arriba — por eso va DESPUÉS del
-  // try/catch, nunca dentro: si quedara dentro, este catch la
-  // atraparía como un error cualquiera y rompería la redirección.
-  let rol;
-  try {
-    const r = await requerirAdmin();
-    rol = r.rol;
-    if (rol === 'cliente' && cuentaId !== r.cuentaId) throw new Error('No autorizado');
+  const r = await conErrores(async () => {
+    const { rol } = await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
 
-    const { data: cuenta } = await supabase.from('cuentas').select('id').eq('id', cuentaId).maybeSingle();
-    if (!cuenta) throw new Error('Esa cuenta ya no existe.');
+    const { data: cuenta } = exigir(await supabase.from('cuentas').select('id').eq('id', cuentaId).maybeSingle(),
+      'leer la cuenta');
+    if (!cuenta) throw new ErrorAdmin('Esa cuenta ya no existe.');
 
     // 1. Videos de Storage de TODOS los casos de esta cuenta.
-    const { data: vids } = await supabase
-      .from('caso_videos').select('video_url, casos!inner(cuenta_id)').eq('casos.cuenta_id', cuentaId);
-    await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
+    const vids = await todasLasFilas(() => supabase
+      .from('caso_videos').select('video_url, casos!inner(cuenta_id)').eq('casos.cuenta_id', cuentaId),
+    'leer los videos de la cuenta');
+    await borrarVideosStorage(supabase, vids.map((v) => v.video_url));
 
-    // 2. Casos (cascade borra sus caso_videos) y puntos (cascade borra
-    // cualquier caso_videos que quedara, aunque ya no debería quedar
-    // ninguno tras el paso anterior).
-    await supabase.from('casos').delete().eq('cuenta_id', cuentaId);
-    await supabase.from('puntos').delete().eq('cuenta_id', cuentaId);
+    // 2. Casos (cascade borra sus caso_videos) y puntos.
+    exigir(await supabase.from('casos').delete().eq('cuenta_id', cuentaId), 'borrar los casos');
+    exigir(await supabase.from('puntos').delete().eq('cuenta_id', cuentaId), 'borrar los puntos');
 
-    // 3. Usuario(s) de Auth de esta cuenta: borra el login, y de paso su
-    // fila en "perfiles" (cascade). Normalmente es uno solo, pero no
-    // asumimos cuántos por si acaso.
-    const { data: perfilesCuenta } = await supabase.from('perfiles').select('id').eq('cuenta_id', cuentaId);
+    // 3. Usuario(s) de Auth de esta cuenta (y su perfil, por cascade).
+    const { data: perfilesCuenta } = exigir(await supabase.from('perfiles').select('id').eq('cuenta_id', cuentaId),
+      'leer los accesos de la cuenta');
     for (const p of perfilesCuenta || []) {
-      await supabase.auth.admin.deleteUser(p.id);
+      exigir(await supabase.auth.admin.deleteUser(p.id), 'borrar el acceso del administrador');
     }
 
     // 4. La cuenta misma.
-    await supabase.from('cuentas').delete().eq('id', cuentaId);
-  } catch (err) {
-    return { error: err?.message || 'No se pudo borrar la cuenta.' };
-  }
+    exigir(await supabase.from('cuentas').delete().eq('id', cuentaId), 'borrar la cuenta');
 
-  if (rol === 'cliente') {
-    await crearClienteServidorAuth().auth.signOut();
-    redirect('/admin/login?cuenta_eliminada=1');
-  }
+    if (rol === 'cliente') return { cerrarSesion: true };
+    return {
+      cuentaId: null, cuentas: await listarCuentasInterno(supabase),
+      cupoCasosPropios: null, cupoStorageMb: null, usoStorageMb: null,
+      puntos: [], casos: [], videosPorCaso: {},
+    };
+  });
 
-  const supabase = crearClienteAdmin();
-  return {
-    cuentaId: null, cuentas: await listarCuentasInterno(supabase),
-    cupoCasosPropios: null, cupoStorageMb: null, usoStorageMb: null,
-    puntos: [], casos: [], videosPorCaso: {},
-  };
+  if (r?.cerrarSesion) {
+    // Su usuario ya no existe: signOut puede responder con error, pero lo
+    // que importa es que borre las cookies de sesión de este navegador.
+    try { await crearClienteServidorAuth().auth.signOut(); } catch {}
+    return { cuentaEliminada: true };
+  }
+  return r;
+}
+
+// Borra de Storage los videos que ya no usa ningún caso: subidas que no
+// se terminaron de guardar (pestaña cerrada a media subida), restos de
+// borrados que fallaron a medias… Ocupan espacio (y cuestan) sin contar
+// para el cupo de nadie. Solo toca archivos con más de 24 h, para no
+// pisar una subida que esté ocurriendo justo ahora.
+export async function limpiarVideosHuerfanos() {
+  return conErrores(async () => {
+    await requerirSuperAdmin();
+    const supabase = crearClienteAdmin();
+
+    const usados = new Set((await todasLasFilas(() => supabase.from('caso_videos').select('video_url'),
+      'leer los videos en uso'))
+      .map((r) => (r.video_url || '').split(PREFIJO_PUBLICO)[1]).filter(Boolean));
+
+    // Lista una carpeta entera de Storage (de 1000 en 1000).
+    async function listar(prefijo) {
+      const items = [];
+      for (let offset = 0; ; offset += 1000) {
+        const { data } = exigir(await supabase.storage.from(BUCKET)
+          .list(prefijo, { limit: 1000, offset }), 'listar los videos');
+        items.push(...(data || []));
+        if (!data || data.length < 1000) return items;
+      }
+    }
+
+    const limite = Date.now() - 24 * 60 * 60 * 1000;
+    const huerfanos = [];
+    let bytes = 0;
+    const revisar = (ruta, item) => {
+      const fecha = Date.parse(item.created_at || item.updated_at || '');
+      if (!usados.has(ruta) && Number.isFinite(fecha) && fecha < limite) {
+        huerfanos.push(ruta);
+        bytes += Number(item.metadata?.size) || 0;
+      }
+    };
+    for (const item of await listar('')) {
+      if (item.id) revisar(item.name, item); // archivo suelto en la raíz (videos viejos)
+      else for (const sub of await listar(item.name)) if (sub.id) revisar(item.name + '/' + sub.name, sub);
+    }
+
+    for (let i = 0; i < huerfanos.length; i += 100) {
+      exigir(await supabase.storage.from(BUCKET).remove(huerfanos.slice(i, i + 100)), 'borrar los videos huérfanos');
+    }
+    return { borrados: huerfanos.length, liberadosMb: aMb(bytes) };
+  });
 }
 
 // ---------- solicitudes de contacto (solo super_admin) ----------
 
 export async function listarSolicitudes() {
-  await requerirSuperAdmin();
-  return listarSolicitudesInterno(crearClienteAdmin());
+  return conErrores(async () => {
+    await requerirSuperAdmin();
+    return { solicitudes: await listarSolicitudesInterno(crearClienteAdmin()) };
+  });
 }
 
 export async function actualizarEstadoSolicitud(id, estado) {
-  await requerirSuperAdmin();
-  const supabase = crearClienteAdmin();
-  const valores = ['nueva', 'contactada', 'convertida', 'descartada'];
-  if (!valores.includes(estado)) throw new Error('Estado inválido');
-  await supabase.from('solicitudes_contacto').update({ estado }).eq('id', id);
-  return { solicitudes: await listarSolicitudesInterno(supabase) };
-}
-
-// ---------- casos activos ----------
-
-// Enciende o apaga el interruptor de UN caso, sin tocar los demás: puede
-// haber varios casos activos (en el menú del estudiante) a la vez.
-export async function alternarCasoActivo(cuentaId, casoId, activo) {
-  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
-  const supabase = crearClienteAdmin();
-  await supabase.from('casos').update({ activo: !!activo }).eq('id', casoId).eq('cuenta_id', cuentaId);
-  return leerTodo(supabase, cuentaId);
+  return conErrores(async () => {
+    await requerirSuperAdmin();
+    const supabase = crearClienteAdmin();
+    if (!['nueva', 'contactada', 'convertida', 'descartada'].includes(estado)) throw new ErrorAdmin('Estado inválido.');
+    exigir(await supabase.from('solicitudes_contacto').update({ estado }).eq('id', id), 'cambiar el estado');
+    return { solicitudes: await listarSolicitudesInterno(supabase) };
+  });
 }
 
 // ---------- casos ----------
 
+// Enciende o apaga el interruptor de UN caso, sin tocar los demás: puede
+// haber varios casos activos (en el menú del estudiante) a la vez.
+export async function alternarCasoActivo(cuentaId, casoId, activo) {
+  return conErrores(async () => {
+    await requerirAccesoCuenta(cuentaId);
+    const supabase = crearClienteAdmin();
+    exigir(await supabase.from('casos').update({ activo: !!activo }).eq('id', casoId).eq('cuenta_id', cuentaId),
+      'cambiar el caso');
+    return leerTodo(supabase, cuentaId);
+  });
+}
+
 export async function crearCaso(cuentaId, nombre, especie) {
-  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
-  const supabase = crearClienteAdmin();
+  return conErrores(async () => {
+    const { rol } = await requerirAccesoCuenta(cuentaId);
+    const supabase = crearClienteAdmin();
 
-  // El cupo es TOTAL: cuenta todos los casos que tenga la cuenta, sin
-  // importar quién los creó (los que añade el cliente + los que el equipo
-  // precarga) — contarCasosDeCuenta no filtra por autor. Lo que distingue
-  // el rol es solo que este chequeo BLOQUEA al cliente; el super_admin
-  // puede seguir precargando casos sin que este if lo detenga (esos casos
-  // precargados sí cuentan para el total que ve el cliente después).
-  if (rol === 'cliente') {
-    const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios').eq('id', cuentaId).single();
-    const n = await contarCasosDeCuenta(supabase, cuentaId);
-    if (n >= cuenta.cupo_casos_propios) {
-      return { error: 'Llegaste al límite de casos de tu plan. Contacta a tu asesor para ampliarlo.' };
+    // El cupo es TOTAL: cuenta todos los casos que tenga la cuenta, sin
+    // importar quién los creó. Lo que distingue el rol es solo que este
+    // chequeo BLOQUEA al cliente; el super_admin puede seguir precargando
+    // casos (que sí cuentan para el total que ve el cliente después).
+    if (rol === 'cliente') {
+      const { data: cuenta } = exigir(await supabase.from('cuentas').select('cupo_casos_propios')
+        .eq('id', cuentaId).single(), 'leer el cupo');
+      if (await contarCasosDeCuenta(supabase, cuentaId) >= cuenta.cupo_casos_propios) {
+        throw new ErrorAdmin('Llegaste al límite de casos de tu plan. Contacta a tu asesor para ampliarlo.');
+      }
     }
-  }
 
-  const { data: nuevo } = await supabase
-    .from('casos')
-    .insert({ nombre: (nombre || '').trim() || 'Caso nuevo', especie: especieOk(especie), cuenta_id: cuentaId })
-    .select('id').single();
-
-  // Si no había ningún caso activo EN ESTA CUENTA, activamos este (cada
-  // cuenta prende su propio primer caso; no depende de otras cuentas).
-  const { data: casos } = await supabase.from('casos').select('activo').eq('cuenta_id', cuentaId);
-  if (!(casos || []).some((c) => c.activo) && nuevo?.id) {
-    await supabase.from('casos').update({ activo: true }).eq('id', nuevo.id);
-  }
-  return leerTodo(supabase, cuentaId);
+    // Si no había ningún caso activo EN ESTA CUENTA, este nace activo.
+    const { count: activos } = exigir(await supabase.from('casos').select('id', { count: 'exact', head: true })
+      .eq('cuenta_id', cuentaId).eq('activo', true), 'leer los casos');
+    exigir(await supabase.from('casos').insert({
+      nombre: texto(nombre, 120) || 'Caso nuevo', especie: especieOk(especie), cuenta_id: cuentaId, activo: !activos,
+    }), 'crear el caso');
+    return leerTodo(supabase, cuentaId);
+  });
 }
 
 export async function renombrarCaso(cuentaId, casoId, nombre) {
-  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
-  const supabase = crearClienteAdmin();
-  await supabase.from('casos').update({ nombre: (nombre || '').trim() || 'Caso' }).eq('id', casoId).eq('cuenta_id', cuentaId);
-  return leerTodo(supabase, cuentaId);
+  return conErrores(async () => {
+    await requerirAccesoCuenta(cuentaId);
+    const supabase = crearClienteAdmin();
+    exigir(await supabase.from('casos').update({ nombre: texto(nombre, 120) || 'Caso' })
+      .eq('id', casoId).eq('cuenta_id', cuentaId), 'renombrar el caso');
+    return leerTodo(supabase, cuentaId);
+  });
 }
 
 export async function describirCaso(cuentaId, casoId, descripcion) {
-  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
-  const supabase = crearClienteAdmin();
-  await supabase.from('casos').update({ descripcion: (descripcion || '').trim() }).eq('id', casoId).eq('cuenta_id', cuentaId);
-  return leerTodo(supabase, cuentaId);
+  return conErrores(async () => {
+    await requerirAccesoCuenta(cuentaId);
+    const supabase = crearClienteAdmin();
+    exigir(await supabase.from('casos').update({ descripcion: texto(descripcion, 500) })
+      .eq('id', casoId).eq('cuenta_id', cuentaId), 'guardar la descripción');
+    return leerTodo(supabase, cuentaId);
+  });
 }
 
+// Cambiar la especie deja inservibles los videos asignados a puntos de la
+// especie anterior (el estudiante ya no vería esos puntos): se borran, para
+// no seguir ocupando cupo de storage a escondidas. El panel lo avisa antes.
 export async function cambiarEspecieCaso(cuentaId, casoId, especie) {
-  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
-  const supabase = crearClienteAdmin();
-  await supabase.from('casos').update({ especie: especieOk(especie) }).eq('id', casoId).eq('cuenta_id', cuentaId);
-  return leerTodo(supabase, cuentaId);
+  return conErrores(async () => {
+    await requerirAccesoCuenta(cuentaId);
+    const supabase = crearClienteAdmin();
+    const caso = await casoDeCuenta(supabase, cuentaId, casoId);
+    const nueva = especieOk(especie);
+    if (caso.especie !== nueva) {
+      const { data: vids } = exigir(await supabase.from('caso_videos')
+        .select('punto_id, video_url, puntos!inner(especie)').eq('caso_id', casoId).neq('puntos.especie', nueva),
+      'leer los videos del caso');
+      if (vids?.length) {
+        await borrarVideosStorage(supabase, vids.map((v) => v.video_url));
+        exigir(await supabase.from('caso_videos').delete().eq('caso_id', casoId)
+          .in('punto_id', vids.map((v) => v.punto_id)), 'quitar los videos del caso');
+      }
+      exigir(await supabase.from('casos').update({ especie: nueva }).eq('id', casoId).eq('cuenta_id', cuentaId),
+        'cambiar la especie');
+    }
+    return leerTodoConUso(supabase, cuentaId);
+  });
 }
 
 export async function eliminarCaso(cuentaId, casoId) {
-  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
-  const supabase = crearClienteAdmin();
-
-  // Confirmamos que el caso sea DE ESTA cuenta antes de tocar Storage: así
-  // un casoId ajeno (de otra cuenta) no borra videos de nadie — ni siquiera
-  // de paso — aunque el chequeo de arriba tuviera un error.
-  const { data: propio } = await supabase
-    .from('casos').select('id').eq('id', casoId).eq('cuenta_id', cuentaId).maybeSingle();
-  if (!propio) return leerTodo(supabase, cuentaId);
-
-  const { data: vids } = await supabase.from('caso_videos').select('video_url').eq('caso_id', casoId);
-  await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
-  // Al borrar el caso, sus caso_videos se borran solos (cascade).
-  await supabase.from('casos').delete().eq('id', casoId).eq('cuenta_id', cuentaId);
-  return leerTodo(supabase, cuentaId);
+  return conErrores(async () => {
+    await requerirAccesoCuenta(cuentaId);
+    const supabase = crearClienteAdmin();
+    await casoDeCuenta(supabase, cuentaId, casoId);
+    const { data: vids } = exigir(await supabase.from('caso_videos').select('video_url').eq('caso_id', casoId),
+      'leer los videos del caso');
+    // Primero la fila (cascade borra sus caso_videos) y DESPUÉS los
+    // archivos: si el borrado falla, el caso sigue intacto con sus videos.
+    exigir(await supabase.from('casos').delete().eq('id', casoId).eq('cuenta_id', cuentaId), 'borrar el caso');
+    await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
+    return leerTodoConUso(supabase, cuentaId);
+  });
 }
 
 // ---------- puntos del maniquí (propios de cada cuenta) ----------
-// Mismo modelo de permiso que "casos": cualquier admin puede tocar los
-// puntos de SU cuenta; el super_admin puede tocar los de cualquiera.
 
-// Las 3 funciones de abajo atrapan CUALQUIER error y lo devuelven como
-// {error} en vez de dejarlo tirar — en build de PRODUCCIÓN, Next.js
-// reemplaza el mensaje de cualquier excepción sin atrapar en una Server
-// Action por un texto genérico ("An error occurred in the Server
-// Components render...", sin detalle, ver next.config/comportamiento de
-// Next 15), así que un throw() aquí es indistinguible de cualquier otra
-// falla para quien lo ve en pantalla. Mismo patrón que crearCuenta.
 export async function addPunto(cuentaId, { especie, vista }) {
-  try {
-    const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-    if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
+  return conErrores(async () => {
+    await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
-    const { data: nuevo } = await supabase
+    const { data: nuevo } = exigir(await supabase
       .from('puntos')
       .insert({ cuenta_id: cuentaId, especie: especieOk(especie), vista: vistaOk(vista), nombre: 'Punto nuevo', x: 50, y: 45 })
-      .select('id').single();
-    const datos = await leerTodo(supabase, cuentaId);
-    return { ...datos, nuevoPuntoId: nuevo?.id || null };
-  } catch (err) {
-    return { error: err?.message || 'No se pudo crear el punto.' };
-  }
+      .select('id').single(), 'crear el punto');
+    return { ...(await leerTodo(supabase, cuentaId)), nuevoPuntoId: nuevo?.id || null };
+  });
 }
 
 export async function actualizarPunto(cuentaId, puntoId, campos) {
-  try {
-    const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-    if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
+  return conErrores(async () => {
+    await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
     const limpio = {};
-    if (typeof campos.nombre === 'string') limpio.nombre = campos.nombre.trim() || 'Punto';
-    if (typeof campos.x === 'number') limpio.x = campos.x;
-    if (typeof campos.y === 'number') limpio.y = campos.y;
-    if (campos.vista) limpio.vista = vistaOk(campos.vista);
-    if (campos.especie) limpio.especie = especieOk(campos.especie);
+    const coord = (v) => Math.max(0, Math.min(100, Math.round(v * 10) / 10));
+    if (typeof campos?.nombre === 'string') limpio.nombre = texto(campos.nombre, 80) || 'Punto';
+    if (Number.isFinite(campos?.x)) limpio.x = coord(campos.x);
+    if (Number.isFinite(campos?.y)) limpio.y = coord(campos.y);
+    if (campos?.vista) limpio.vista = vistaOk(campos.vista);
     if (Object.keys(limpio).length) {
-      await supabase.from('puntos').update(limpio).eq('id', puntoId).eq('cuenta_id', cuentaId);
+      exigir(await supabase.from('puntos').update(limpio).eq('id', puntoId).eq('cuenta_id', cuentaId),
+        'guardar el punto');
     }
     return leerTodo(supabase, cuentaId);
-  } catch (err) {
-    return { error: err?.message || 'No se pudo guardar el punto.' };
-  }
+  });
 }
 
 export async function eliminarPunto(cuentaId, puntoId) {
-  try {
-    const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-    if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
+  return conErrores(async () => {
+    await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
-    // Verifica que el punto sea de ESTA cuenta ANTES de tocar storage: si
-    // solo filtráramos el delete final por cuenta_id, un id ajeno haría el
-    // delete un no-op pero ya habríamos borrado los videos de OTRA cuenta.
-    const { data: punto } = await supabase
-      .from('puntos').select('id').eq('id', puntoId).eq('cuenta_id', cuentaId).maybeSingle();
-    if (!punto) throw new Error('No autorizado');
-    const { data: vids } = await supabase.from('caso_videos').select('video_url').eq('punto_id', puntoId);
+    // Verifica que el punto sea de ESTA cuenta ANTES de tocar storage.
+    const { data: punto } = exigir(await supabase
+      .from('puntos').select('id').eq('id', puntoId).eq('cuenta_id', cuentaId).maybeSingle(), 'leer el punto');
+    if (!punto) throw new ErrorAdmin('Ese punto ya no existe.');
+    const { data: vids } = exigir(await supabase.from('caso_videos').select('video_url').eq('punto_id', puntoId),
+      'leer los videos del punto');
+    exigir(await supabase.from('puntos').delete().eq('id', puntoId).eq('cuenta_id', cuentaId), 'borrar el punto'); // cascade borra sus caso_videos
     await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
-    await supabase.from('puntos').delete().eq('id', puntoId).eq('cuenta_id', cuentaId); // cascade borra sus caso_videos
-    return leerTodo(supabase, cuentaId);
-  } catch (err) {
-    return { error: err?.message || 'No se pudo borrar el punto.' };
-  }
+    return leerTodoConUso(supabase, cuentaId);
+  });
 }
 
 // ---------- videos por caso ----------
@@ -500,143 +674,112 @@ export async function eliminarPunto(cuentaId, puntoId) {
 // el archivo directamente a Storage (sin pasar el video por nuestra
 // función, que tiene límite de tamaño).
 export async function crearUrlSubidaVideo(cuentaId, tamanoBytes) {
-  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
-  const supabase = crearClienteAdmin();
-
-  // El cupo de storage solo limita al CLIENTE (igual que el cupo de casos:
-  // el super_admin precarga sin tope). Se revisa ANTES de firmar la URL de
-  // subida —con el tamaño que el navegador ya conoce, sin haber mandado
-  // ni un byte— así un video que por sí solo ya excede lo que queda del
-  // cupo se bloquea de entrada, nunca a mitad de la subida.
-  if (rol === 'cliente') {
-    const { data: cuenta } = await supabase.from('cuentas').select('cupo_storage_mb').eq('id', cuentaId).single();
-    const usoActual = await usoStorageBytes(supabase, cuentaId);
-    if (usoActual + tamanoBytes > cuenta.cupo_storage_mb * 1024 * 1024) {
-      return { error: 'Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.' };
+  return conErrores(async () => {
+    const { rol } = await requerirAccesoCuenta(cuentaId);
+    const supabase = crearClienteAdmin();
+    const tamano = Number(tamanoBytes);
+    if (!Number.isFinite(tamano) || tamano <= 0) throw new ErrorAdmin('El archivo de video está vacío.');
+    if (tamano > MAX_BYTES_VIDEO) {
+      throw new ErrorAdmin('El video pesa ' + aMb(tamano) + ' MB; el máximo es ' + aMb(MAX_BYTES_VIDEO) + ' MB por video.');
     }
-  }
 
-  // El path empieza con la cuenta dueña: guardarVideoCaso lo exige antes de
-  // aceptar cualquier subida/reemplazo (ver Paso 1 de la revisión final —
-  // antes un path sin prefijo dejaba a un cliente apuntar al video de OTRA
-  // cuenta y, de paso, borrarlo).
-  const path = cuentaId + '/' + randomUUID() + '.mp4';
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(path);
-  if (error) throw new Error('No se pudo preparar la subida: ' + error.message);
-  return { path: data.path, token: data.token };
+    // El cupo de storage solo limita al CLIENTE. Se revisa ANTES de firmar
+    // la URL (con el tamaño que el navegador ya conoce); guardarVideoCaso
+    // lo vuelve a revisar con el tamaño REAL ya subido.
+    if (rol === 'cliente') {
+      const { data: cuenta } = exigir(await supabase.from('cuentas').select('cupo_storage_mb')
+        .eq('id', cuentaId).single(), 'leer el cupo');
+      if (await usoStorageBytes(supabase, cuentaId) + tamano > cuenta.cupo_storage_mb * 1024 * 1024) {
+        throw new ErrorAdmin('Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.');
+      }
+    }
+
+    // El path empieza con la cuenta dueña: guardarVideoCaso lo exige.
+    const path = cuentaId + '/' + randomUUID() + '.mp4';
+    const { data } = exigir(await supabase.storage.from(BUCKET).createSignedUploadUrl(path), 'preparar la subida');
+    return { path: data.path, token: data.token };
+  });
 }
 
 // Paso 2: tras subir, guardamos la URL pública en caso_videos.
-export async function guardarVideoCaso(cuentaId, casoId, puntoId, path, tamanoBytes) {
-  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
-  const supabase = crearClienteAdmin();
+export async function guardarVideoCaso(cuentaId, casoId, puntoId, path) {
+  return conErrores(async () => {
+    const { rol } = await requerirAccesoCuenta(cuentaId);
+    const supabase = crearClienteAdmin();
+    const caso = await casoDeCuenta(supabase, cuentaId, casoId);
 
-  // Confirmamos que el caso sea DE ESTA cuenta antes de escribir: así un
-  // casoId ajeno (de otra cuenta) no puede registrarse como video de esta
-  // cuenta ni sumarse a su cupo de storage, al nivel de la consulta misma
-  // (no solo por el chequeo de permiso de arriba).
-  const { data: propio } = await supabase
-    .from('casos').select('id').eq('id', casoId).eq('cuenta_id', cuentaId).maybeSingle();
-  if (!propio) throw new Error('No autorizado');
-
-  // El path TAMBIÉN debe ser de esta cuenta, y con la forma EXACTA que
-  // genera crearUrlSubidaVideo: "cuentaId/" + un uuid + ".mp4" (36 + 4
-  // caracteres). No basta con mirar el prefijo con startsWith: un path
-  // como "cuentaId/../../../../auth/v1/admin/users" TAMBIÉN "empieza con
-  // cuentaId/" como string, y más abajo se lo pasamos tal cual a
-  // supabase.storage.info(path) —una petición que hace el SERVIDOR con la
-  // clave service_role—, así que un path raro ahí podía forjar una
-  // petición privilegiada contra otra ruta de la API, no solo leer/
-  // escribir Storage. Los videos públicos delatan su path en la URL, así
-  // que sin validar esto a fondo un cliente también podía mandar el path
-  // real de OTRA cuenta junto a un casoId suyo y lograr que lo
-  // "reasignáramos" — y, de paso, que el bloque de abajo borre el video
-  // anterior en ESE path, que es de otra cuenta. Un path viejo (subido
-  // antes de este fix, sin el prefijo de cuenta) sigue funcionando para
-  // LEER: esto solo bloquea escribir/reemplazar con un path que no tenga
-  // esta forma exacta.
-  if (!path.startsWith(cuentaId + '/') || !/^[0-9a-f-]{36}\.mp4$/.test(path.slice(cuentaId.length + 1))) {
-    throw new Error('No autorizado');
-  }
-
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  const url = data.publicUrl;
-
-  // Tamaño REAL del archivo ya subido a Storage — no el tamanoBytes que
-  // mandó el navegador, que un cliente podría falsear para saltarse el
-  // cupo. Fallamos CERRADO si Storage no puede confirmar un tamaño de
-  // verdad (error, o info.size que no es un número finito >= 0 — p. ej.
-  // un path que nunca se llegó a subir): borramos lo que haya en ese path
-  // y rechazamos, en vez de caer de vuelta a tamanoBytes. Caer a
-  // tamanoBytes era el hueco: un cliente podía mandar el path de un
-  // archivo inexistente junto con un tamanoBytes negativo enorme —
-  // info.size salía undefined, el cupo se "verificaba" contra ese
-  // negativo (nunca lo supera) y ese número quedaba guardado en
-  // tamano_bytes, dejando el cupo de storage de esa cuenta roto para
-  // siempre (usoStorageBytes suma esa fila negativa en cada chequeo
-  // futuro, así que ya nunca vuelve a bloquear nada).
-  const { data: info, error: errorInfo } = await supabase.storage.from(BUCKET).info(path);
-  if (errorInfo || typeof info?.size !== 'number' || !Number.isFinite(info.size) || info.size < 0) {
-    await supabase.storage.from(BUCKET).remove([path]);
-    return { error: 'No se pudo verificar el video subido. Intenta de nuevo.' };
-  }
-  const tamanoReal = info.size;
-
-  // Mismo cálculo que ya hace crearUrlSubidaVideo, pero con el tamaño de
-  // verdad: si de todos modos se pasa del cupo, borramos lo que se acaba
-  // de subir y no guardamos la fila.
-  if (rol === 'cliente') {
-    const { data: cuenta } = await supabase.from('cuentas').select('cupo_storage_mb').eq('id', cuentaId).single();
-    const usoActual = await usoStorageBytes(supabase, cuentaId);
-    if (usoActual + tamanoReal > cuenta.cupo_storage_mb * 1024 * 1024) {
-      await borrarVideosStorage(supabase, [url]);
-      return { error: 'Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.' };
+    // El path debe ser de esta cuenta y con la forma EXACTA que genera
+    // crearUrlSubidaVideo: "cuentaId/" + un uuid + ".mp4". No basta con
+    // startsWith: "cuentaId/../../auth/v1/admin/users" también "empieza
+    // con cuentaId/", y más abajo se lo pasamos a supabase.storage.info()
+    // —una petición del SERVIDOR con la clave service_role—. También
+    // impide "reasignar" (y luego borrar) el video de OTRA cuenta.
+    if (typeof path !== 'string' || !path.startsWith(cuentaId + '/') ||
+        !/^[0-9a-f-]{36}\.mp4$/.test(path.slice(cuentaId.length + 1))) {
+      throw new ErrorAdmin('No autorizado.');
     }
-  }
 
-  // Si ya había un video en este punto/caso, borrar el archivo anterior.
-  const { data: prev } = await supabase
-    .from('caso_videos').select('video_url')
-    .eq('caso_id', casoId).eq('punto_id', puntoId).maybeSingle();
-  if (prev?.video_url && prev.video_url !== url) {
-    await borrarVideosStorage(supabase, [prev.video_url]);
-  }
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    const url = data.publicUrl;
+    const quitarSubida = () => supabase.storage.from(BUCKET).remove([path]);
 
-  await supabase.from('caso_videos').upsert({ caso_id: casoId, punto_id: puntoId, video_url: url, tamano_bytes: tamanoReal });
+    // El punto también debe ser de esta cuenta y de la especie del caso:
+    // si no, el video quedaría colgado de un punto que el estudiante de
+    // este caso nunca ve (o de un punto de otra clínica).
+    const { data: punto } = exigir(await supabase.from('puntos').select('especie')
+      .eq('id', puntoId).eq('cuenta_id', cuentaId).maybeSingle(), 'leer el punto');
+    if (!punto || punto.especie !== caso.especie) {
+      await quitarSubida();
+      throw new ErrorAdmin('Ese punto ya no existe en el maniquí de este caso.');
+    }
 
-  // Devolvemos también el uso de storage ya actualizado: así el contador
-  // del panel sube de inmediato tras la subida, sin recargar ni volver a
-  // elegir la cuenta (igual que el resto del panel, que vive de fusionar
-  // la respuesta de cada acción sobre el estado actual).
-  const datos = await leerTodo(supabase, cuentaId);
-  const usoBytes = await usoStorageBytes(supabase, cuentaId);
-  return { ...datos, usoStorageMb: Math.round(usoBytes / (1024 * 1024)) };
+    // Tamaño REAL del archivo ya subido a Storage — nunca uno que mande el
+    // navegador, que se podría falsear para saltarse el cupo. Si Storage no
+    // puede confirmarlo, se rechaza (fallar CERRADO).
+    const { data: info, error: errorInfo } = await supabase.storage.from(BUCKET).info(path);
+    if (errorInfo || typeof info?.size !== 'number' || !Number.isFinite(info.size) || info.size < 0) {
+      await quitarSubida();
+      throw new ErrorAdmin('No se pudo verificar el video subido. Intenta de nuevo.');
+    }
+    const tamanoReal = info.size;
+
+    if (rol === 'cliente') {
+      const { data: cuenta } = exigir(await supabase.from('cuentas').select('cupo_storage_mb')
+        .eq('id', cuentaId).single(), 'leer el cupo');
+      if (await usoStorageBytes(supabase, cuentaId) + tamanoReal > cuenta.cupo_storage_mb * 1024 * 1024) {
+        await quitarSubida();
+        throw new ErrorAdmin('Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.');
+      }
+    }
+
+    const { data: prev } = exigir(await supabase
+      .from('caso_videos').select('video_url')
+      .eq('caso_id', casoId).eq('punto_id', puntoId).maybeSingle(), 'leer el video anterior');
+
+    const { error: errGuardar } = await supabase.from('caso_videos')
+      .upsert({ caso_id: casoId, punto_id: puntoId, video_url: url, tamano_bytes: tamanoReal });
+    if (errGuardar) {
+      await quitarSubida();
+      exigir({ error: errGuardar }, 'guardar el video');
+    }
+    // Solo cuando el nuevo ya quedó guardado se borra el archivo anterior.
+    if (prev?.video_url && prev.video_url !== url) await borrarVideosStorage(supabase, [prev.video_url]);
+
+    return leerTodoConUso(supabase, cuentaId);
+  });
 }
 
 export async function quitarVideoCaso(cuentaId, casoId, puntoId) {
-  const { rol, cuentaId: miCuentaId } = await requerirAdmin();
-  if (rol === 'cliente' && cuentaId !== miCuentaId) throw new Error('No autorizado');
-  const supabase = crearClienteAdmin();
-
-  // Mismo chequeo que guardarVideoCaso: el caso debe ser DE ESTA cuenta,
-  // verificado a nivel de consulta (no solo por el chequeo de permiso de
-  // arriba), antes de tocar Storage o la fila de caso_videos.
-  const { data: propio } = await supabase
-    .from('casos').select('id').eq('id', casoId).eq('cuenta_id', cuentaId).maybeSingle();
-  if (!propio) throw new Error('No autorizado');
-
-  const { data: row } = await supabase
-    .from('caso_videos').select('video_url')
-    .eq('caso_id', casoId).eq('punto_id', puntoId).maybeSingle();
-  if (row?.video_url) await borrarVideosStorage(supabase, [row.video_url]);
-  await supabase.from('caso_videos').delete().eq('caso_id', casoId).eq('punto_id', puntoId);
-
-  // Mismo motivo que en guardarVideoCaso: refrescamos el uso de storage ya
-  // actualizado, así el contador del panel baja de inmediato al quitar un
-  // video, sin esperar a la próxima acción con cuenta.
-  const datos = await leerTodo(supabase, cuentaId);
-  const usoBytes = await usoStorageBytes(supabase, cuentaId);
-  return { ...datos, usoStorageMb: Math.round(usoBytes / (1024 * 1024)) };
+  return conErrores(async () => {
+    await requerirAccesoCuenta(cuentaId);
+    const supabase = crearClienteAdmin();
+    await casoDeCuenta(supabase, cuentaId, casoId);
+    const { data: row } = exigir(await supabase
+      .from('caso_videos').select('video_url')
+      .eq('caso_id', casoId).eq('punto_id', puntoId).maybeSingle(), 'leer el video');
+    exigir(await supabase.from('caso_videos').delete().eq('caso_id', casoId).eq('punto_id', puntoId),
+      'quitar el video');
+    if (row?.video_url) await borrarVideosStorage(supabase, [row.video_url]);
+    return leerTodoConUso(supabase, cuentaId);
+  });
 }

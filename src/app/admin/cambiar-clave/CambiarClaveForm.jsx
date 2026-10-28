@@ -7,16 +7,19 @@ export default function CambiarClaveForm() {
   return (
     <form className="login-box" action={formAction}>
       <div className="login-t">Cambiar contraseña</div>
-      <input name="nueva" type="password" placeholder="Contraseña nueva (mínimo 8 caracteres)" autoFocus />
+      <input name="actual" type="password" placeholder="Contraseña actual" autoComplete="current-password" required autoFocus />
+      <input name="nueva" type="password" placeholder="Contraseña nueva (mínimo 8 caracteres)" autoComplete="new-password" minLength={8} required />
+      <input name="repetir" type="password" placeholder="Repite la contraseña nueva" autoComplete="new-password" minLength={8} required />
       <button className="btn btn-primary" disabled={pending}>
         {pending ? 'Guardando…' : 'Guardar'}
       </button>
       {state?.error && (
-        <div className="msg" style={{ color: '#e0a0a0' }}>{state.error}</div>
+        <div className="msg msg-error">{state.error}</div>
       )}
       {state?.ok && (
-        <div className="msg" style={{ color: '#7fe0a0' }}>Contraseña actualizada.</div>
+        <div className="msg msg-ok">Contraseña actualizada.</div>
       )}
+      <a className="btn-link" href="/admin">← Volver al panel</a>
     </form>
   );
 }

@@ -30,9 +30,19 @@ export async function resolverCuenta(supabase, slug) {
 
 // Menú: casos activos de ESTA cuenta que el estudiante puede elegir ahora
 // mismo.
+//
+// Devuelve null (no []) si la consulta FALLA (red caída, Supabase lento…):
+// así quien llama distingue "no hay casos activos" de "no se pudo
+// preguntar". Antes un corte de red se leía como lista vacía y el sondeo
+// sacaba al estudiante de su caso con "El profesor desactivó este caso".
 export async function listarCasosActivos(supabase, cuentaId) {
-  const { data } = await supabase.rpc('casos_activos_de_cuenta', { p_cuenta_id: cuentaId });
-  return data || [];
+  try {
+    const { data, error } = await supabase.rpc('casos_activos_de_cuenta', { p_cuenta_id: cuentaId });
+    if (error) return null;
+    return data || [];
+  } catch {
+    return null;
+  }
 }
 
 // Datos completos de UN caso de ESTA cuenta (al elegirlo en el menú).
@@ -46,8 +56,10 @@ export async function cargarDatosDeCaso(supabase, casoId, cuentaId) {
 
   // 1. Datos del caso (para saber la especie), por función RPC: exige que
   // el caso sea de esta cuenta y que tanto el caso como la cuenta estén
-  // activos.
-  const { data: filas } = await supabase.rpc('caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId });
+  // activos. Un error de red se devuelve como {error} (no como "caso
+  // desactivado"), para que la vista ofrezca reintentar.
+  const { data: filas, error: errCaso } = await supabase.rpc('caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId });
+  if (errCaso) return { casoId: null, error: true };
   const caso = filas?.[0];
   if (!caso) return { casoId: null };
 
@@ -55,11 +67,12 @@ export async function cargarDatosDeCaso(supabase, casoId, cuentaId) {
   // una pista), por función RPC — los puntos son propios de cada cuenta,
   // así que no basta con filtrar por especie (ver migración 2026-10-28 en
   // supabase/schema.sql).
-  const { data: puntos } = await supabase
-    .rpc('puntos_publicos_de_cuenta', { p_cuenta_id: cuentaId, p_especie: caso.especie });
-
   // 3. Los videos que este caso asigna a cada punto, por función RPC.
-  const { data: videos } = await supabase.rpc('videos_de_caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId });
+  const [{ data: puntos, error: errPuntos }, { data: videos, error: errVideos }] = await Promise.all([
+    supabase.rpc('puntos_publicos_de_cuenta', { p_cuenta_id: cuentaId, p_especie: caso.especie }),
+    supabase.rpc('videos_de_caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId }),
+  ]);
+  if (errPuntos || errVideos) return { casoId: null, error: true };
 
   const mapa = {};
   (videos || []).forEach((v) => { mapa[v.punto_id] = v.video_url; });

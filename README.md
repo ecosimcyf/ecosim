@@ -119,10 +119,12 @@ Flujo típico para probar:
 1. Sube este proyecto a un repositorio de GitHub.
 2. En [vercel.com](https://vercel.com): **Add New → Project** e importa el
    repositorio.
-3. **Importante:** como la app está en la subcarpeta `web/`, en la
-   configuración de Vercel pon **Root Directory = `web`**.
+3. **Root Directory:** déjalo en la raíz. El repositorio de GitHub
+   (`ecosimcyf/ecosim`) ES la app web: su `package.json` está en la raíz
+   (la carpeta `web/` solo existe en el PC de desarrollo, junto a la app de
+   escritorio).
 4. En **Environment Variables** de Vercel, añade las mismas variables que
-   tienes en tu `.env.local`.
+   tienes en tu `.env.local` (las opcionales también, si las usas).
 5. Pulsa **Deploy**. Vercel te dará una URL pública: esa es la que reparten
    los estudiantes.
 

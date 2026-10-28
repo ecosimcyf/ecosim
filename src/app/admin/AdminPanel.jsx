@@ -7,13 +7,19 @@
 // "datos" (no lo reemplazamos entero): casi ninguna acción vuelve a mandar
 // rol/cuentaId/cuentas/cupoCasosPropios, así que un reemplazo completo los
 // borraría del estado tras el primer clic.
+//
+// Todas las acciones pasan por ejecutar(): las Server Actions devuelven
+// {error} en vez de lanzar (ver actions/admin.js), y ejecutar() lo muestra.
+// Antes varias acciones no atrapaban nada y, con la sesión caducada, el
+// clic simplemente no hacía nada.
 // ============================================================
 import { useState, useEffect, useRef } from 'react';
 import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264, duracionDe } from '@/lib/convertir-video';
 import {
-  elegirCuentaAdmin, crearCuenta, eliminarCuenta, actualizarEstadoSolicitud,
+  elegirCuentaAdmin, crearCuenta, actualizarCuenta, restablecerClaveCuenta, eliminarCuenta,
+  limpiarVideosHuerfanos, actualizarEstadoSolicitud,
   alternarCasoActivo, crearCaso, renombrarCaso, describirCaso, cambiarEspecieCaso, eliminarCaso,
   addPunto, actualizarPunto, eliminarPunto,
   crearUrlSubidaVideo, guardarVideoCaso, quitarVideoCaso,
@@ -21,7 +27,9 @@ import {
 
 // Tope de duración por video: clips cortos alcanzan igual para mostrar un
 // punto de ecografía, y mantienen el storage (y el costo) bajo control.
-const DURACION_MAX_SEG = 10;
+const DURACION_MAX_SEG = 30;
+// Debe coincidir con file_size_limit del bucket (supabase/schema.sql).
+const MAX_MB_VIDEO = 50;
 
 const VISTAS = [
   { id: 'ventral', label: 'Por debajo' },
@@ -54,20 +62,27 @@ function popStyle(pos) {
   };
 }
 
+async function copiar(textoACopiar) {
+  try {
+    await navigator.clipboard.writeText(textoACopiar);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Fecha y hora en la zona del navegador del admin. Se pinta solo tras montar:
 // el servidor no conoce esa zona, y un HTML inicial distinto del que calcula
 // el navegador provocaría un error de hidratación de React.
 function FechaLocal({ iso }) {
-  const [texto, setTexto] = useState('');
+  const [txt, setTxt] = useState('');
   useEffect(() => {
-    setTexto(new Date(iso).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' }));
+    setTxt(new Date(iso).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' }));
   }, [iso]);
-  return <span>{texto}</span>;
+  return <span>{txt}</span>;
 }
 
 // Cupo como barra: más fácil de leer de un vistazo que solo el número.
-// Cambia de color cuando se acerca o llega al tope (mismo lenguaje que
-// los 3 estados del token del maniquí: cian / amarillo / rojo).
 function BarraCupo({ etiqueta, usado, tope, unidad = '' }) {
   const pct = tope > 0 ? clamp(0, 100, (usado / tope) * 100) : (usado > 0 ? 100 : 0);
   const clase = pct >= 100 ? 'cupo-lleno' : pct >= 80 ? 'cupo-alto' : '';
@@ -84,33 +99,63 @@ function BarraCupo({ etiqueta, usado, tope, unidad = '' }) {
   );
 }
 
+// Texto con botón "Copiar" (enlace de estudiantes, contraseña temporal).
+function Copiable({ valor }) {
+  const [copiado, setCopiado] = useState(false);
+  return (
+    <div className="copiable">
+      <code>{valor}</code>
+      <button
+        type="button" className="btn small"
+        onClick={async () => { if (await copiar(valor)) { setCopiado(true); setTimeout(() => setCopiado(false), 1800); } }}
+      >
+        {copiado ? 'Copiado ✓' : 'Copiar'}
+      </button>
+    </div>
+  );
+}
+
+// Enlace que el cliente reparte a sus estudiantes. El dominio se toma del
+// navegador tras montar (el servidor no lo sabe con certeza detrás del
+// proxy de Vercel, y así no hay error de hidratación).
+function EnlaceEstudiantes({ slug }) {
+  const [origen, setOrigen] = useState('');
+  useEffect(() => { setOrigen(window.location.origin); }, []);
+  if (!slug) return null;
+  return (
+    <div className="enlace-estudiantes">
+      <span className="lbl">Enlace para los estudiantes (no pide usuario ni contraseña):</span>
+      <Copiable valor={(origen || '') + '/c/' + slug} />
+    </div>
+  );
+}
+
 export default function AdminPanel({ inicial }) {
   const [datos, setDatos] = useState(inicial);
 
-  // Qué sección se ve (solo aplica si hay más de una, es decir
-  // super_admin: cliente no tiene ni Cuentas ni Solicitudes). Arranca en
-  // "cuentas" solo si todavía no hay ninguna elegida.
+  // Qué sección se ve (solo aplica a super_admin: cliente no tiene ni
+  // Cuentas ni Solicitudes). Arranca en "cuentas" si no hay ninguna elegida.
   const [seccion, setSeccion] = useState(
     () => (inicial.rol === 'super_admin' && !inicial.cuentaId) ? 'cuentas' : 'simulador'
   );
 
+  // Ventana con una contraseña temporal recién generada (se ve UNA vez).
+  const [claveNueva, setClaveNueva] = useState(null); // { titulo, correos, clave, slug } | null
+
   // Selector / alta de cuentas (solo super_admin)
   const [cambiandoCuenta, setCambiandoCuenta] = useState(false);
-  const [nuevaCuentaSlug, setNuevaCuentaSlug] = useState('');
-  const [nuevaCuentaNombre, setNuevaCuentaNombre] = useState('');
-  const [nuevaCuentaCupoCasos, setNuevaCuentaCupoCasos] = useState('');
-  const [nuevaCuentaCupoStorage, setNuevaCuentaCupoStorage] = useState('');
-  const [nuevaCuentaCorreo, setNuevaCuentaCorreo] = useState('');
+  const [nuevaCuenta, setNuevaCuenta] = useState({ slug: '', nombre: '', cupoCasos: '', cupoStorage: '', correo: '' });
   const [creandoCuenta, setCreandoCuenta] = useState(false);
+  const [edicionCuenta, setEdicionCuenta] = useState(null); // copia editable de la cuenta elegida
+  const [limpiando, setLimpiando] = useState(false);
 
-  // Borrar cuenta (zona de peligro)
+  // Borrar cuenta propia (zona de peligro del cliente)
   const [confirmBorrarCuenta, setConfirmBorrarCuenta] = useState('');
   const [borrandoCuenta, setBorrandoCuenta] = useState(false);
 
-  // Editor de puntos (maniquí global)
+  // Editor de puntos del maniquí
   const [especiePuntos, setEspeciePuntos] = useState('perro');
   const [vistaPuntos, setVistaPuntos] = useState('ventral');
-  const [guias, setGuias] = useState(true);
   const [puntoSel, setPuntoSel] = useState(null);
   const [nombreEdit, setNombreEdit] = useState('');
 
@@ -138,11 +183,31 @@ export default function AdminPanel({ inicial }) {
     setDatos((d) => ({ ...d, ...resultado }));
   }
 
+  // Corre una Server Action: si devuelve {error} o falla la red, lo
+  // muestra y devuelve null; si sale bien, fusiona y devuelve el resultado.
+  async function ejecutar(accion, { fusionarResultado = true } = {}) {
+    try {
+      const r = await accion();
+      if (r?.error) {
+        alert(r.error);
+        if (r.codigo === 'sin-sesion') window.location.href = '/admin/login';
+        return null;
+      }
+      if (fusionarResultado && r) fusionar(r);
+      return r || {};
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo completar la acción. Revisa tu conexión a internet e inténtalo de nuevo.');
+      return null;
+    }
+  }
+
   const puntosDe = (especie, vista) =>
     (datos.puntos || []).filter((p) => p.especie === especie && (p.vista || 'ventral') === vista);
 
   const caso = (datos.casos || []).find((c) => c.id === casoEnEdicion) || null;
   const casosActivosCount = (datos.casos || []).filter((c) => c.activo).length;
+  const cuentaElegida = (datos.cuentas || []).find((c) => c.id === datos.cuentaId) || null;
 
   // Sincronizar el nombre en edición al abrir el popup de un punto.
   useEffect(() => {
@@ -151,99 +216,102 @@ export default function AdminPanel({ inicial }) {
     setNombreEdit(p ? p.nombre : '');
   }, [puntoSel, datos]);
 
+  // Copia editable de la cuenta elegida (super_admin).
+  useEffect(() => {
+    setEdicionCuenta(cuentaElegida ? {
+      nombre: cuentaElegida.nombre,
+      cupoCasos: String(cuentaElegida.cupo_casos_propios),
+      cupoStorage: String(cuentaElegida.cupo_storage_mb),
+      activa: cuentaElegida.activa,
+    } : null);
+  }, [cuentaElegida?.id, cuentaElegida?.nombre, cuentaElegida?.cupo_casos_propios,
+      cuentaElegida?.cupo_storage_mb, cuentaElegida?.activa]);
+
   // ---------------- Cuentas (solo super_admin) ----------------
   async function elegirCuenta(cuentaId) {
     if (!cuentaId) return;
     setCambiandoCuenta(true);
-    try {
-      fusionar(await elegirCuentaAdmin(cuentaId));
-      setPuntoSel(null);
-      setCasoEnEdicion(null);
-    } catch (err) {
-      alert(err?.message || 'No se pudo cambiar de cuenta.');
-    } finally {
-      setCambiandoCuenta(false);
-    }
+    const r = await ejecutar(() => elegirCuentaAdmin(cuentaId));
+    if (r) { setPuntoSel(null); setCasoEnEdicion(null); }
+    setCambiandoCuenta(false);
   }
 
   async function crearCuentaNueva() {
-    if (!nuevaCuentaSlug.trim() || !nuevaCuentaNombre.trim() || !nuevaCuentaCorreo.trim()) {
-      alert('Completa slug, nombre y correo para crear la cuenta.');
+    const n = nuevaCuenta;
+    if (!n.slug.trim() || !n.nombre.trim() || !n.correo.trim()) {
+      alert('Completa enlace (slug), nombre y correo para crear la cuenta.');
       return;
     }
     setCreandoCuenta(true);
-    try {
-      const r = await crearCuenta({
-        slug: nuevaCuentaSlug,
-        nombre: nuevaCuentaNombre,
-        cupoCasosPropios: Number(nuevaCuentaCupoCasos) || 0,
-        cupoStorageMb: Number(nuevaCuentaCupoStorage) || 0,
-        correo: nuevaCuentaCorreo,
-      });
-      if (r.error) { alert(r.error); return; }
-      // La clave temporal se muestra UNA sola vez, antes de fusionar el
-      // resto del resultado al estado: no se vuelve a guardar en ningún
-      // lado, así que si se pierde este alert hay que resetear la
-      // contraseña del cliente a mano desde Supabase.
-      alert(
-        'Cuenta creada. Contraseña temporal para ' + nuevaCuentaCorreo + ': ' + r.claveTemporal +
-          ' — cópiala y pásasela al cliente, no se vuelve a mostrar.'
-      );
-      fusionar(r);
-      setNuevaCuentaSlug('');
-      setNuevaCuentaNombre('');
-      setNuevaCuentaCupoCasos('');
-      setNuevaCuentaCupoStorage('');
-      setNuevaCuentaCorreo('');
-    } catch (err) {
-      alert(err?.message || 'No se pudo crear la cuenta.');
-    } finally {
-      setCreandoCuenta(false);
+    const r = await ejecutar(() => crearCuenta({
+      slug: n.slug, nombre: n.nombre, correo: n.correo,
+      cupoCasosPropios: n.cupoCasos || 0, cupoStorageMb: n.cupoStorage || 0,
+    }));
+    setCreandoCuenta(false);
+    if (!r) return;
+    // La clave temporal se muestra UNA sola vez: no se guarda en ningún lado.
+    setClaveNueva({ titulo: 'Cuenta creada', correos: [r.correo], clave: r.claveTemporal, slug: r.slug });
+    setNuevaCuenta({ slug: '', nombre: '', cupoCasos: '', cupoStorage: '', correo: '' });
+  }
+
+  async function guardarCuentaElegida() {
+    if (!edicionCuenta || !datos.cuentaId) return;
+    const r = await ejecutar(() => actualizarCuenta(datos.cuentaId, {
+      nombre: edicionCuenta.nombre,
+      cupoCasosPropios: edicionCuenta.cupoCasos,
+      cupoStorageMb: edicionCuenta.cupoStorage,
+      activa: edicionCuenta.activa,
+    }));
+    if (r) alert('Cuenta guardada.');
+  }
+
+  async function restablecerClave() {
+    if (!cuentaElegida) return;
+    if (!confirm('¿Generar una contraseña temporal nueva para "' + cuentaElegida.nombre + '"?\nLa actual dejará de funcionar.')) return;
+    const r = await ejecutar(() => restablecerClaveCuenta(cuentaElegida.id), { fusionarResultado: false });
+    if (r) setClaveNueva({ titulo: 'Contraseña restablecida', correos: r.correos, clave: r.claveTemporal, slug: null });
+  }
+
+  async function limpiarHuerfanos() {
+    if (!confirm('Esto borra de Storage los videos que ya no usa ningún caso (y tienen más de 24 h). ¿Continuar?')) return;
+    setLimpiando(true);
+    const r = await ejecutar(() => limpiarVideosHuerfanos(), { fusionarResultado: false });
+    setLimpiando(false);
+    if (r) {
+      alert(r.borrados
+        ? 'Listo: se borraron ' + r.borrados + ' video(s) huérfano(s), ' + r.liberadosMb + ' MB liberados.'
+        : 'No había videos huérfanos.');
     }
   }
 
   // El cliente borra SU PROPIA cuenta. Si tiene éxito, la Server Action
-  // cierra su sesión y lo redirige a /admin/login — por eso aquí no hace
-  // falta fusionar nada en caso de éxito, esta función de hecho no
-  // vuelve a ejecutarse (la página cambia).
+  // cierra su sesión y devuelve {cuentaEliminada}; aquí se lleva al login.
+  // (No se usa redirect() en la acción: Next.js lo entrega al llamador
+  // como una excepción, y ejecutar() lo mostraba como "revisa tu conexión"
+  // aunque la cuenta sí se había borrado.)
   async function borrarCuentaPropia() {
     if (confirmBorrarCuenta.trim() !== (datos.cuentaNombre || '')) return;
     setBorrandoCuenta(true);
-    try {
-      const r = await eliminarCuenta(datos.cuentaId);
-      if (r?.error) { alert(r.error); setBorrandoCuenta(false); }
-    } catch (err) {
-      alert(err?.message || 'No se pudo borrar la cuenta.');
-      setBorrandoCuenta(false);
-    }
+    const r = await ejecutar(() => eliminarCuenta(datos.cuentaId), { fusionarResultado: false });
+    if (r?.cuentaEliminada) { window.location.href = '/admin/login?cuenta_eliminada=1'; return; }
+    setBorrandoCuenta(false);
   }
 
   // El super_admin borra la cuenta que tiene elegida en el selector.
   async function borrarCuentaElegida() {
-    const cuenta = (datos.cuentas || []).find((c) => c.id === datos.cuentaId);
-    if (!cuenta) return;
+    if (!cuentaElegida) return;
     const escrito = prompt(
-      'Esto borra TODO de "' + cuenta.nombre + '": sus casos, videos y el acceso de su administrador, ' +
+      'Esto borra TODO de "' + cuentaElegida.nombre + '": sus casos, videos y el acceso de su administrador, ' +
         'sin reversa. Escribe el nombre exacto de la cuenta para confirmar:'
     );
     if (escrito === null) return;
-    if (escrito.trim() !== cuenta.nombre) { alert('El nombre no coincide. No se borró nada.'); return; }
-    try {
-      const r = await eliminarCuenta(cuenta.id);
-      if (r.error) { alert(r.error); return; }
-      fusionar(r);
-    } catch (err) {
-      alert(err?.message || 'No se pudo borrar la cuenta.');
-    }
+    if (escrito.trim() !== cuentaElegida.nombre) { alert('El nombre no coincide. No se borró nada.'); return; }
+    await ejecutar(() => eliminarCuenta(cuentaElegida.id));
   }
 
   // ---------------- Solicitudes de contacto (solo super_admin) ----------------
-  async function cambiarEstadoSolicitud(id, estado) {
-    try {
-      fusionar(await actualizarEstadoSolicitud(id, estado));
-    } catch (err) {
-      alert(err?.message || 'No se pudo cambiar el estado de la solicitud.');
-    }
+  function cambiarEstadoSolicitud(id, estado) {
+    ejecutar(() => actualizarEstadoSolicitud(id, estado));
   }
 
   // ---------------- Editor de PUNTOS: arrastrar / clic ----------------
@@ -255,7 +323,7 @@ export default function AdminPanel({ inicial }) {
     dragRef.current = {
       id: p.id, el: e.currentTarget, rect,
       ox: e.clientX - rect.left - cx, oy: e.clientY - rect.top - cy,
-      sx: e.clientX, sy: e.clientY, moved: false, x: pos.x, y: pos.y,
+      sx: e.clientX, sy: e.clientY, moved: false, x: pos.x, y: pos.y, x0: pos.x, y0: pos.y,
     };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
   }
@@ -274,73 +342,72 @@ export default function AdminPanel({ inicial }) {
     if (!d) return;
     dragRef.current = null;
     if (d.moved) {
-      try {
-        const r = await actualizarPunto(datos.cuentaId, d.id, { x: Math.round(d.x * 10) / 10, y: Math.round(d.y * 10) / 10 });
-        if (r.error) { alert(r.error); return; }
-        fusionar(r);
-      } catch (err) {
-        alert(err?.message || 'No se pudo mover el punto.');
-      }
+      const r = await ejecutar(() => actualizarPunto(datos.cuentaId, d.id, { x: d.x, y: d.y }));
+      // Si no se pudo guardar, el punto vuelve a donde estaba.
+      if (!r) { d.el.style.left = d.x0 + '%'; d.el.style.top = d.y0 + '%'; }
     } else {
       setPuntoSel(d.id);
     }
   }
+  // El navegador canceló el gesto (p. ej. lo tomó como scroll): se
+  // deshace el arrastre a medias en vez de dejarlo colgado.
+  function puntoPointerCancel() {
+    const d = dragRef.current;
+    if (!d) return;
+    dragRef.current = null;
+    d.el.style.left = d.x0 + '%';
+    d.el.style.top = d.y0 + '%';
+  }
 
   async function nuevoPunto() {
-    try {
-      const r = await addPunto(datos.cuentaId, { especie: especiePuntos, vista: vistaPuntos });
-      if (r.error) { alert(r.error); return; }
-      fusionar(r);
-      if (r.nuevoPuntoId) setPuntoSel(r.nuevoPuntoId);
-    } catch (err) {
-      alert(err?.message || 'No se pudo crear el punto.');
-    }
+    const r = await ejecutar(() => addPunto(datos.cuentaId, { especie: especiePuntos, vista: vistaPuntos }));
+    if (r?.nuevoPuntoId) setPuntoSel(r.nuevoPuntoId);
   }
   async function guardarNombrePunto() {
     if (!puntoSel) return;
-    try {
-      const r = await actualizarPunto(datos.cuentaId, puntoSel, { nombre: nombreEdit });
-      if (r.error) { alert(r.error); return; }
-      fusionar(r);
-    } catch (err) {
-      alert(err?.message || 'No se pudo guardar el nombre.');
-    }
+    const actual = (datos.puntos || []).find((p) => p.id === puntoSel);
+    if (!actual || actual.nombre === nombreEdit.trim()) return; // nada que guardar
+    await ejecutar(() => actualizarPunto(datos.cuentaId, puntoSel, { nombre: nombreEdit }));
   }
   async function borrarPunto() {
     if (!puntoSel) return;
     if (!confirm('¿Borrar este punto del cuerpo?\nTodos los casos perderán el video asignado a este punto.')) return;
     const id = puntoSel;
     setPuntoSel(null);
-    try {
-      const r = await eliminarPunto(datos.cuentaId, id);
-      if (r.error) { alert(r.error); return; }
-      fusionar(r);
-    } catch (err) {
-      alert(err?.message || 'No se pudo borrar el punto.');
-    }
+    await ejecutar(() => eliminarPunto(datos.cuentaId, id));
   }
 
   // ---------------- Casos ----------------
   async function crear() {
     if (!nuevoNombre.trim()) { alert('Escribe un nombre para el caso.'); return; }
-    try {
-      const r = await crearCaso(datos.cuentaId, nuevoNombre, nuevaEspecie);
-      if (r.error) { alert(r.error); return; }
-      fusionar(r);
-      setNuevoNombre('');
-    } catch (err) {
-      alert(err?.message || 'No se pudo crear el caso.');
-    }
+    const r = await ejecutar(() => crearCaso(datos.cuentaId, nuevoNombre, nuevaEspecie));
+    if (r) setNuevoNombre('');
   }
-  async function activar(c) { fusionar(await alternarCasoActivo(datos.cuentaId, c.id, !c.activo)); }
-  async function renombrar(id, nombre) { fusionar(await renombrarCaso(datos.cuentaId, id, nombre)); }
-  async function describir(id, descripcion) { fusionar(await describirCaso(datos.cuentaId, id, descripcion)); }
-  async function cambiarEspecie(id, especie) { fusionar(await cambiarEspecieCaso(datos.cuentaId, id, especie)); }
+  function activar(c) { ejecutar(() => alternarCasoActivo(datos.cuentaId, c.id, !c.activo)); }
+  function renombrar(c, nombre) {
+    if (nombre.trim() === c.nombre) return;
+    ejecutar(() => renombrarCaso(datos.cuentaId, c.id, nombre));
+  }
+  function describir(c, descripcion) {
+    if (descripcion.trim() === (c.descripcion || '')) return;
+    ejecutar(() => describirCaso(datos.cuentaId, c.id, descripcion));
+  }
+  async function cambiarEspecie(c, especie, selectEl) {
+    if (c.numVideos > 0 && !confirm(
+      'Este caso tiene ' + c.numVideos + ' video(s) asignados a puntos del ' + MANIQUIES.nombre(c.especie).toLowerCase() +
+        '. Al cambiarlo a ' + MANIQUIES.nombre(especie).toLowerCase() + ' esos videos se borran. ¿Continuar?'
+    )) {
+      selectEl.value = c.especie;
+      return;
+    }
+    if (casoEnEdicion === c.id) setCasoPuntoSel(null);
+    const r = await ejecutar(() => cambiarEspecieCaso(datos.cuentaId, c.id, especie));
+    if (!r) selectEl.value = c.especie;
+  }
   async function borrarCaso(id) {
     if (!confirm('¿Borrar este caso y todos sus videos?')) return;
-    const nuevos = await eliminarCaso(datos.cuentaId, id);
-    if (casoEnEdicion === id) setCasoEnEdicion(null);
-    fusionar(nuevos);
+    const r = await ejecutar(() => eliminarCaso(datos.cuentaId, id));
+    if (r && casoEnEdicion === id) setCasoEnEdicion(null);
   }
   function editarVideos(id) {
     setCasoPuntoSel(null);
@@ -355,6 +422,8 @@ export default function AdminPanel({ inicial }) {
     e.target.value = '';
     if (!file) return;
     if (!casoEnEdicion || !casoPuntoSel) return;
+    const casoId = casoEnEdicion;
+    const puntoId = casoPuntoSel;
     setSubiendo(true);
     setConvProgreso(null);
     try {
@@ -363,7 +432,7 @@ export default function AdminPanel({ inicial }) {
       // (navegador raro, archivo corrupto), se deja pasar: ya fallará más
       // adelante con un error más claro al intentar reproducirlo/convertirlo.
       const duracion = await duracionDe(file);
-      if (duracion != null && duracion > DURACION_MAX_SEG) {
+      if (duracion != null && duracion > DURACION_MAX_SEG + 0.5) {
         alert(
           'Este video dura ' + Math.round(duracion) + ' segundos. El máximo permitido es ' +
             DURACION_MAX_SEG + ' segundos — recórtalo y vuelve a intentar.'
@@ -371,29 +440,31 @@ export default function AdminPanel({ inicial }) {
         return;
       }
 
-      // Si el navegador NO puede reproducir el video (p. ej. MPEG-4 Parte 2
-      // de los ecógrafos), lo convertimos a H.264 aquí mismo antes de subir.
+      // Todo se guarda como MP4/H.264 (el bucket solo acepta video/mp4): si
+      // el archivo no es MP4 o el navegador no puede reproducirlo (p. ej.
+      // MPEG-4 Parte 2 de los ecógrafos), se convierte aquí mismo.
       let aSubir = file;
-      const reproducible = await puedeReproducir(file);
-      if (!reproducible) {
+      const esMp4 = file.type === 'video/mp4' || /\.mp4$/i.test(file.name);
+      if (!esMp4 || !(await puedeReproducir(file))) {
         setConvProgreso(0);
         const blob = await convertirAH264(file, (p) => setConvProgreso(p));
         aSubir = new File([blob], 'video.mp4', { type: 'video/mp4' });
         setConvProgreso(null);
       }
-      const subida = await crearUrlSubidaVideo(datos.cuentaId, aSubir.size);
-      if (subida.error) { alert(subida.error); return; }
-      const { path, token } = subida;
-      const supabase = crearClienteNavegador();
-      // Cada path es un UUID nuevo que nunca se reescribe (un reemplazo sube
-      // a un path distinto), así que el archivo es inmutable: puede cachear
-      // casi para siempre en vez del valor por defecto de Supabase (1 hora).
-      const { error } = await supabase.storage.from('videos')
-        .uploadToSignedUrl(path, token, aSubir, { cacheControl: '31536000' });
+      if (aSubir.size > MAX_MB_VIDEO * 1024 * 1024) {
+        alert('El video pesa ' + Math.round(aSubir.size / 1048576) + ' MB; el máximo es ' + MAX_MB_VIDEO + ' MB.');
+        return;
+      }
+
+      const subida = await ejecutar(() => crearUrlSubidaVideo(datos.cuentaId, aSubir.size), { fusionarResultado: false });
+      if (!subida) return;
+      const { error } = await crearClienteNavegador().storage.from('videos')
+        // Cada path es un UUID nuevo que nunca se reescribe (un reemplazo
+        // sube a un path distinto), así que el archivo es inmutable: puede
+        // cachear casi para siempre en vez de 1 hora.
+        .uploadToSignedUrl(subida.path, subida.token, aSubir, { cacheControl: '31536000', contentType: 'video/mp4' });
       if (error) throw error;
-      const guardado = await guardarVideoCaso(datos.cuentaId, casoEnEdicion, casoPuntoSel, path, aSubir.size);
-      if (guardado.error) { alert(guardado.error); return; }
-      fusionar(guardado);
+      await ejecutar(() => guardarVideoCaso(datos.cuentaId, casoId, puntoId, subida.path));
     } catch (err) {
       alert('No se pudo procesar el video: ' + (err?.message || err));
     } finally {
@@ -404,7 +475,7 @@ export default function AdminPanel({ inicial }) {
   async function quitarVideo() {
     if (!casoEnEdicion || !casoPuntoSel) return;
     if (!confirm('¿Quitar el video de este punto en este caso?')) return;
-    fusionar(await quitarVideoCaso(datos.cuentaId, casoEnEdicion, casoPuntoSel));
+    await ejecutar(() => quitarVideoCaso(datos.cuentaId, casoEnEdicion, casoPuntoSel));
   }
   function verVideo() {
     const url = datos.videosPorCaso?.[casoEnEdicion]?.[casoPuntoSel];
@@ -426,6 +497,7 @@ export default function AdminPanel({ inicial }) {
   const hayCuenta = !!datos.cuentaId;
   const esSuperAdmin = datos.rol === 'super_admin';
   const solicitudesNuevas = (datos.solicitudes || []).filter((s) => s.estado === 'nueva').length;
+  const slugActual = esSuperAdmin ? cuentaElegida?.slug : datos.cuentaSlug;
 
   return (
     <div className="admin-panel">
@@ -434,8 +506,7 @@ export default function AdminPanel({ inicial }) {
         style={{ display: 'none' }} onChange={onFileChange}
       />
 
-      {/* -------- Nav entre secciones (solo tiene sentido con más de una,
-          es decir, para super_admin) -------- */}
+      {/* -------- Nav entre secciones (solo super_admin) -------- */}
       {esSuperAdmin && (
         <nav className="admin-nav">
           <button
@@ -455,7 +526,7 @@ export default function AdminPanel({ inicial }) {
             className={'admin-nav-tab' + (seccion === 'simulador' ? ' act' : '')}
             onClick={() => setSeccion('simulador')}
           >
-            Simulador
+            Simulador{cuentaElegida ? ' · ' + cuentaElegida.nombre : ''}
           </button>
         </nav>
       )}
@@ -465,8 +536,7 @@ export default function AdminPanel({ inicial }) {
         <section className="card">
           <h3>Cuentas de clientes</h3>
           <p className="muted">
-            Elige con qué cuenta quieres trabajar abajo, o crea una cuenta
-            nueva para un cliente.
+            Elige con qué cuenta quieres trabajar, o crea una cuenta nueva para un cliente.
           </p>
           <div className="row">
             <label className="lbl" htmlFor="selector-cuenta">Cuenta activa:</label>
@@ -483,24 +553,52 @@ export default function AdminPanel({ inicial }) {
                 </option>
               ))}
             </select>
-            {datos.cuentaId && (
-              <button className="btn small danger" onClick={borrarCuentaElegida}>
-                Borrar esta cuenta
-              </button>
-            )}
           </div>
 
-          {/* Resumen de uso: para ver de un vistazo quién se acerca a su
-              cupo, sin entrar cuenta por cuenta. */}
+          {/* Datos de la cuenta elegida: editar, contraseña, enlace, borrar */}
+          {cuentaElegida && edicionCuenta && (
+            <div className="editar-cuenta">
+              <EnlaceEstudiantes slug={cuentaElegida.slug} />
+              <div className="row">
+                <label>Nombre
+                  <input value={edicionCuenta.nombre} maxLength={120}
+                    onChange={(e) => setEdicionCuenta({ ...edicionCuenta, nombre: e.target.value })} />
+                </label>
+                <label>Cupo de casos
+                  <input type="number" min="0" step="1" value={edicionCuenta.cupoCasos}
+                    onChange={(e) => setEdicionCuenta({ ...edicionCuenta, cupoCasos: e.target.value })} />
+                </label>
+                <label>Cupo de almacenamiento (MB)
+                  <input type="number" min="0" step="1" value={edicionCuenta.cupoStorage}
+                    onChange={(e) => setEdicionCuenta({ ...edicionCuenta, cupoStorage: e.target.value })} />
+                </label>
+              </div>
+              <div className="row">
+                <label className="chk-activo" title="Una cuenta inactiva no puede entrar al panel y su enlace deja de funcionar; no se borra nada.">
+                  <input type="checkbox" checked={edicionCuenta.activa}
+                    onChange={(e) => setEdicionCuenta({ ...edicionCuenta, activa: e.target.checked })} />
+                  <span className={edicionCuenta.activa ? 'accent' : 'warn'}>
+                    {edicionCuenta.activa ? 'Cuenta activa' : 'Cuenta desactivada'}
+                  </span>
+                </label>
+                <button className="btn small btn-primary" onClick={guardarCuentaElegida}>Guardar cambios</button>
+                <button className="btn small" onClick={restablecerClave}>Restablecer contraseña</button>
+                <button className="btn small danger" onClick={borrarCuentaElegida}>Borrar esta cuenta</button>
+              </div>
+            </div>
+          )}
+
+          {/* Resumen de uso: quién se acerca a su cupo, sin entrar cuenta por cuenta. */}
           {(datos.cuentas || []).length > 0 && (
             <table className="tabla-cuentas">
               <thead>
-                <tr><th>Cuenta</th><th>Casos</th><th>Storage</th></tr>
+                <tr><th>Cuenta</th><th>Enlace</th><th>Casos</th><th>Storage</th></tr>
               </thead>
               <tbody>
                 {(datos.cuentas || []).map((c) => (
                   <tr key={c.id}>
                     <td>{c.nombre}{c.activa ? '' : ' (inactiva)'}</td>
+                    <td className="muted">/c/{c.slug}</td>
                     <td style={{ color: colorCupo(c.casosUsados, c.cupo_casos_propios) }}>
                       {c.casosUsados} / {c.cupo_casos_propios}
                     </td>
@@ -516,41 +614,47 @@ export default function AdminPanel({ inicial }) {
           <p className="muted" style={{ marginTop: 14 }}>Crear una cuenta nueva:</p>
           <div className="row">
             <input
-              value={nuevaCuentaSlug}
-              onChange={(e) => setNuevaCuentaSlug(e.target.value)}
-              placeholder="slug (ej. clinica-norte)"
+              value={nuevaCuenta.nombre}
+              onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, nombre: e.target.value })}
+              placeholder="Nombre de la clínica" maxLength={120}
             />
             <input
-              value={nuevaCuentaNombre}
-              onChange={(e) => setNuevaCuentaNombre(e.target.value)}
-              placeholder="Nombre de la clínica"
-            />
-          </div>
-          <div className="row">
-            <input
-              value={nuevaCuentaCupoCasos}
-              onChange={(e) => setNuevaCuentaCupoCasos(e.target.value)}
-              placeholder="Cupo de casos propios"
-              type="number" min="0"
-            />
-            <input
-              value={nuevaCuentaCupoStorage}
-              onChange={(e) => setNuevaCuentaCupoStorage(e.target.value)}
-              placeholder="Cupo de almacenamiento (MB)"
-              type="number" min="0"
+              value={nuevaCuenta.slug}
+              onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, slug: e.target.value })}
+              placeholder="Enlace, p. ej. clinica-norte" maxLength={40}
+              title="Solo minúsculas, números y guiones. Es lo que va en el enlace de los estudiantes: /c/clinica-norte"
             />
           </div>
           <div className="row">
             <input
-              value={nuevaCuentaCorreo}
-              onChange={(e) => setNuevaCuentaCorreo(e.target.value)}
-              placeholder="Correo del cliente"
-              type="email"
+              value={nuevaCuenta.cupoCasos}
+              onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, cupoCasos: e.target.value })}
+              placeholder="Cupo de casos" type="number" min="0" step="1"
+            />
+            <input
+              value={nuevaCuenta.cupoStorage}
+              onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, cupoStorage: e.target.value })}
+              placeholder="Cupo de almacenamiento (MB)" type="number" min="0" step="1"
+            />
+          </div>
+          <div className="row">
+            <input
+              value={nuevaCuenta.correo}
+              onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, correo: e.target.value })}
+              placeholder="Correo del cliente" type="email" maxLength={200}
             />
             <button className="btn btn-primary" disabled={creandoCuenta} onClick={crearCuentaNueva}>
-              {creandoCuenta ? 'Creando…' : 'Crear cuenta e invitar'}
+              {creandoCuenta ? 'Creando…' : 'Crear cuenta'}
             </button>
           </div>
+
+          <p className="muted" style={{ marginTop: 18 }}>
+            Mantenimiento: borra de Storage los videos que ya no usa ningún caso
+            (subidas que no se terminaron, borrados a medias).
+          </p>
+          <button className="btn small" disabled={limpiando} onClick={limpiarHuerfanos}>
+            {limpiando ? 'Limpiando…' : 'Limpiar videos huérfanos'}
+          </button>
         </section>
       )}
 
@@ -568,7 +672,7 @@ export default function AdminPanel({ inicial }) {
                 <strong>{s.nombre}</strong>
                 {s.clinica && <span className="muted"> · {s.clinica}</span>}
                 <div className="muted" style={{ fontSize: 13 }}>
-                  {s.correo}{s.telefono && ' · ' + s.telefono} · <FechaLocal iso={s.creada_en} />
+                  <a href={'mailto:' + s.correo}>{s.correo}</a>{s.telefono && ' · ' + s.telefono} · <FechaLocal iso={s.creada_en} />
                 </div>
                 {s.mensaje && (
                   <div style={{ fontSize: 14, marginTop: 4, whiteSpace: 'pre-wrap' }}>{s.mensaje}</div>
@@ -589,7 +693,18 @@ export default function AdminPanel({ inicial }) {
         </section>
       )}
 
-      {(!esSuperAdmin || seccion === 'simulador') && <>
+      {/* -------- Super_admin en «Simulador» sin cuenta elegida -------- */}
+      {esSuperAdmin && seccion === 'simulador' && !hayCuenta && (
+        <section className="card">
+          <h3>Elige una cuenta</h3>
+          <p className="muted">
+            Los casos, puntos y videos son de cada cuenta. Elige con cuál quieres trabajar.
+          </p>
+          <button className="btn btn-primary" onClick={() => setSeccion('cuentas')}>Ir a Cuentas</button>
+        </section>
+      )}
+
+      {hayCuenta && (!esSuperAdmin || seccion === 'simulador') && <>
       {/* -------- Casos activos -------- */}
       <section className="card">
         <h3>Casos activos</h3>
@@ -603,16 +718,16 @@ export default function AdminPanel({ inicial }) {
             ? <>Casos activos ahora: <span className="accent">{casosActivosCount}</span></>
             : <span className="warn">Ningún caso activo — los estudiantes ven el menú vacío</span>}
         </div>
+        <EnlaceEstudiantes slug={slugActual} />
         {datos.cupoCasosPropios != null && (
-          <BarraCupo etiqueta="Casos propios" usado={(datos.casos || []).length} tope={datos.cupoCasosPropios} />
+          <BarraCupo etiqueta="Casos" usado={(datos.casos || []).length} tope={datos.cupoCasosPropios} />
         )}
         {datos.cupoStorageMb != null && (
-          <BarraCupo etiqueta="Storage" usado={datos.usoStorageMb ?? 0} tope={datos.cupoStorageMb} unidad=" MB" />
+          <BarraCupo etiqueta="Almacenamiento" usado={datos.usoStorageMb ?? 0} tope={datos.cupoStorageMb} unidad=" MB" />
         )}
       </section>
 
       {/* -------- Maniquí: puntos del cuerpo (propios de esta cuenta) -------- */}
-      {hayCuenta && (
       <section className="card">
         <div className="editor-head">
           <h3>Maniquí — puntos del cuerpo</h3>
@@ -623,9 +738,6 @@ export default function AdminPanel({ inicial }) {
                 <option value="gato">Gato</option>
               </select>
             </label>
-            <button className="btn small" onClick={() => setGuias((g) => !g)}>
-              {guias ? 'Ocultar guías' : 'Mostrar guías'}
-            </button>
             <button className="btn small btn-primary" onClick={nuevoPunto}>+ Añadir punto</button>
           </div>
         </div>
@@ -651,7 +763,7 @@ export default function AdminPanel({ inicial }) {
         <div className="mq-stage">
           <div
             ref={canvasPuntosRef}
-            className={'mq-canvas' + (esLadoPuntos ? ' lado' : '') + (guias ? '' : ' guias-ocultas')}
+            className={'mq-canvas' + (esLadoPuntos ? ' lado' : '')}
             style={{ '--mq-ratio': MANIQUIES.ratio(especiePuntos, vistaPuntos) }}
             onPointerDown={(e) => {
               if (!e.target.closest('.mq-token') && !e.target.closest('.mq-pop')) setPuntoSel(null);
@@ -667,6 +779,7 @@ export default function AdminPanel({ inicial }) {
                   onPointerDown={(e) => puntoPointerDown(e, p, i)}
                   onPointerMove={puntoPointerMove}
                   onPointerUp={puntoPointerUp}
+                  onPointerCancel={puntoPointerCancel}
                 >
                   <span>{i + 1}</span>
                   <div className="mq-token-lbl">{p.nombre}</div>
@@ -680,8 +793,10 @@ export default function AdminPanel({ inicial }) {
                 <input
                   value={nombreEdit}
                   autoFocus
+                  maxLength={80}
                   onChange={(e) => setNombreEdit(e.target.value)}
                   onBlur={guardarNombrePunto}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                   placeholder="Ej. Corazón"
                 />
                 <div className="mq-pop-foot">
@@ -694,16 +809,15 @@ export default function AdminPanel({ inicial }) {
           {!listaPuntos.length && <p className="muted mq-vacio">No hay puntos en esta vista. Pulsa «+ Añadir punto».</p>}
         </div>
       </section>
-      )}
 
       {/* -------- Casos -------- */}
-      {hayCuenta && (
       <section className="card">
         <h3>Casos</h3>
         {(datos.casos || []).length ? (datos.casos).map((c) => (
           <div className="item" key={c.id}>
-            <input className="nombre-caso" defaultValue={c.nombre} onBlur={(e) => renombrar(c.id, e.target.value)} />
-            <select value={c.especie} onChange={(e) => cambiarEspecie(c.id, e.target.value)} title="Especie del maniquí">
+            <input className="nombre-caso" defaultValue={c.nombre} maxLength={120}
+              onBlur={(e) => renombrar(c, e.target.value)} />
+            <select value={c.especie} onChange={(e) => cambiarEspecie(c, e.target.value, e.target)} title="Especie del maniquí">
               <option value="perro">Perro</option>
               <option value="gato">Gato</option>
             </select>
@@ -717,7 +831,7 @@ export default function AdminPanel({ inicial }) {
             <textarea
               className="descripcion-caso"
               defaultValue={c.descripcion || ''}
-              onBlur={(e) => describir(c.id, e.target.value)}
+              onBlur={(e) => describir(c, e.target.value)}
               placeholder="Descripción para el estudiante (motivo de consulta, síntomas…). Se muestra antes de entrar al caso."
               rows={2}
               maxLength={500}
@@ -726,7 +840,9 @@ export default function AdminPanel({ inicial }) {
         )) : <p className="muted">No hay casos todavía. Crea el primero abajo.</p>}
 
         <div className="row">
-          <input value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} placeholder="Nombre del nuevo caso (ej. Embarazo)" />
+          <input value={nuevoNombre} maxLength={120} onChange={(e) => setNuevoNombre(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') crear(); }}
+            placeholder="Nombre del nuevo caso (ej. Embarazo)" />
           <select value={nuevaEspecie} onChange={(e) => setNuevaEspecie(e.target.value)} title="Especie del maniquí">
             <option value="perro">Perro</option>
             <option value="gato">Gato</option>
@@ -734,10 +850,9 @@ export default function AdminPanel({ inicial }) {
           <button className="btn" onClick={crear}>Crear caso</button>
         </div>
       </section>
-      )}
 
       {/* -------- Videos del caso -------- */}
-      {hayCuenta && caso && (
+      {caso && (
         <section className="card">
           <div className="editor-head">
             <h3>Videos de: <span className="accent">{caso.nombre}</span></h3>
@@ -761,7 +876,7 @@ export default function AdminPanel({ inicial }) {
 
           <div className="mq-stage">
             <div
-              className={'mq-canvas' + (esLadoCaso ? ' lado' : '') + (guias ? '' : ' guias-ocultas')}
+              className={'mq-canvas' + (esLadoCaso ? ' lado' : '')}
               style={{ '--mq-ratio': MANIQUIES.ratio(especieCaso, vistaCaso) }}
               onPointerDown={(e) => {
                 if (!e.target.closest('.mq-token') && !e.target.closest('.mq-pop')) setCasoPuntoSel(null);
@@ -786,27 +901,27 @@ export default function AdminPanel({ inicial }) {
               {casoPuntoObj && (
                 <div className="mq-pop" style={popStyle(posToken(casoPuntoObj, listaCaso.indexOf(casoPuntoObj)))}>
                   <div className="pop-titulo">{casoPuntoObj.nombre}</div>
-                  <div style={{ fontSize: 12, marginBottom: 6, color: videosDelCaso[casoPuntoObj.id] ? '#37d39a' : '#8b949c' }}>
+                  <div className={'pop-estado' + (videosDelCaso[casoPuntoObj.id] ? ' con-video' : '')}>
                     {subiendo
                       ? (convProgreso !== null ? `convirtiendo a H.264… ${convProgreso}%` : 'subiendo video…')
                       : (videosDelCaso[casoPuntoObj.id] ? 'video ✓' : 'sin video')}
                   </div>
                   {subiendo && convProgreso !== null && (
-                    <div style={{ fontSize: 11, color: '#8b949c', marginBottom: 6 }}>
-                      (puede tardar 1-3 min; no cierres esta ventana)
-                    </div>
+                    <div className="pop-nota">(puede tardar 1-3 min; no cierres esta ventana)</div>
                   )}
                   {!subiendo && (
-                    <div style={{ fontSize: 11, color: '#8b949c', marginBottom: 6 }}>
-                      Máximo {DURACION_MAX_SEG} segundos por video.
-                    </div>
+                    <div className="pop-nota">Máximo {DURACION_MAX_SEG} segundos y {MAX_MB_VIDEO} MB por video.</div>
                   )}
                   <div className="row" style={{ margin: 0 }}>
-                    <button className="btn small" disabled={subiendo} onClick={elegirVideo}>Elegir video…</button>
-                    <button className="btn small" onClick={verVideo} title="Ver el video asignado">▶</button>
+                    <button className="btn small" disabled={subiendo} onClick={elegirVideo}>
+                      {videosDelCaso[casoPuntoObj.id] ? 'Reemplazar video…' : 'Elegir video…'}
+                    </button>
+                    <button className="btn small" disabled={!videosDelCaso[casoPuntoObj.id]} onClick={verVideo}
+                      title="Ver el video asignado" aria-label="Ver el video asignado">▶</button>
                   </div>
                   <div className="mq-pop-foot">
-                    <button className="btn small danger" onClick={quitarVideo}>Quitar video</button>
+                    <button className="btn small danger" disabled={subiendo || !videosDelCaso[casoPuntoObj.id]}
+                      onClick={quitarVideo}>Quitar video</button>
                     <button className="btn small btn-primary" onClick={() => setCasoPuntoSel(null)}>Listo</button>
                   </div>
                 </div>
@@ -844,10 +959,29 @@ export default function AdminPanel({ inicial }) {
       )}
       </>}
 
+      {/* -------- Contraseña temporal (se muestra una sola vez) -------- */}
+      {claveNueva && (
+        <div className="overlay">
+          <div className="modal-box" role="dialog" aria-modal="true" aria-labelledby="titulo-clave">
+            <h4 id="titulo-clave">{claveNueva.titulo}</h4>
+            <p>Contraseña temporal para {claveNueva.correos.join(', ')}:</p>
+            <Copiable valor={claveNueva.clave} />
+            {claveNueva.slug && <EnlaceEstudiantes slug={claveNueva.slug} />}
+            <p>
+              Cópiala y pásasela al cliente: <strong>no se vuelve a mostrar</strong>.
+              Al entrar, debe cambiarla en «Cambiar contraseña».
+            </p>
+            <div className="modal-acciones">
+              <button className="btn btn-primary" onClick={() => setClaveNueva(null)}>Ya la copié</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* -------- Vista previa de video -------- */}
       {previewUrl && (
         <div className="overlay" onClick={() => setPreviewUrl(null)}>
-          <video src={previewUrl} controls autoPlay onClick={(e) => e.stopPropagation()} />
+          <video src={previewUrl} controls autoPlay muted onClick={(e) => e.stopPropagation()} />
           <button className="btn small" onClick={() => setPreviewUrl(null)}>Cerrar</button>
         </div>
       )}

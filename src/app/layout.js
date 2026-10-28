@@ -2,6 +2,7 @@ import './globals.css';
 import { Fira_Code } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
+import { SITIO_URL } from '@/lib/sitio';
 
 // Monoespaciada propia (self-hosted, sin pedirla a Google en runtime) en
 // vez de Consolas — que en Mac/Linux ni siquiera existe y cae a Courier
@@ -16,8 +17,19 @@ const firaCode = Fira_Code({
 });
 
 export const metadata = {
-  title: 'Caninos y felinos — Simulador de ecografía',
+  metadataBase: new URL(SITIO_URL),
+  title: 'EcoSim — Simulador de ecografía veterinaria',
   description: 'Simulador de ecografía veterinaria para clase',
+  // Vista previa al compartir el enlace (WhatsApp, redes, correo).
+  openGraph: {
+    type: 'website',
+    locale: 'es_CO',
+    siteName: 'EcoSim',
+    title: 'EcoSim — Simulador de ecografía veterinaria',
+    description: 'Tus estudiantes practican ecografía en un maniquí interactivo con casos reales.',
+    images: [{ url: '/landing/demo-maniqui.png', width: 800, height: 455, alt: 'Maniquí interactivo de EcoSim' }],
+  },
+  twitter: { card: 'summary_large_image' },
   // Permite añadirla a la pantalla de inicio del iPhone y abrirla como app.
   appleWebApp: {
     capable: true,
