@@ -577,10 +577,30 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .contacto-form input, .contacto-form textarea {
   font-family: inherit; font-size: 14.5px; color: var(--l-text);
   background: #fbfeff; border: 1px solid var(--l-border); border-radius: 9px;
-  padding: 11px 13px; outline: none; transition: border-color .15s;
+  padding: 20px 13px 8px; outline: none; transition: border-color .15s;
+  width: 100%; box-sizing: border-box;
 }
 .contacto-form input:focus, .contacto-form textarea:focus { border-color: var(--l-primary); }
 .contacto-form textarea { resize: vertical; min-height: 86px; }
+
+/* ---- Campo con etiqueta flotante: se ve como un placeholder normal,
+   pero al enfocar (o si ya hay texto) sube y se achica, en vez de
+   desaparecer debajo de lo que el usuario escribe. El input usa un
+   placeholder real de un solo espacio solo para que funcione
+   :placeholder-shown (si está vacío). ---- */
+.campo-flotante { position: relative; }
+.campo-flotante label {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%) scale(1);
+  transform-origin: left top; font-size: 14.5px; color: var(--l-text-soft);
+  pointer-events: none; transition: transform .15s ease, color .15s ease;
+}
+.campo-flotante input:focus + label,
+.campo-flotante input:not(:placeholder-shown) + label,
+.campo-flotante input:-webkit-autofill + label,
+.campo-flotante textarea:focus + label,
+.campo-flotante textarea:not(:placeholder-shown) + label {
+  top: 11px; transform: translateY(0) scale(0.76); color: var(--l-primary-dark);
+}
 .contacto-form .btn-primary {
   font-family: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
   background: var(--l-primary-dark); color: #fff; border: none; border-radius: 10px; padding: 13px 20px;

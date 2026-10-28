@@ -16,11 +16,26 @@ export default function FormularioContacto() {
 
   return (
     <form className="contacto-form" action={formAction}>
-      <input name="nombre" placeholder="Nombre" autoComplete="name" />
-      <input name="clinica" placeholder="Clínica o institución" autoComplete="organization" />
-      <input name="correo" type="email" placeholder="Correo" autoComplete="email" />
-      <input name="telefono" type="tel" placeholder="Teléfono (opcional)" autoComplete="tel" />
-      <textarea name="mensaje" placeholder="¿En qué podemos ayudarte? (opcional)" rows={4} />
+      <div className="campo-flotante">
+        <input id="ctc-nombre" name="nombre" placeholder=" " autoComplete="name" />
+        <label htmlFor="ctc-nombre">Nombre</label>
+      </div>
+      <div className="campo-flotante">
+        <input id="ctc-clinica" name="clinica" placeholder=" " autoComplete="organization" />
+        <label htmlFor="ctc-clinica">Clínica o institución</label>
+      </div>
+      <div className="campo-flotante">
+        <input id="ctc-correo" name="correo" type="email" placeholder=" " autoComplete="email" />
+        <label htmlFor="ctc-correo">Correo</label>
+      </div>
+      <div className="campo-flotante">
+        <input id="ctc-telefono" name="telefono" type="tel" placeholder=" " autoComplete="tel" />
+        <label htmlFor="ctc-telefono">Teléfono (opcional)</label>
+      </div>
+      <div className="campo-flotante">
+        <textarea id="ctc-mensaje" name="mensaje" placeholder=" " rows={4} />
+        <label htmlFor="ctc-mensaje">¿En qué podemos ayudarte? (opcional)</label>
+      </div>
       <button className="btn btn-primary" disabled={pending}>
         {pending ? 'Enviando…' : 'Enviar solicitud'}
       </button>
