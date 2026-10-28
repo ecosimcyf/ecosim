@@ -252,6 +252,13 @@ const PERRO_FOTO = {
   der: { src: '/maniquies/perro-der.png', ratio: 2.4, etiqueta: 'Perro — lado derecho' },
 };
 
+// -------------------- GATO: fotos reales (reemplazan el SVG) --------------------
+const GATO_FOTO = {
+  ventral: { src: '/maniquies/gato-ventral.png', ratio: 0.6, etiqueta: 'Maniquí de gato en vista ventral' },
+  izq: { src: '/maniquies/gato-izq.png', ratio: 2.4, etiqueta: 'Gato — lado izquierdo' },
+  der: { src: '/maniquies/gato-der.png', ratio: 2.4, etiqueta: 'Gato — lado derecho' },
+};
+
 function imgArte(foto) {
   return `<img src="${foto.src}" alt="${foto.etiqueta}" class="mq-svg mq-foto" draggable="false" />`;
 }
@@ -263,7 +270,8 @@ export const MANIQUIES = {
   gato: GATO,
   // vista: 'ventral' (por debajo) | 'izq' (lado izquierdo) | 'der' (lado derecho)
   svg(especie, vista) {
-    if (especie === 'perro' && PERRO_FOTO[vista]) return imgArte(PERRO_FOTO[vista]);
+    const foto = especie === 'gato' ? GATO_FOTO[vista] : especie === 'perro' ? PERRO_FOTO[vista] : null;
+    if (foto) return imgArte(foto);
     const g = especie === 'gato';
     if (vista === 'izq') return svgLado(g ? GATO_LADO_INNER : PERRO_LADO_INNER, false, (g ? 'Gato' : 'Perro') + ' — lado izquierdo');
     if (vista === 'der') return svgLado(g ? GATO_LADO_INNER : PERRO_LADO_INNER, true, (g ? 'Gato' : 'Perro') + ' — lado derecho');
@@ -272,7 +280,8 @@ export const MANIQUIES = {
   // Relación ancho/alto del arte actual, para que .mq-canvas (y el cálculo
   // de ancho del panel en vista lateral) se ajusten a ella vía --mq-ratio.
   ratio(especie, vista) {
-    if (especie === 'perro' && PERRO_FOTO[vista]) return PERRO_FOTO[vista].ratio;
+    const foto = especie === 'gato' ? GATO_FOTO[vista] : especie === 'perro' ? PERRO_FOTO[vista] : null;
+    if (foto) return foto.ratio;
     return vista === 'izq' || vista === 'der' ? 660 / 380 : 380 / 660;
   },
   esLado(vista) { return vista === 'izq' || vista === 'der'; },
