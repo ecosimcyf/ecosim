@@ -72,11 +72,20 @@ async function usoStorageBytes(supabase, cuentaId) {
   return (data || []).reduce((s, r) => s + (r.tamano_bytes || 0), 0);
 }
 
-// Lista de cuentas para el selector del super_admin.
+// Lista de cuentas para el selector del super_admin — con cuánto ha
+// usado cada una (casos y storage), para ver de un vistazo quién se
+// acerca a su cupo sin tener que entrar cuenta por cuenta. 2 consultas
+// extra por cuenta: a la escala de un negocio con un puñado de clientes
+// no es problema; si algún día hay cientos de cuentas, convendría una
+// sola consulta agregada en vez de este Promise.all.
 async function listarCuentasInterno(supabase) {
   const { data } = await supabase
     .from('cuentas').select('id,slug,nombre,activa,cupo_casos_propios,cupo_storage_mb').order('nombre');
-  return data || [];
+  return Promise.all((data || []).map(async (c) => ({
+    ...c,
+    casosUsados: await contarCasosDeCuenta(supabase, c.id),
+    usoStorageMb: Math.round((await usoStorageBytes(supabase, c.id)) / (1024 * 1024)),
+  })));
 }
 
 // Solicitudes de la landing (formulario de contacto), las más nuevas primero.

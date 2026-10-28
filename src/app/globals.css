@@ -420,6 +420,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .card h3 { margin: 0 0 12px; color: var(--text); font-size: 16px; font-weight: 600; }
 .card-peligro { border-color: #5a2a2a; background: var(--danger-dim); }
 .card-peligro h3 { color: var(--danger-text); }
+
+.tabla-cuentas { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13.5px; }
+.tabla-cuentas th { text-align: left; color: var(--text-faint); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--border-soft); }
+.tabla-cuentas td { padding: 7px 10px; border-bottom: 1px solid var(--border-soft); color: var(--text); }
+.tabla-cuentas tr:last-child td { border-bottom: none; }
 .row { display: flex; gap: 10px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
 .row input { flex: 1; min-width: 160px; }
 .item { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border-soft); flex-wrap: wrap; }

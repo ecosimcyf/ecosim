@@ -27,6 +27,15 @@ const VISTAS = [
 
 const clamp = (min, max, v) => Math.max(min, Math.min(max, v));
 
+// Color de texto para una celda de uso (casos o storage) según qué tan
+// cerca está del cupo — mismo lenguaje de color que BarraCupo.
+function colorCupo(usado, tope) {
+  const pct = tope > 0 ? (usado / tope) * 100 : (usado > 0 ? 100 : 0);
+  if (pct >= 100) return 'var(--danger-text)';
+  if (pct >= 80) return 'var(--warn-text)';
+  return 'var(--text-soft)';
+}
+
 function posToken(p, i) {
   const x = typeof p.x === 'number' ? p.x : 12 + (i % 6) * 13;
   const y = typeof p.y === 'number' ? p.y : 10 + Math.floor(i / 6) * 9;
@@ -463,6 +472,29 @@ export default function AdminPanel({ inicial }) {
               </button>
             )}
           </div>
+
+          {/* Resumen de uso: para ver de un vistazo quién se acerca a su
+              cupo, sin entrar cuenta por cuenta. */}
+          {(datos.cuentas || []).length > 0 && (
+            <table className="tabla-cuentas">
+              <thead>
+                <tr><th>Cuenta</th><th>Casos</th><th>Storage</th></tr>
+              </thead>
+              <tbody>
+                {(datos.cuentas || []).map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.nombre}{c.activa ? '' : ' (inactiva)'}</td>
+                    <td style={{ color: colorCupo(c.casosUsados, c.cupo_casos_propios) }}>
+                      {c.casosUsados} / {c.cupo_casos_propios}
+                    </td>
+                    <td style={{ color: colorCupo(c.usoStorageMb, c.cupo_storage_mb) }}>
+                      {c.usoStorageMb} / {c.cupo_storage_mb} MB
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
 
           <p className="muted" style={{ marginTop: 14 }}>Crear una cuenta nueva:</p>
           <div className="row">
