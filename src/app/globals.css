@@ -502,20 +502,28 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   padding: 16px 28px;
 }
 .landing-marca { color: var(--l-primary-dark); font-size: 17px; font-weight: 800; letter-spacing: 2.5px; text-decoration: none; }
-.landing-nav-links { display: flex; align-items: center; gap: 10px; }
-.landing-login {
-  color: var(--l-text-soft); font-size: 14px; text-decoration: none; font-weight: 600;
-  padding: 9px 10px; border-radius: 8px; transition: color .15s, background .15s;
+.landing-nav-links { display: flex; align-items: center; gap: 18px; }
+/* Navegación por la página: texto simple, sin caja. */
+.landing-nav-secciones { display: flex; align-items: center; gap: 2px; }
+/* Acciones (sesión / asesor): botones, separados de lo anterior por una línea. */
+.landing-nav-acciones {
+  display: flex; align-items: center; gap: 10px;
+  padding-left: 18px; border-left: 1px solid var(--l-border);
 }
-.landing-login:hover { color: var(--l-text); background: var(--l-accent-soft); }
+.landing-login {
+  color: var(--l-primary-dark); background: var(--l-surface); font-size: 13.5px; font-weight: 700;
+  text-decoration: none; padding: 9px 15px; border-radius: 9px;
+  border: 1px solid var(--l-primary-dark); transition: background .15s, color .15s;
+}
+.landing-login:hover { background: var(--l-accent-soft); color: var(--l-primary-darker); }
 .landing-cta-nav {
   background: var(--l-primary-dark); color: #fff; font-size: 13.5px; font-weight: 700;
   text-decoration: none; padding: 10px 16px; border-radius: 9px; transition: background .15s;
 }
 .landing-cta-nav:hover { background: var(--l-primary-darker); }
 .landing-nav-seccion {
-  color: var(--l-text-soft); font-size: 14px; text-decoration: none; font-weight: 600;
-  padding: 9px 8px; border-radius: 8px; transition: color .15s;
+  color: var(--l-text-soft); font-size: 14px; text-decoration: none; font-weight: 500;
+  padding: 9px 9px; border-radius: 8px; transition: color .15s;
 }
 .landing-nav-seccion:hover { color: var(--l-primary-dark); }
 
@@ -780,15 +788,16 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 @media (max-width: 860px) {
   .landing-showcase { grid-template-columns: 1fr; gap: 32px; }
   .landing-pasos, .landing-features-3 { grid-template-columns: 1fr; }
-  .landing-nav-seccion { display: none; }
+  .landing-nav-secciones { display: none; }
+  .landing-nav-acciones { padding-left: 0; border-left: none; }
   .landing-features { grid-template-columns: 1fr; }
 }
 @media (max-width: 480px) {
   .landing-hero { padding: 56px 20px 40px; }
   .landing-hero h1 { font-size: 32px; }
   .landing-bar { padding: 13px 18px; }
-  .landing-login { padding: 8px 6px; font-size: 12.5px; }
-  .landing-nav-links { gap: 4px; }
+  .landing-login { padding: 8px 10px; font-size: 12px; }
+  .landing-nav-acciones { gap: 6px; }
   .landing-cta-nav { padding: 9px 11px; font-size: 12px; }
   .contacto-form, .contacto-ok { padding: 24px 22px; }
   .landing-banner { padding: 44px 20px; }
