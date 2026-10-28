@@ -223,7 +223,9 @@ export default function AdminPanel({ inicial }) {
     dragRef.current = null;
     if (d.moved) {
       try {
-        fusionar(await actualizarPunto(datos.cuentaId, d.id, { x: Math.round(d.x * 10) / 10, y: Math.round(d.y * 10) / 10 }));
+        const r = await actualizarPunto(datos.cuentaId, d.id, { x: Math.round(d.x * 10) / 10, y: Math.round(d.y * 10) / 10 });
+        if (r.error) { alert(r.error); return; }
+        fusionar(r);
       } catch (err) {
         alert(err?.message || 'No se pudo mover el punto.');
       }
@@ -235,6 +237,7 @@ export default function AdminPanel({ inicial }) {
   async function nuevoPunto() {
     try {
       const r = await addPunto(datos.cuentaId, { especie: especiePuntos, vista: vistaPuntos });
+      if (r.error) { alert(r.error); return; }
       fusionar(r);
       if (r.nuevoPuntoId) setPuntoSel(r.nuevoPuntoId);
     } catch (err) {
@@ -244,7 +247,9 @@ export default function AdminPanel({ inicial }) {
   async function guardarNombrePunto() {
     if (!puntoSel) return;
     try {
-      fusionar(await actualizarPunto(datos.cuentaId, puntoSel, { nombre: nombreEdit }));
+      const r = await actualizarPunto(datos.cuentaId, puntoSel, { nombre: nombreEdit });
+      if (r.error) { alert(r.error); return; }
+      fusionar(r);
     } catch (err) {
       alert(err?.message || 'No se pudo guardar el nombre.');
     }
@@ -255,7 +260,9 @@ export default function AdminPanel({ inicial }) {
     const id = puntoSel;
     setPuntoSel(null);
     try {
-      fusionar(await eliminarPunto(datos.cuentaId, id));
+      const r = await eliminarPunto(datos.cuentaId, id);
+      if (r.error) { alert(r.error); return; }
+      fusionar(r);
     } catch (err) {
       alert(err?.message || 'No se pudo borrar el punto.');
     }

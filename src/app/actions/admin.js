@@ -354,37 +354,56 @@ export async function eliminarCaso(cuentaId, casoId) {
 // ---------- puntos (catálogo global del maniquí) ----------
 // Solo el super_admin los toca: son compartidos por TODAS las cuentas.
 
+// Las 3 funciones de abajo atrapan CUALQUIER error y lo devuelven como
+// {error} en vez de dejarlo tirar — en build de PRODUCCIÓN, Next.js
+// reemplaza el mensaje de cualquier excepción sin atrapar en una Server
+// Action por un texto genérico ("An error occurred in the Server
+// Components render...", sin detalle, ver next.config/comportamiento de
+// Next 15), así que un throw() aquí es indistinguible de cualquier otra
+// falla para quien lo ve en pantalla. Mismo patrón que crearCuenta.
 export async function addPunto(cuentaId, { especie, vista }) {
-  await requerirSuperAdmin();
-  const supabase = crearClienteAdmin();
-  const { data: nuevo } = await supabase
-    .from('puntos')
-    .insert({ especie: especieOk(especie), vista: vistaOk(vista), nombre: 'Punto nuevo', x: 50, y: 45 })
-    .select('id').single();
-  const datos = await leerTodo(supabase, cuentaId);
-  return { ...datos, nuevoPuntoId: nuevo?.id || null };
+  try {
+    await requerirSuperAdmin();
+    const supabase = crearClienteAdmin();
+    const { data: nuevo } = await supabase
+      .from('puntos')
+      .insert({ especie: especieOk(especie), vista: vistaOk(vista), nombre: 'Punto nuevo', x: 50, y: 45 })
+      .select('id').single();
+    const datos = await leerTodo(supabase, cuentaId);
+    return { ...datos, nuevoPuntoId: nuevo?.id || null };
+  } catch (err) {
+    return { error: err?.message || 'No se pudo crear el punto.' };
+  }
 }
 
 export async function actualizarPunto(cuentaId, puntoId, campos) {
-  await requerirSuperAdmin();
-  const supabase = crearClienteAdmin();
-  const limpio = {};
-  if (typeof campos.nombre === 'string') limpio.nombre = campos.nombre.trim() || 'Punto';
-  if (typeof campos.x === 'number') limpio.x = campos.x;
-  if (typeof campos.y === 'number') limpio.y = campos.y;
-  if (campos.vista) limpio.vista = vistaOk(campos.vista);
-  if (campos.especie) limpio.especie = especieOk(campos.especie);
-  if (Object.keys(limpio).length) await supabase.from('puntos').update(limpio).eq('id', puntoId);
-  return leerTodo(supabase, cuentaId);
+  try {
+    await requerirSuperAdmin();
+    const supabase = crearClienteAdmin();
+    const limpio = {};
+    if (typeof campos.nombre === 'string') limpio.nombre = campos.nombre.trim() || 'Punto';
+    if (typeof campos.x === 'number') limpio.x = campos.x;
+    if (typeof campos.y === 'number') limpio.y = campos.y;
+    if (campos.vista) limpio.vista = vistaOk(campos.vista);
+    if (campos.especie) limpio.especie = especieOk(campos.especie);
+    if (Object.keys(limpio).length) await supabase.from('puntos').update(limpio).eq('id', puntoId);
+    return leerTodo(supabase, cuentaId);
+  } catch (err) {
+    return { error: err?.message || 'No se pudo guardar el punto.' };
+  }
 }
 
 export async function eliminarPunto(cuentaId, puntoId) {
-  await requerirSuperAdmin();
-  const supabase = crearClienteAdmin();
-  const { data: vids } = await supabase.from('caso_videos').select('video_url').eq('punto_id', puntoId);
-  await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
-  await supabase.from('puntos').delete().eq('id', puntoId); // cascade borra sus caso_videos
-  return leerTodo(supabase, cuentaId);
+  try {
+    await requerirSuperAdmin();
+    const supabase = crearClienteAdmin();
+    const { data: vids } = await supabase.from('caso_videos').select('video_url').eq('punto_id', puntoId);
+    await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
+    await supabase.from('puntos').delete().eq('id', puntoId); // cascade borra sus caso_videos
+    return leerTodo(supabase, cuentaId);
+  } catch (err) {
+    return { error: err?.message || 'No se pudo borrar el punto.' };
+  }
 }
 
 // ---------- videos por caso ----------
