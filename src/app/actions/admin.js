@@ -17,6 +17,7 @@
 // sobre sus propios casos y puntos tiene control total.
 // ============================================================
 import { randomUUID } from 'node:crypto';
+import { redirect } from 'next/navigation';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { crearClienteServidorAuth } from '@/lib/supabase/server';
 
@@ -148,11 +149,12 @@ export async function leerDatosAdmin() {
       solicitudes: await listarSolicitudesInterno(supabase),
     };
   }
-  const { data: cuenta } = await supabase.from('cuentas').select('cupo_casos_propios,cupo_storage_mb').eq('id', cuentaId).single();
+  const { data: cuenta } = await supabase.from('cuentas').select('nombre,cupo_casos_propios,cupo_storage_mb').eq('id', cuentaId).single();
   const datos = await leerTodo(supabase, cuentaId);
   const usoBytes = await usoStorageBytes(supabase, cuentaId);
   return {
     rol, cuentaId, cuentas: null,
+    cuentaNombre: cuenta.nombre,
     cupoCasosPropios: cuenta.cupo_casos_propios,
     cupoStorageMb: cuenta.cupo_storage_mb,
     usoStorageMb: Math.round(usoBytes / (1024 * 1024)),
@@ -246,6 +248,68 @@ export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageM
   }
 
   return { cuentas: await listarCuentasInterno(supabase), claveTemporal: tempPassword };
+}
+
+// Borra una cuenta COMPLETA y sin reversa: sus videos (Storage), sus
+// casos, sus puntos, y el/los acceso(s) de administrador de esa cuenta
+// (usuario de Auth — su fila de "perfiles" se va sola por el "on delete
+// cascade" de perfiles.id -> auth.users.id). Un cliente solo puede
+// borrar la SUYA; el super_admin puede borrar cualquiera.
+//
+// Si quien borra es el cliente dueño de la cuenta, se está borrando a sí
+// mismo: no tiene sentido devolverle datos (ya no tiene cuenta ni
+// sesión), así que cerramos su sesión y lo mandamos a /admin/login.
+export async function eliminarCuenta(cuentaId) {
+  // redirect() de Next funciona lanzando una excepción especial que su
+  // propio framework atrapa más arriba — por eso va DESPUÉS del
+  // try/catch, nunca dentro: si quedara dentro, este catch la
+  // atraparía como un error cualquiera y rompería la redirección.
+  let rol;
+  try {
+    const r = await requerirAdmin();
+    rol = r.rol;
+    if (rol === 'cliente' && cuentaId !== r.cuentaId) throw new Error('No autorizado');
+    const supabase = crearClienteAdmin();
+
+    const { data: cuenta } = await supabase.from('cuentas').select('id').eq('id', cuentaId).maybeSingle();
+    if (!cuenta) throw new Error('Esa cuenta ya no existe.');
+
+    // 1. Videos de Storage de TODOS los casos de esta cuenta.
+    const { data: vids } = await supabase
+      .from('caso_videos').select('video_url, casos!inner(cuenta_id)').eq('casos.cuenta_id', cuentaId);
+    await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
+
+    // 2. Casos (cascade borra sus caso_videos) y puntos (cascade borra
+    // cualquier caso_videos que quedara, aunque ya no debería quedar
+    // ninguno tras el paso anterior).
+    await supabase.from('casos').delete().eq('cuenta_id', cuentaId);
+    await supabase.from('puntos').delete().eq('cuenta_id', cuentaId);
+
+    // 3. Usuario(s) de Auth de esta cuenta: borra el login, y de paso su
+    // fila en "perfiles" (cascade). Normalmente es uno solo, pero no
+    // asumimos cuántos por si acaso.
+    const { data: perfilesCuenta } = await supabase.from('perfiles').select('id').eq('cuenta_id', cuentaId);
+    for (const p of perfilesCuenta || []) {
+      await supabase.auth.admin.deleteUser(p.id);
+    }
+
+    // 4. La cuenta misma.
+    await supabase.from('cuentas').delete().eq('id', cuentaId);
+  } catch (err) {
+    return { error: err?.message || 'No se pudo borrar la cuenta.' };
+  }
+
+  if (rol === 'cliente') {
+    await crearClienteServidorAuth().auth.signOut();
+    redirect('/admin/login?cuenta_eliminada=1');
+  }
+
+  const supabase = crearClienteAdmin();
+  return {
+    cuentaId: null, cuentas: await listarCuentasInterno(supabase),
+    cupoCasosPropios: null, cupoStorageMb: null, usoStorageMb: null,
+    puntos: [], casos: [], videosPorCaso: {},
+  };
 }
 
 // ---------- solicitudes de contacto (solo super_admin) ----------

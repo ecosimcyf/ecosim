@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import LoginForm from './LoginForm';
 
 export const metadata = {
@@ -12,7 +13,12 @@ export default function LoginPage() {
         <span className="admin-title">Administración</span>
       </div>
       <div className="admin-login">
-        <LoginForm />
+        {/* useSearchParams (para el aviso de cuenta borrada) exige un
+            límite de Suspense para no bloquear el prerenderizado estático
+            de toda la página. */}
+        <Suspense>
+          <LoginForm />
+        </Suspense>
       </div>
     </div>
   );

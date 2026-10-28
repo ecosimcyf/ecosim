@@ -13,7 +13,7 @@ import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264 } from '@/lib/convertir-video';
 import {
-  elegirCuentaAdmin, crearCuenta, actualizarEstadoSolicitud,
+  elegirCuentaAdmin, crearCuenta, eliminarCuenta, actualizarEstadoSolicitud,
   alternarCasoActivo, crearCaso, renombrarCaso, describirCaso, cambiarEspecieCaso, eliminarCaso,
   addPunto, actualizarPunto, eliminarPunto,
   crearUrlSubidaVideo, guardarVideoCaso, quitarVideoCaso,
@@ -89,6 +89,10 @@ export default function AdminPanel({ inicial }) {
   const [nuevaCuentaCupoStorage, setNuevaCuentaCupoStorage] = useState('');
   const [nuevaCuentaCorreo, setNuevaCuentaCorreo] = useState('');
   const [creandoCuenta, setCreandoCuenta] = useState(false);
+
+  // Borrar cuenta (zona de peligro)
+  const [confirmBorrarCuenta, setConfirmBorrarCuenta] = useState('');
+  const [borrandoCuenta, setBorrandoCuenta] = useState(false);
 
   // Editor de puntos (maniquí global)
   const [especiePuntos, setEspeciePuntos] = useState('perro');
@@ -182,6 +186,41 @@ export default function AdminPanel({ inicial }) {
       alert(err?.message || 'No se pudo crear la cuenta.');
     } finally {
       setCreandoCuenta(false);
+    }
+  }
+
+  // El cliente borra SU PROPIA cuenta. Si tiene éxito, la Server Action
+  // cierra su sesión y lo redirige a /admin/login — por eso aquí no hace
+  // falta fusionar nada en caso de éxito, esta función de hecho no
+  // vuelve a ejecutarse (la página cambia).
+  async function borrarCuentaPropia() {
+    if (confirmBorrarCuenta.trim() !== (datos.cuentaNombre || '')) return;
+    setBorrandoCuenta(true);
+    try {
+      const r = await eliminarCuenta(datos.cuentaId);
+      if (r?.error) { alert(r.error); setBorrandoCuenta(false); }
+    } catch (err) {
+      alert(err?.message || 'No se pudo borrar la cuenta.');
+      setBorrandoCuenta(false);
+    }
+  }
+
+  // El super_admin borra la cuenta que tiene elegida en el selector.
+  async function borrarCuentaElegida() {
+    const cuenta = (datos.cuentas || []).find((c) => c.id === datos.cuentaId);
+    if (!cuenta) return;
+    const escrito = prompt(
+      'Esto borra TODO de "' + cuenta.nombre + '": sus casos, videos y el acceso de su administrador, ' +
+        'sin reversa. Escribe el nombre exacto de la cuenta para confirmar:'
+    );
+    if (escrito === null) return;
+    if (escrito.trim() !== cuenta.nombre) { alert('El nombre no coincide. No se borró nada.'); return; }
+    try {
+      const r = await eliminarCuenta(cuenta.id);
+      if (r.error) { alert(r.error); return; }
+      fusionar(r);
+    } catch (err) {
+      alert(err?.message || 'No se pudo borrar la cuenta.');
     }
   }
 
@@ -418,6 +457,11 @@ export default function AdminPanel({ inicial }) {
                 </option>
               ))}
             </select>
+            {datos.cuentaId && (
+              <button className="btn small danger" onClick={borrarCuentaElegida}>
+                Borrar esta cuenta
+              </button>
+            )}
           </div>
 
           <p className="muted" style={{ marginTop: 14 }}>Crear una cuenta nueva:</p>
@@ -715,6 +759,32 @@ export default function AdminPanel({ inicial }) {
               )}
             </div>
             {!listaCaso.length && <p className="muted mq-vacio">Esta especie aún no tiene puntos en esta vista. Créalos arriba, en «Maniquí».</p>}
+          </div>
+        </section>
+      )}
+
+      {/* -------- Zona de peligro: borrar la cuenta propia (no aplica
+          al super_admin, que borra cuentas desde la pestaña «Cuentas») -------- */}
+      {!esSuperAdmin && (
+        <section className="card card-peligro">
+          <h3>Zona de peligro</h3>
+          <p className="muted">
+            Esto borra tu cuenta por completo: todos tus casos, videos y tu
+            acceso de administrador. No se puede deshacer.
+          </p>
+          <div className="row">
+            <input
+              value={confirmBorrarCuenta}
+              onChange={(e) => setConfirmBorrarCuenta(e.target.value)}
+              placeholder={'Escribe "' + (datos.cuentaNombre || '') + '" para confirmar'}
+            />
+            <button
+              className="btn danger"
+              disabled={borrandoCuenta || confirmBorrarCuenta.trim() !== (datos.cuentaNombre || '')}
+              onClick={borrarCuentaPropia}
+            >
+              {borrandoCuenta ? 'Borrando…' : 'Borrar mi cuenta para siempre'}
+            </button>
           </div>
         </section>
       )}
