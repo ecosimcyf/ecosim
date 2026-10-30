@@ -415,6 +415,9 @@ create index if not exists caso_archivos_caso_idx on caso_archivos (caso_id, tip
 -- la lee por la función de abajo, filtrada por cuenta.
 alter table caso_archivos enable row level security;
 revoke all on caso_archivos from anon, authenticated;
+-- En este proyecto las tablas nuevas NO heredan permisos para el servidor:
+-- sin esto el panel falla con "permission denied for table caso_archivos".
+grant select, insert, update, delete on caso_archivos to service_role;
 
 -- 3. Bucket público (como "videos"): cualquiera con el enlace VE la
 --    imagen, pero SUBIR requiere una URL firmada del servidor.
