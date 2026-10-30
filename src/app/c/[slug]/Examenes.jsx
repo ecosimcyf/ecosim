@@ -102,35 +102,48 @@ export function VentanaExamen({ tipo, examenes, casoNombre, onCerrar }) {
 }
 
 // ---------- laboratorio ----------
+// Lo primero es el REPORTE que subió el profesor (foto/PDF), tal cual; las
+// tablas de valores, si las hay, van después como pestañas.
 function Laboratorio({ paneles, adjuntos }) {
-  const [sel, setSel] = useState(0);
-  const [imagen, setImagen] = useState(null); // adjunto de imagen abierto
   const imagenes = adjuntos.filter((a) => a.mime !== 'application/pdf');
-  const panel = paneles[Math.min(sel, paneles.length - 1)];
-
-  if (imagen) {
-    return (
-      <div className="lab-adjunto">
-        <button type="button" className="btn small" onClick={() => setImagen(null)}>← Volver a los resultados</button>
-        <VisorImagenes imagenes={imagenes} inicial={imagenes.indexOf(imagen)} />
-      </div>
-    );
-  }
+  const pdfs = adjuntos.filter((a) => a.mime === 'application/pdf');
+  const hayReporte = adjuntos.length > 0;
+  // Pestañas: 'reporte' (si hay) y luego el índice de cada tabla.
+  const pestanas = [...(hayReporte ? ['reporte'] : []), ...paneles.map((_, i) => i)];
+  const [sel, setSel] = useState(pestanas[0]);
+  const actual = pestanas.includes(sel) ? sel : pestanas[0];
+  const panel = typeof actual === 'number' ? paneles[actual] : null;
 
   return (
     <div className="lab">
-      {paneles.length > 1 && (
+      {pestanas.length > 1 && (
         <div className="tabs lab-tabs">
-          {paneles.map((p, i) => (
-            <button key={i} type="button" className={'tab' + (i === sel ? ' act' : '')} onClick={() => setSel(i)}>
-              {p.titulo}
+          {pestanas.map((p) => (
+            <button key={p} type="button" className={'tab' + (p === actual ? ' act' : '')} onClick={() => setSel(p)}>
+              {p === 'reporte' ? 'Reporte' : paneles[p].titulo}
             </button>
           ))}
         </div>
       )}
+
+      {actual === 'reporte' && (
+        <div className="lab-adjunto">
+          {imagenes.length > 0 && <VisorImagenes imagenes={imagenes} />}
+          {pdfs.length > 0 && (
+            <div className="lab-adjuntos-lista">
+              {pdfs.map((a) => (
+                <a key={a.id} className="btn small" href={a.url} target="_blank" rel="noopener">
+                  Abrir {a.titulo || 'reporte'} (PDF) ↗
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {panel && (
         <div className="lab-tabla-wrap">
-          {paneles.length === 1 && <div className="lab-panel-titulo">{panel.titulo}</div>}
+          {pestanas.length === 1 && <div className="lab-panel-titulo">{panel.titulo}</div>}
           <table className="lab-tabla">
             <thead>
               <tr><th>Parámetro</th><th>Resultado</th><th>Unidad</th><th>Referencia</th></tr>
@@ -153,22 +166,6 @@ function Laboratorio({ paneles, adjuntos }) {
               })}
             </tbody>
           </table>
-        </div>
-      )}
-      {adjuntos.length > 0 && (
-        <div className="lab-adjuntos">
-          <div className="lab-adjuntos-titulo">Reportes adjuntos</div>
-          <div className="lab-adjuntos-lista">
-            {adjuntos.map((a) => (a.mime === 'application/pdf' ? (
-              <a key={a.id} className="btn small" href={a.url} target="_blank" rel="noopener">
-                {a.titulo || 'Reporte'} (PDF) ↗
-              </a>
-            ) : (
-              <button key={a.id} type="button" className="btn small" onClick={() => setImagen(a)}>
-                {a.titulo || 'Reporte'} (imagen)
-              </button>
-            )))}
-          </div>
         </div>
       )}
     </div>

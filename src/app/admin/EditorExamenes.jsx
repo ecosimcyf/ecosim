@@ -216,6 +216,27 @@ export default function EditorExamenes({ cuentaId, caso, examenes, ejecutar, onC
       {/* -------- Laboratorio -------- */}
       {pestana === 'lab' && (
         <div className="ex-seccion">
+          {/* Lo principal: subir el reporte tal cual (foto o PDF). */}
+          <div className="ex-bloque">
+            <h4 className="ex-subtitulo">Reporte del laboratorio</h4>
+            <p className="muted ex-nota">Sube la foto o el PDF del reporte. El estudiante lo ve tal cual, con zoom.</p>
+            {listaArchivos('lab')}
+            <div className="ex-acciones">
+              <input ref={inputLab} type="file" accept="image/*,application/pdf" multiple hidden
+                onChange={(e) => { const fs = e.target.files; subir('lab', fs).finally(() => { e.target.value = ''; }); }} />
+              <button className="btn btn-primary" disabled={!!subiendo} onClick={() => inputLab.current?.click()}>
+                Subir foto o PDF del reporte…
+              </button>
+              <span className="muted" style={{ fontSize: 12.5 }}>Máximo {LIMITES.mbArchivo} MB por archivo.</span>
+            </div>
+          </div>
+
+          {/* Opcional: escribir los valores en una tabla. */}
+          <div className="ex-bloque ex-bloque-secundario">
+            <h4 className="ex-subtitulo">Tablas de valores <span className="muted">(opcional)</span></h4>
+            <p className="muted ex-nota">
+              Si prefieres, escribe los resultados: el estudiante los ve en una tabla con los valores fuera de rango marcados (↑ / ↓).
+            </p>
           {paneles.map((p, i) => (
             <div className="ex-panel" key={i}>
               <div className="ex-panel-head">
@@ -273,22 +294,16 @@ export default function EditorExamenes({ cuentaId, caso, examenes, ejecutar, onC
             </span>
           </div>
 
-          <div className="ex-guardar">
-            <button className="btn btn-primary" disabled={!labPendiente || guardando} onClick={guardarLab}>
-              {guardando ? 'Guardando…' : 'Guardar laboratorio'}
-            </button>
-            {labPendiente
-              ? <span className="muted">Cambios sin guardar.</span>
-              : <span className="muted">Todo guardado.</span>}
-          </div>
-
-          <h4 style={{ margin: '10px 0 0', fontSize: 14 }}>Reportes adjuntos (foto o PDF)</h4>
-          {listaArchivos('lab')}
-          <div>
-            <input ref={inputLab} type="file" accept="image/*,application/pdf" multiple hidden
-              onChange={(e) => { const fs = e.target.files; subir('lab', fs).finally(() => { e.target.value = ''; }); }} />
-            <button className="btn small" disabled={!!subiendo} onClick={() => inputLab.current?.click()}>Subir reporte…</button>
-            <span className="muted" style={{ fontSize: 12.5, marginLeft: 10 }}>Máximo {LIMITES.mbArchivo} MB por archivo.</span>
+          {(paneles.length > 0 || labPendiente) && (
+            <div className="ex-guardar">
+              <button className="btn btn-primary" disabled={!labPendiente || guardando} onClick={guardarLab}>
+                {guardando ? 'Guardando…' : 'Guardar tablas'}
+              </button>
+              {labPendiente
+                ? <span className="muted">Cambios sin guardar.</span>
+                : <span className="muted">Todo guardado.</span>}
+            </div>
+          )}
           </div>
         </div>
       )}
