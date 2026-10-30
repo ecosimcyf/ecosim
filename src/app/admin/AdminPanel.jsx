@@ -17,6 +17,7 @@ import { useState, useEffect, useRef } from 'react';
 import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264, duracionDe } from '@/lib/convertir-video';
+import EditorExamenes from './EditorExamenes';
 import {
   elegirCuentaAdmin, crearCuenta, actualizarCuenta, restablecerClaveCuenta, eliminarCuenta,
   limpiarVideosHuerfanos, actualizarEstadoSolicitud,
@@ -164,6 +165,9 @@ export default function AdminPanel({ inicial }) {
   const [vistaCaso, setVistaCaso] = useState('ventral');
   const [casoPuntoSel, setCasoPuntoSel] = useState(null);
 
+  // Editor de exámenes complementarios del caso (laboratorio, rx, vitales)
+  const [casoExamenes, setCasoExamenes] = useState(null);
+
   // Crear caso
   const [nuevoNombre, setNuevoNombre] = useState('');
   const [nuevaEspecie, setNuevaEspecie] = useState('perro');
@@ -206,6 +210,7 @@ export default function AdminPanel({ inicial }) {
     (datos.puntos || []).filter((p) => p.especie === especie && (p.vista || 'ventral') === vista);
 
   const caso = (datos.casos || []).find((c) => c.id === casoEnEdicion) || null;
+  const casoEx = (datos.casos || []).find((c) => c.id === casoExamenes) || null;
   const casosActivosCount = (datos.casos || []).filter((c) => c.activo).length;
   const cuentaElegida = (datos.cuentas || []).find((c) => c.id === datos.cuentaId) || null;
 
@@ -232,7 +237,7 @@ export default function AdminPanel({ inicial }) {
     if (!cuentaId) return;
     setCambiandoCuenta(true);
     const r = await ejecutar(() => elegirCuentaAdmin(cuentaId));
-    if (r) { setPuntoSel(null); setCasoEnEdicion(null); }
+    if (r) { setPuntoSel(null); setCasoEnEdicion(null); setCasoExamenes(null); }
     setCambiandoCuenta(false);
   }
 
@@ -408,11 +413,27 @@ export default function AdminPanel({ inicial }) {
     if (!confirm('¿Borrar este caso y todos sus videos?')) return;
     const r = await ejecutar(() => eliminarCaso(datos.cuentaId, id));
     if (r && casoEnEdicion === id) setCasoEnEdicion(null);
+    if (r && casoExamenes === id) setCasoExamenes(null);
   }
   function editarVideos(id) {
     setCasoPuntoSel(null);
     setVistaCaso('ventral');
     setCasoEnEdicion(id);
+  }
+  function editarExamenes(id) {
+    setCasoExamenes(id);
+    // Lleva la vista al editor (queda debajo de la lista de casos).
+    setTimeout(() => document.getElementById('editor-examenes')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  }
+  // Cuántos exámenes tiene cargados un caso (para la lista de casos).
+  function resumenExamenesCaso(id) {
+    const ex = datos.examenesPorCaso?.[id];
+    if (!ex) return 0;
+    let n = 0;
+    if ((ex.laboratorio || []).length || (ex.archivos || []).some((a) => a.tipo === 'lab')) n++;
+    if ((ex.archivos || []).some((a) => a.tipo === 'rx')) n++;
+    if (Object.keys(ex.vitales || {}).length) n++;
+    return n;
   }
 
   // ---------------- Videos del caso ----------------
@@ -827,6 +848,11 @@ export default function AdminPanel({ inicial }) {
               <span className={c.activo ? 'accent' : 'muted'}>{c.activo ? '● Activo' : 'Inactivo'}</span>
             </label>
             <button className="btn small" onClick={() => editarVideos(c.id)}>Asignar videos</button>
+            {datos.examenesDisponibles && (
+              <button className="btn small" onClick={() => editarExamenes(c.id)}>
+                Exámenes{resumenExamenesCaso(c.id) ? ' (' + resumenExamenesCaso(c.id) + ')' : ''}
+              </button>
+            )}
             <button className="btn small danger" onClick={() => borrarCaso(c.id)}>Borrar</button>
             <textarea
               className="descripcion-caso"
@@ -930,6 +956,20 @@ export default function AdminPanel({ inicial }) {
             {!listaCaso.length && <p className="muted mq-vacio">Esta especie aún no tiene puntos en esta vista. Créalos arriba, en «Maniquí».</p>}
           </div>
         </section>
+      )}
+
+      {/* -------- Exámenes complementarios del caso -------- */}
+      {casoEx && datos.examenesDisponibles && (
+        <div id="editor-examenes">
+          <EditorExamenes
+            key={casoEx.id}
+            cuentaId={datos.cuentaId}
+            caso={casoEx}
+            examenes={datos.examenesPorCaso?.[casoEx.id]}
+            ejecutar={ejecutar}
+            onCerrar={() => setCasoExamenes(null)}
+          />
+        </div>
       )}
 
       {/* -------- Zona de peligro: borrar la cuenta propia (no aplica

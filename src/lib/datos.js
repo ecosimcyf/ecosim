@@ -68,9 +68,15 @@ export async function cargarDatosDeCaso(supabase, casoId, cuentaId) {
   // así que no basta con filtrar por especie (ver migración 2026-10-28 en
   // supabase/schema.sql).
   // 3. Los videos que este caso asigna a cada punto, por función RPC.
-  const [{ data: puntos, error: errPuntos }, { data: videos, error: errVideos }] = await Promise.all([
+  // 4. Sus exámenes complementarios (laboratorio, radiografías, vitales).
+  // Si fallan (o la migración de exámenes aún no se ejecutó) el caso se
+  // abre igual, solo que sin esos botones: no vale la pena bloquear la
+  // ecografía por ellos.
+  const [{ data: puntos, error: errPuntos }, { data: videos, error: errVideos }, examenes] = await Promise.all([
     supabase.rpc('puntos_publicos_de_cuenta', { p_cuenta_id: cuentaId, p_especie: caso.especie }),
     supabase.rpc('videos_de_caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId }),
+    supabase.rpc('examenes_de_caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId })
+      .then(({ data, error }) => (error ? null : data?.[0] || null), () => null),
   ]);
   if (errPuntos || errVideos) return { casoId: null, error: true };
 
@@ -90,5 +96,25 @@ export async function cargarDatosDeCaso(supabase, casoId, cuentaId) {
     especie: caso.especie === 'gato' ? 'gato' : 'perro',
     casoNombre: caso.nombre,
     puntos: lista,
+    examenes: {
+      laboratorio: Array.isArray(examenes?.laboratorio) ? examenes.laboratorio : [],
+      vitales: examenes?.vitales && typeof examenes.vitales === 'object' ? examenes.vitales : {},
+      archivos: Array.isArray(examenes?.archivos) ? examenes.archivos : [],
+    },
   };
+}
+
+// Para los íconos del menú: { casoId: { lab, rx, vitales } } de los casos
+// activos de la cuenta. {} si falla o si la migración aún no se ejecutó
+// (las tarjetas simplemente salen sin íconos).
+export async function resumenExamenes(supabase, cuentaId) {
+  try {
+    const { data, error } = await supabase.rpc('resumen_examenes_de_cuenta', { p_cuenta_id: cuentaId });
+    if (error) return {};
+    const r = {};
+    (data || []).forEach((f) => { r[f.caso_id] = { lab: !!f.lab, rx: !!f.rx, vitales: !!f.vitales }; });
+    return r;
+  } catch {
+    return {};
+  }
 }

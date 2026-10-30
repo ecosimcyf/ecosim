@@ -13,8 +13,9 @@
 // ============================================================
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { crearClienteNavegador } from '@/lib/supabase/client';
-import { listarCasosActivos, cargarDatosDeCaso } from '@/lib/datos';
+import { listarCasosActivos, cargarDatosDeCaso, resumenExamenes } from '@/lib/datos';
 import { MANIQUIES } from '@/lib/maniquies';
+import { BotonesExamenes, VentanaExamen, EXAMENES } from './Examenes';
 
 const GRACIA_TACTIL_MS = 1500; // mismo valor que la app de escritorio
 const VISTAS = [
@@ -52,6 +53,10 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   const [precarga, setPrecarga] = useState({ cargando: false, pct: 0 });
   // Falló la carga del caso (red caída): se ofrece reintentar o volver.
   const [errorCarga, setErrorCarga] = useState(false);
+  // Exámenes complementarios: cuál está abierto ('lab' | 'rx' | 'vitales')
+  // y, para los íconos del menú, qué trae cada caso.
+  const [examenAbierto, setExamenAbierto] = useState(null);
+  const [resumen, setResumen] = useState({});
 
   const videoRef = useRef(null);
   const graciaRef = useRef(null);
@@ -90,12 +95,18 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     }
     setVideoUrl(null);
     setVista('ventral');
+    setExamenAbierto(null);
     setDatos(d);
     // Precarga las 3 fotos del maniquí de esta especie: así al cambiar de
     // vista la foto ya está y no se ven los puntos flotando sobre un hueco.
     ['ventral', 'izq', 'der'].forEach((v) => {
       const src = MANIQUIES.src(d.especie, v);
       if (src) { const img = new Image(); img.src = src; }
+    });
+    // Y las imágenes de los exámenes (radiografías, reportes), para que la
+    // ventana abra sin esperas. Los PDF se abren aparte, no se precargan.
+    (d.examenes?.archivos || []).forEach((a) => {
+      if (a.mime !== 'application/pdf') { const img = new Image(); img.src = a.url; }
     });
   }, [cuentaId]);
 
@@ -105,6 +116,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     setCasoSeleccionado(null);
     setDatos(null);
     setVideoUrl(null);
+    setExamenAbierto(null);
   }, []);
 
   // -------- Descripción del caso: "Ver descripción" desde el menú (se
@@ -154,6 +166,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       // clase de su caso.
       if (!lista) return;
       setCasosActivos(lista);
+      resumenExamenes(supabase, cuentaId).then(setResumen);
       const abiertoId = casoSeleccionadoRef.current;
       if (abiertoId && !lista.some((c) => c.id === abiertoId)) {
         setAvisoCasoDesactivado(true);
@@ -162,6 +175,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
         setVideoUrl(null);
       }
     };
+    resumenExamenes(supabase, cuentaId).then(setResumen);
     const sondeo = setInterval(recargarLista, 15000);
     return () => clearInterval(sondeo);
   }, [cuentaId]);
@@ -290,18 +304,19 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       if (e.key === 'F1') { e.preventDefault(); setAyuda((a) => !a); return; }
       if (e.key === 'F11') { e.preventDefault(); alternarPantallaCompleta(); return; }
       if (e.key === 'Escape') {
+        if (examenAbierto) { setExamenAbierto(null); return; }
         if (vistaDescripcion) { cerrarDescripcion(); return; }
         if (ayuda) setAyuda(false); else irAReposo();
         return;
       }
-      if (e.code === 'Space' && videoUrl) {
+      if (e.code === 'Space' && videoUrl && !examenAbierto) {
         e.preventDefault();
         alternarCongelado();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [ayuda, videoUrl, irAReposo, vistaDescripcion, alternarCongelado]);
+  }, [ayuda, videoUrl, irAReposo, vistaDescripcion, alternarCongelado, examenAbierto]);
 
   // -------- Presionar / soltar un punto --------
   const presionar = (p, e) => {
@@ -340,6 +355,13 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
               >
                 <div className="caso-card-nombre">{c.nombre}</div>
                 <div className="caso-card-especie">{MANIQUIES.nombre(c.especie)}</div>
+                {resumen[c.id] && EXAMENES.some((x) => resumen[c.id][x.id]) && (
+                  <div className="caso-card-examenes">
+                    {EXAMENES.filter((x) => resumen[c.id][x.id]).map(({ id, titulo, Icono }) => (
+                      <span key={id} className="caso-card-examen" title={titulo} aria-label={titulo}><Icono size={15} /></span>
+                    ))}
+                  </div>
+                )}
                 {c.descripcion && (
                   <button
                     type="button" className="btn small caso-card-ver-desc"
@@ -459,6 +481,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
           </button>
         )}
         <div className="esc-hint">Espacio = congelar · F1 = ayuda</div>
+        <BotonesExamenes examenes={datos.examenes} onAbrir={setExamenAbierto} />
       </div>
 
       {/* Panel del maniquí */}
@@ -545,6 +568,15 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
             <button className="btn small" onClick={() => setAyuda(false)}>Cerrar (F1)</button>
           </div>
         </div>
+      )}
+
+      {/* Exámenes complementarios (botones arriba a la derecha del visor) */}
+      {examenAbierto && (
+        <VentanaExamen
+          tipo={examenAbierto} examenes={datos.examenes || {}}
+          casoNombre={casoActual?.nombre || datos.casoNombre}
+          onCerrar={() => setExamenAbierto(null)}
+        />
       )}
 
       {/* Descripción del caso, pedida desde dentro (botón "Descripción" de arriba) */}
