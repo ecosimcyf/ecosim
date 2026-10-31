@@ -1033,37 +1033,78 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 
 /* ============================================================
    SELECTOR DE IDIOMA (landing, login, panel, vista del estudiante)
-   Se ve solo el código ("PT") con un globo; el <select> real va encima,
-   transparente, y abre la lista con los nombres completos.
+   Botón con el código ("PT") y un menú propio debajo. Por defecto con
+   los colores del simulador; .selector-idioma-claro, los de la landing.
    ============================================================ */
-.selector-idioma {
-  position: relative; display: inline-flex; align-items: center; gap: 5px;
-  font-size: 12.5px; font-weight: 700; letter-spacing: .5px;
-  padding: 7px 9px; border-radius: 9px; cursor: pointer;
+.selector-idioma { position: relative; display: inline-flex; }
+.selector-idioma-boton {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; font-size: 12.5px; font-weight: 700; letter-spacing: .6px;
+  padding: 7px 10px; border-radius: 9px; cursor: pointer;
   color: var(--text-soft); background: var(--bg-2); border: 1px solid var(--border);
   transition: color .15s, background .15s, border-color .15s;
 }
-.selector-idioma:hover, .selector-idioma:focus-within { color: var(--text); border-color: var(--accent-border); }
-.selector-idioma:has(select:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-.selector-idioma select {
-  position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
-  font-size: 16px; /* que iOS no haga zoom al abrirlo */
+.selector-idioma-boton:hover, .selector-idioma.abierto .selector-idioma-boton {
+  color: var(--text); border-color: var(--accent-border); background: var(--bg-3);
 }
-.selector-idioma select:disabled { cursor: progress; }
-.selector-idioma-flecha { opacity: .7; }
-/* Versión clara (landing). */
-.selector-idioma-claro {
+.selector-idioma-boton:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.selector-idioma-boton[data-ocupado] { cursor: progress; opacity: .7; }
+.selector-idioma-flecha { opacity: .7; transition: transform .15s; }
+.selector-idioma.abierto .selector-idioma-flecha { transform: rotate(180deg); }
+
+.selector-idioma-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  min-width: 176px; margin: 0; padding: 5px; list-style: none;
+  background: var(--bg-1); border: 1px solid var(--border); border-radius: 11px;
+  box-shadow: 0 14px 34px -10px rgba(0, 0, 0, .7), 0 0 0 1px rgba(63, 198, 207, .06);
+  animation: selector-idioma-entrar .14s ease-out;
+}
+@keyframes selector-idioma-entrar { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .selector-idioma-menu { animation: none; } }
+.selector-idioma-opcion {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 7px; cursor: pointer;
+  font-size: 13.5px; color: var(--text-soft); outline: none;
+  transition: background .12s, color .12s;
+}
+.selector-idioma-opcion:hover, .selector-idioma-opcion:focus-visible { background: var(--bg-3); color: var(--text); }
+.selector-idioma-opcion:focus-visible { box-shadow: inset 0 0 0 1px var(--accent-border); }
+.selector-idioma-sigla {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .6px; min-width: 26px; text-align: center;
+  padding: 2px 0; border-radius: 5px; color: var(--text-faint); background: var(--bg-2);
+}
+.selector-idioma-nombre { flex: 1; }
+.selector-idioma-check { visibility: hidden; color: var(--accent); }
+.selector-idioma-opcion.elegido { color: var(--accent-bright); }
+.selector-idioma-opcion.elegido .selector-idioma-sigla { color: var(--accent); background: var(--accent-dim); }
+.selector-idioma-opcion.elegido .selector-idioma-check { visibility: visible; }
+
+/* Versión clara (landing): mismos tonos que sus botones y tarjetas. */
+.selector-idioma-claro .selector-idioma-boton {
   color: var(--l-primary-dark); background: var(--l-surface); border-color: var(--l-border);
 }
-.selector-idioma-claro:hover, .selector-idioma-claro:focus-within {
+.selector-idioma-claro .selector-idioma-boton:hover,
+.selector-idioma-claro.abierto .selector-idioma-boton {
   color: var(--l-primary-darker); background: var(--l-accent-soft); border-color: var(--l-border);
 }
-.selector-idioma-claro:has(select:focus-visible) { outline-color: var(--l-primary); }
-@media (max-width: 480px) {
-  .selector-idioma { padding: 6px 7px; gap: 4px; }
-  .selector-idioma > svg:first-child { display: none; }
+.selector-idioma-claro .selector-idioma-boton:focus-visible { outline-color: var(--l-primary); }
+.selector-idioma-claro .selector-idioma-menu {
+  background: var(--l-surface); border-color: var(--l-border); border-radius: 14px; padding: 6px;
+  box-shadow: 0 22px 44px -18px rgba(15, 40, 50, .3), 0 2px 6px rgba(15, 40, 50, .05);
 }
-/* Menú del estudiante: arriba a la derecha, fuera del centro. */
+.selector-idioma-claro .selector-idioma-opcion { color: var(--l-text); font-weight: 600; border-radius: 9px; }
+.selector-idioma-claro .selector-idioma-opcion:hover,
+.selector-idioma-claro .selector-idioma-opcion:focus-visible { background: var(--l-accent-soft); color: var(--l-primary-darker); }
+.selector-idioma-claro .selector-idioma-opcion:focus-visible { box-shadow: inset 0 0 0 1px var(--l-primary); }
+.selector-idioma-claro .selector-idioma-sigla { color: var(--l-text-soft); background: var(--l-bg); }
+.selector-idioma-claro .selector-idioma-opcion.elegido { color: var(--l-primary-dark); }
+.selector-idioma-claro .selector-idioma-opcion.elegido .selector-idioma-sigla { color: #fff; background: var(--l-primary-dark); }
+.selector-idioma-claro .selector-idioma-check { color: var(--l-primary-dark); }
+
+@media (max-width: 480px) {
+  .selector-idioma-boton { padding: 6px 8px; gap: 4px; }
+  .selector-idioma-globo { display: none; }
+}/* Menú del estudiante: arriba a la derecha, fuera del centro. */
 .menu-casos-idioma { position: absolute; top: 14px; right: 14px; }
 .menu-casos { position: relative; }
 /* Barra del panel y del login. */
