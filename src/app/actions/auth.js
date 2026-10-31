@@ -6,10 +6,15 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { crearClienteServidorAuth } from '@/lib/supabase/server';
 import { estaBloqueado, registrarIntento, limpiarIntentos } from '@/lib/ratelimit';
+import { crearT } from '@/lib/i18n/config';
+import { idiomaVisitante } from '@/lib/i18n/servidor';
+import { idiomaPanel } from '@/lib/i18n/panel-servidor';
+import { PANEL } from '@/lib/i18n/textos/panel';
 
 export async function login(_prevState, formData) {
   const correo = String(formData.get('correo') || '');
   const password = String(formData.get('password') || '');
+  const t = crearT(PANEL, await idiomaVisitante());
 
   // Identificar el origen para el límite de intentos.
   const hdrs = await headers();
@@ -20,7 +25,7 @@ export async function login(_prevState, formData) {
   // ('contacto:'), así que un ataque contra uno de los dos formularios no
   // agota de paso los intentos del otro para la misma IP.
   if (estaBloqueado('login:' + ip)) {
-    return { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' };
+    return { error: t('err.intentos') };
   }
 
   const { error } = await crearClienteServidorAuth().auth.signInWithPassword({
@@ -29,7 +34,7 @@ export async function login(_prevState, formData) {
   });
   if (error) {
     registrarIntento('login:' + ip);
-    return { error: 'Correo o contraseña incorrectos.' };
+    return { error: t('err.credenciales') };
   }
 
   limpiarIntentos('login:' + ip);
@@ -54,24 +59,26 @@ export async function cambiarContrasena(_prevState, formData) {
   const actual = String(formData.get('actual') || '');
   const nueva = String(formData.get('nueva') || '');
   const repetir = String(formData.get('repetir') || '');
-  if (!actual) return { error: 'Escribe tu contraseña actual.' };
-  if (nueva.length < 8) return { error: 'La contraseña nueva debe tener al menos 8 caracteres.' };
-  if (nueva !== repetir) return { error: 'Las dos contraseñas nuevas no coinciden.' };
-  if (nueva === actual) return { error: 'La contraseña nueva debe ser distinta de la actual.' };
+  // Los mensajes salen en el idioma del panel de quien la cambia.
+  const t = crearT(PANEL, await idiomaPanel());
+  if (!actual) return { error: t('err.faltaActual') };
+  if (nueva.length < 8) return { error: t('err.claveCorta') };
+  if (nueva !== repetir) return { error: t('err.noCoinciden') };
+  if (nueva === actual) return { error: t('err.claveIgual') };
 
   const supabase = crearClienteServidorAuth();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user?.email) return { error: 'Tu sesión se cerró. Vuelve a iniciar sesión.' };
+  if (!user?.email) return { error: t('err.sesion') };
 
   const hdrs = await headers();
   const ip = (hdrs.get('x-forwarded-for') || '').split(',')[0].trim() || 'desconocido';
   if (estaBloqueado('clave:' + ip)) {
-    return { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' };
+    return { error: t('err.intentos') };
   }
   const { error: errActual } = await supabase.auth.signInWithPassword({ email: user.email, password: actual });
   if (errActual) {
     registrarIntento('clave:' + ip);
-    return { error: 'La contraseña actual no es correcta.' };
+    return { error: t('err.actualMal') };
   }
   limpiarIntentos('clave:' + ip);
 
@@ -79,9 +86,9 @@ export async function cambiarContrasena(_prevState, formData) {
   if (error) {
     // Supabase responde en inglés; se traduce lo más común.
     const m = error.message || '';
-    if (/different from the old/i.test(m)) return { error: 'La contraseña nueva debe ser distinta de la actual.' };
-    if (/weak|short|characters/i.test(m)) return { error: 'La contraseña es demasiado débil: usa más caracteres, mezclando letras y números.' };
-    return { error: 'No se pudo cambiar la contraseña. Inténtalo de nuevo.' };
+    if (/different from the old/i.test(m)) return { error: t('err.claveIgual') };
+    if (/weak|short|characters/i.test(m)) return { error: t('err.claveDebil') };
+    return { error: t('err.claveFallo') };
   }
   return { ok: true };
 }

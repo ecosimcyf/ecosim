@@ -1030,3 +1030,60 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .ex-vitales .ex-unidad { color: var(--text-faint); font-size: 12px; min-width: 34px; }
 .ex-vitales textarea { resize: vertical; min-height: 60px; font-size: 13px; }
 .ex-subiendo { font-size: 12.5px; color: var(--accent); }
+
+/* ============================================================
+   SELECTOR DE IDIOMA (landing, login, panel, vista del estudiante)
+   Se ve solo el código ("PT") con un globo; el <select> real va encima,
+   transparente, y abre la lista con los nombres completos.
+   ============================================================ */
+.selector-idioma {
+  position: relative; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12.5px; font-weight: 700; letter-spacing: .5px;
+  padding: 7px 9px; border-radius: 9px; cursor: pointer;
+  color: var(--text-soft); background: var(--bg-2); border: 1px solid var(--border);
+  transition: color .15s, background .15s, border-color .15s;
+}
+.selector-idioma:hover, .selector-idioma:focus-within { color: var(--text); border-color: var(--accent-border); }
+.selector-idioma:has(select:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.selector-idioma select {
+  position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+  font-size: 16px; /* que iOS no haga zoom al abrirlo */
+}
+.selector-idioma select:disabled { cursor: progress; }
+.selector-idioma-flecha { opacity: .7; }
+/* Versión clara (landing). */
+.selector-idioma-claro {
+  color: var(--l-primary-dark); background: var(--l-surface); border-color: var(--l-border);
+}
+.selector-idioma-claro:hover, .selector-idioma-claro:focus-within {
+  color: var(--l-primary-darker); background: var(--l-accent-soft); border-color: var(--l-border);
+}
+.selector-idioma-claro:has(select:focus-visible) { outline-color: var(--l-primary); }
+@media (max-width: 480px) {
+  .selector-idioma { padding: 6px 7px; gap: 4px; }
+  .selector-idioma > svg:first-child { display: none; }
+}
+/* Menú del estudiante: arriba a la derecha, fuera del centro. */
+.menu-casos-idioma { position: absolute; top: 14px; right: 14px; }
+.menu-casos { position: relative; }
+/* Barra del panel y del login. */
+.admin-bar-acciones { display: flex; gap: 10px; align-items: center; }
+
+.legal-page .legal-aviso {
+  font-size: 13.5px; color: var(--l-text-soft); background: var(--l-accent-soft);
+  border-radius: 10px; padding: 10px 14px; margin: -20px 0 30px;
+}
+.nota-idioma { font-size: 12.5px; margin: 6px 0 0; }
+/* Teléfonos angostos: con el selector de idioma ya no caben los dos
+   botones (en portugués, «Falar com um consultor» es largo). Se oculta el
+   de la barra: el mismo botón está en la portada, justo debajo, y el de
+   WhatsApp sigue flotando. */
+@media (max-width: 420px) {
+  .landing-cta-nav { display: none; }
+}
+/* En el celular, con el selector de idioma, la barra del panel puede no
+   caber en una línea (en portugués: «Administração», «Alterar senha»). */
+@media (max-width: 560px) {
+  .admin-bar { flex-wrap: wrap; gap: 10px; padding: 12px 16px; }
+  .admin-bar-acciones { flex-wrap: wrap; gap: 8px; }
+}

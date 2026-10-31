@@ -31,74 +31,89 @@ export const MIME_EXTENSION = {
 
 // ---------- plantillas de laboratorio ----------
 // [parámetro, unidad, perro [min, max], gato [min, max]] — o un texto de
-// referencia cuando el resultado es cualitativo.
+// referencia cuando el resultado es cualitativo. Los textos van en los
+// tres idiomas (N(es, pt, en)): la tabla se crea en el idioma del panel y
+// después es texto libre del profesor, como el resto del caso.
+const N = (es, pt, en) => ({ es, pt, en });
+const NEGATIVO = N('Negativo', 'Negativo', 'Negative');
+const NEG_TRAZAS = N('Negativo / trazas', 'Negativo / traços', 'Negative / trace');
+const AUSENTES = N('Ausentes', 'Ausentes', 'None seen');
+const POR_CAMPO = N('/campo', '/campo', '/hpf');
+
 const HEMOGRAMA = [
-  ['Hematocrito', '%', [37, 55], [30, 45]],
-  ['Hemoglobina', 'g/dL', [12, 18], [9, 15]],
-  ['Eritrocitos', '×10⁶/µL', [5.5, 8.5], [5, 10]],
-  ['VCM', 'fL', [60, 77], [39, 55]],
-  ['CHCM', 'g/dL', [32, 36], [30, 36]],
-  ['Leucocitos', '×10³/µL', [6, 17], [5.5, 19.5]],
-  ['Neutrófilos', '×10³/µL', [3, 11.5], [2.5, 12.5]],
-  ['Linfocitos', '×10³/µL', [1, 4.8], [1.5, 7]],
-  ['Monocitos', '×10³/µL', [0.15, 1.35], [0, 0.85]],
-  ['Eosinófilos', '×10³/µL', [0.1, 1.25], [0, 1.5]],
-  ['Plaquetas', '×10³/µL', [200, 500], [300, 800]],
+  [N('Hematocrito', 'Hematócrito', 'Hematocrit (PCV)'), '%', [37, 55], [30, 45]],
+  [N('Hemoglobina', 'Hemoglobina', 'Hemoglobin'), 'g/dL', [12, 18], [9, 15]],
+  [N('Eritrocitos', 'Hemácias', 'RBC'), '×10⁶/µL', [5.5, 8.5], [5, 10]],
+  [N('VCM', 'VCM', 'MCV'), 'fL', [60, 77], [39, 55]],
+  [N('CHCM', 'CHCM', 'MCHC'), 'g/dL', [32, 36], [30, 36]],
+  [N('Leucocitos', 'Leucócitos', 'WBC'), '×10³/µL', [6, 17], [5.5, 19.5]],
+  [N('Neutrófilos', 'Neutrófilos', 'Neutrophils'), '×10³/µL', [3, 11.5], [2.5, 12.5]],
+  [N('Linfocitos', 'Linfócitos', 'Lymphocytes'), '×10³/µL', [1, 4.8], [1.5, 7]],
+  [N('Monocitos', 'Monócitos', 'Monocytes'), '×10³/µL', [0.15, 1.35], [0, 0.85]],
+  [N('Eosinófilos', 'Eosinófilos', 'Eosinophils'), '×10³/µL', [0.1, 1.25], [0, 1.5]],
+  [N('Plaquetas', 'Plaquetas', 'Platelets'), '×10³/µL', [200, 500], [300, 800]],
 ];
 
 const QUIMICA = [
-  ['Glucosa', 'mg/dL', [70, 143], [74, 159]],
-  ['BUN (nitrógeno ureico)', 'mg/dL', [7, 27], [16, 36]],
-  ['Creatinina', 'mg/dL', [0.5, 1.8], [0.8, 2.4]],
-  ['ALT', 'U/L', [10, 125], [12, 130]],
-  ['Fosfatasa alcalina', 'U/L', [23, 212], [14, 111]],
-  ['Proteínas totales', 'g/dL', [5.2, 8.2], [5.7, 8.9]],
-  ['Albúmina', 'g/dL', [2.3, 4.0], [2.2, 4.0]],
-  ['Bilirrubina total', 'mg/dL', [0, 0.9], [0, 0.9]],
-  ['Colesterol', 'mg/dL', [110, 320], [65, 225]],
-  ['Calcio', 'mg/dL', [7.9, 12], [7.8, 11.3]],
-  ['Fósforo', 'mg/dL', [2.5, 6.8], [3.1, 7.5]],
+  [N('Glucosa', 'Glicose', 'Glucose'), 'mg/dL', [70, 143], [74, 159]],
+  [N('BUN (nitrógeno ureico)', 'BUN (nitrogênio ureico)', 'BUN (blood urea nitrogen)'), 'mg/dL', [7, 27], [16, 36]],
+  [N('Creatinina', 'Creatinina', 'Creatinine'), 'mg/dL', [0.5, 1.8], [0.8, 2.4]],
+  [N('ALT', 'ALT', 'ALT'), 'U/L', [10, 125], [12, 130]],
+  [N('Fosfatasa alcalina', 'Fosfatase alcalina', 'Alkaline phosphatase (ALP)'), 'U/L', [23, 212], [14, 111]],
+  [N('Proteínas totales', 'Proteínas totais', 'Total protein'), 'g/dL', [5.2, 8.2], [5.7, 8.9]],
+  [N('Albúmina', 'Albumina', 'Albumin'), 'g/dL', [2.3, 4.0], [2.2, 4.0]],
+  [N('Bilirrubina total', 'Bilirrubina total', 'Total bilirubin'), 'mg/dL', [0, 0.9], [0, 0.9]],
+  [N('Colesterol', 'Colesterol', 'Cholesterol'), 'mg/dL', [110, 320], [65, 225]],
+  [N('Calcio', 'Cálcio', 'Calcium'), 'mg/dL', [7.9, 12], [7.8, 11.3]],
+  [N('Fósforo', 'Fósforo', 'Phosphorus'), 'mg/dL', [2.5, 6.8], [3.1, 7.5]],
 ];
 
 const UROANALISIS = [
-  ['Densidad urinaria', '', [1.015, 1.045], [1.035, 1.06]],
-  ['pH', '', [5.5, 7.5], [5.5, 7.5]],
-  ['Proteínas', '', 'Negativo / trazas', 'Negativo / trazas'],
-  ['Glucosa', '', 'Negativo', 'Negativo'],
-  ['Cetonas', '', 'Negativo', 'Negativo'],
-  ['Sangre', '', 'Negativo', 'Negativo'],
-  ['Bilirrubina', '', 'Negativo / trazas', 'Negativo'],
-  ['Eritrocitos (sedimento)', '/campo', [0, 5], [0, 5]],
-  ['Leucocitos (sedimento)', '/campo', [0, 5], [0, 5]],
-  ['Cristales', '', 'Ausentes', 'Ausentes'],
-  ['Bacterias', '', 'Ausentes', 'Ausentes'],
+  [N('Densidad urinaria', 'Densidade urinária', 'Urine specific gravity'), '', [1.015, 1.045], [1.035, 1.06]],
+  [N('pH', 'pH', 'pH'), '', [5.5, 7.5], [5.5, 7.5]],
+  [N('Proteínas', 'Proteínas', 'Protein'), '', NEG_TRAZAS, NEG_TRAZAS],
+  [N('Glucosa', 'Glicose', 'Glucose'), '', NEGATIVO, NEGATIVO],
+  [N('Cetonas', 'Corpos cetônicos', 'Ketones'), '', NEGATIVO, NEGATIVO],
+  [N('Sangre', 'Sangue oculto', 'Blood'), '', NEGATIVO, NEGATIVO],
+  [N('Bilirrubina', 'Bilirrubina', 'Bilirubin'), '', NEG_TRAZAS, NEGATIVO],
+  [N('Eritrocitos (sedimento)', 'Hemácias (sedimento)', 'RBC (sediment)'), POR_CAMPO, [0, 5], [0, 5]],
+  [N('Leucocitos (sedimento)', 'Leucócitos (sedimento)', 'WBC (sediment)'), POR_CAMPO, [0, 5], [0, 5]],
+  [N('Cristales', 'Cristais', 'Crystals'), '', AUSENTES, AUSENTES],
+  [N('Bacterias', 'Bactérias', 'Bacteria'), '', AUSENTES, AUSENTES],
 ];
 
 export const PLANTILLAS_LAB = [
-  { id: 'hemograma', titulo: 'Hemograma', filas: HEMOGRAMA },
-  { id: 'quimica', titulo: 'Química sanguínea', filas: QUIMICA },
-  { id: 'uroanalisis', titulo: 'Uroanálisis', filas: UROANALISIS },
-  { id: 'vacio', titulo: 'Panel personalizado', filas: [] },
+  { id: 'hemograma', titulo: N('Hemograma', 'Hemograma', 'Complete blood count'), filas: HEMOGRAMA },
+  { id: 'quimica', titulo: N('Química sanguínea', 'Bioquímica sérica', 'Serum chemistry'), filas: QUIMICA },
+  { id: 'uroanalisis', titulo: N('Uroanálisis', 'Urinálise', 'Urinalysis'), filas: UROANALISIS },
+  { id: 'vacio', titulo: N('Panel personalizado', 'Tabela personalizada', 'Custom table'), filas: [] },
 ];
 
-// Panel nuevo a partir de una plantilla, con los rangos de la especie.
-export function panelDesdePlantilla(plantillaId, especie) {
+// Texto de una plantilla en un idioma (o tal cual si no es traducible).
+export function enIdioma(v, idioma) {
+  if (v && typeof v === 'object' && !Array.isArray(v)) return v[idioma] ?? v.es;
+  return v;
+}
+
+// Panel nuevo a partir de una plantilla, con los rangos de la especie y
+// los nombres en el idioma del panel.
+export function panelDesdePlantilla(plantillaId, especie, idioma = 'es') {
   const p = PLANTILLAS_LAB.find((x) => x.id === plantillaId) || PLANTILLAS_LAB[3];
   const i = especie === 'gato' ? 3 : 2;
   return {
-    titulo: p.titulo,
+    titulo: enIdioma(p.titulo, idioma),
     especie: especie === 'gato' ? 'gato' : 'perro',
     filas: p.filas.length
       ? p.filas.map((f) => {
           const r = f[i];
+          const base = { parametro: enIdioma(f[0], idioma), valor: '', unidad: enIdioma(f[1], idioma) };
           return Array.isArray(r)
-            ? { parametro: f[0], valor: '', unidad: f[1], min: r[0], max: r[1], ref: '' }
-            : { parametro: f[0], valor: '', unidad: f[1], min: null, max: null, ref: r };
+            ? { ...base, min: r[0], max: r[1], ref: '' }
+            : { ...base, min: null, max: null, ref: enIdioma(r, idioma) };
         })
       : [filaVacia()],
   };
 }
-
 export function filaVacia() {
   return { parametro: '', valor: '', unidad: '', min: null, max: null, ref: '' };
 }
@@ -122,11 +137,12 @@ export function estadoValor(fila) {
   return null;
 }
 
-// Texto de la columna "Referencia".
-export function textoReferencia(fila) {
+// Texto de la columna "Referencia" (coma decimal en español y portugués,
+// punto en inglés).
+export function textoReferencia(fila, idioma = 'es') {
   const min = aNumero(fila?.min);
   const max = aNumero(fila?.max);
-  const n = (x) => String(x).replace('.', ',');
+  const n = (x) => (idioma === 'en' ? String(x) : String(x).replace('.', ','));
   if (min != null && max != null) return n(min) + ' – ' + n(max);
   if (max != null) return '≤ ' + n(max);
   if (min != null) return '≥ ' + n(min);
@@ -134,23 +150,22 @@ export function textoReferencia(fila) {
 }
 
 // ---------- signos vitales ----------
-// Orden en que salen en el formulario y en el monitor.
+// Orden en que salen en el formulario y en el monitor. Nombres, siglas,
+// unidades y sugerencias, por idioma, en i18n/textos/examenes.js (vit.*).
 export const CAMPOS_VITALES = [
-  { id: 'fc', etiqueta: 'Frecuencia cardiaca', corta: 'FC', unidad: 'lpm', numerico: true },
-  { id: 'fr', etiqueta: 'Frecuencia respiratoria', corta: 'FR', unidad: 'rpm', numerico: true },
-  { id: 'temp', etiqueta: 'Temperatura', corta: 'TEMP', unidad: '°C', numerico: true },
-  { id: 'spo2', etiqueta: 'Saturación de oxígeno', corta: 'SpO₂', unidad: '%', numerico: true },
-  { id: 'pas', etiqueta: 'Presión sistólica', corta: 'PAS', unidad: 'mmHg', numerico: true },
-  { id: 'pad', etiqueta: 'Presión diastólica', corta: 'PAD', unidad: 'mmHg', numerico: true },
-  { id: 'trc', etiqueta: 'Tiempo de llenado capilar', corta: 'TRC', unidad: 's', numerico: true },
-  { id: 'mucosas', etiqueta: 'Mucosas', corta: 'Mucosas', unidad: '', numerico: false,
-    sugerencias: ['Rosadas', 'Pálidas', 'Congestivas', 'Ictéricas', 'Cianóticas'] },
-  { id: 'peso', etiqueta: 'Peso', corta: 'Peso', unidad: 'kg', numerico: true },
-  { id: 'cc', etiqueta: 'Condición corporal', corta: 'CC', unidad: '/9', numerico: true },
-  { id: 'deshidratacion', etiqueta: 'Deshidratación', corta: 'Deshidr.', unidad: '%', numerico: true },
-  { id: 'notas', etiqueta: 'Observaciones', corta: 'Notas', unidad: '', numerico: false, largo: true },
+  { id: 'fc', numerico: true },
+  { id: 'fr', numerico: true },
+  { id: 'temp', numerico: true },
+  { id: 'spo2', numerico: true },
+  { id: 'pas', numerico: true },
+  { id: 'pad', numerico: true },
+  { id: 'trc', numerico: true },
+  { id: 'mucosas', numerico: false, sugerencias: true },
+  { id: 'peso', numerico: true },
+  { id: 'cc', numerico: true },
+  { id: 'deshidratacion', numerico: true },
+  { id: 'notas', numerico: false, largo: true },
 ];
-
 // ---------- validación (la usa el servidor; también limpia en el panel) ----------
 
 const corto = (v, max) => String(v ?? '').trim().slice(0, max);
@@ -158,7 +173,8 @@ const corto = (v, max) => String(v ?? '').trim().slice(0, max);
 export function limpiarLaboratorio(paneles) {
   if (!Array.isArray(paneles)) return [];
   return paneles.slice(0, LIMITES.paneles).map((p) => ({
-    titulo: corto(p?.titulo, 80) || 'Laboratorio',
+    // Sin título, la vista del estudiante muestra «Laboratorio» en su idioma.
+    titulo: corto(p?.titulo, 80),
     especie: p?.especie === 'gato' ? 'gato' : 'perro',
     filas: (Array.isArray(p?.filas) ? p.filas : [])
       .slice(0, LIMITES.filasPorPanel)

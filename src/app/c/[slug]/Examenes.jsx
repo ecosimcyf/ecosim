@@ -6,6 +6,8 @@
 // ============================================================
 import { useState, useEffect, useRef } from 'react';
 import { CAMPOS_VITALES, estadoValor, textoReferencia, aNumero } from '@/lib/examenes';
+import { useIdioma, useT } from '@/lib/i18n/cliente';
+import { EXAMENES_TXT } from '@/lib/i18n/textos/examenes';
 
 // ---------- íconos (dibujados: el emoji 🩻 no existe en Windows ni en
 // Android antiguos) ----------
@@ -38,10 +40,11 @@ export function IconoMonitor({ size = 18 }) {
   );
 }
 
+// El nombre de cada uno, en el idioma de la vista: t('ex.' + id).
 export const EXAMENES = [
-  { id: 'lab', titulo: 'Laboratorio', Icono: IconoLab },
-  { id: 'rx', titulo: 'Radiografías', Icono: IconoRx },
-  { id: 'vitales', titulo: 'Signos vitales', Icono: IconoMonitor },
+  { id: 'lab', Icono: IconoLab },
+  { id: 'rx', Icono: IconoRx },
+  { id: 'vitales', Icono: IconoMonitor },
 ];
 
 // Qué exámenes trae un caso ya cargado.
@@ -57,13 +60,14 @@ export function examenesDisponibles(ex) {
 
 // Botones sobre el visor (arriba a la derecha).
 export function BotonesExamenes({ examenes, onAbrir }) {
+  const t = useT(EXAMENES_TXT);
   const lista = examenesDisponibles(examenes);
   if (!lista.length) return null;
   return (
     <div className="examenes-barra">
-      {lista.map(({ id, titulo, Icono }) => (
-        <button key={id} type="button" className="btn small btn-examen" onClick={() => onAbrir(id)} title={titulo}>
-          <Icono /><span className="btn-examen-txt">{titulo}</span>
+      {lista.map(({ id, Icono }) => (
+        <button key={id} type="button" className="btn small btn-examen" onClick={() => onAbrir(id)} title={t('ex.' + id)}>
+          <Icono /><span className="btn-examen-txt">{t('ex.' + id)}</span>
         </button>
       ))}
     </div>
@@ -72,6 +76,7 @@ export function BotonesExamenes({ examenes, onAbrir }) {
 
 // ---------- ventana contenedora ----------
 export function VentanaExamen({ tipo, examenes, casoNombre, onCerrar }) {
+  const t = useT(EXAMENES_TXT);
   const def = EXAMENES.find((e) => e.id === tipo);
   const cerrarRef = useRef(null);
   useEffect(() => { cerrarRef.current?.focus(); }, []);
@@ -79,16 +84,16 @@ export function VentanaExamen({ tipo, examenes, casoNombre, onCerrar }) {
   const { Icono } = def;
   return (
     <div className="overlay overlay-examen" onClick={onCerrar}>
-      <div className={'examen-box examen-' + tipo} role="dialog" aria-modal="true" aria-label={def.titulo}
+      <div className={'examen-box examen-' + tipo} role="dialog" aria-modal="true" aria-label={t('ex.' + tipo)}
         onClick={(e) => e.stopPropagation()}>
         <div className="examen-head">
           <Icono size={20} />
           <div className="examen-head-txt">
             <div className="examen-eyebrow">{casoNombre}</div>
-            <div className="examen-titulo">{def.titulo}</div>
+            <div className="examen-titulo">{t('ex.' + tipo)}</div>
           </div>
           <button ref={cerrarRef} type="button" className="btn small examen-cerrar" onClick={onCerrar}
-            aria-label="Cerrar">✕</button>
+            aria-label={t('ex.cerrar')}>✕</button>
         </div>
         <div className="examen-cuerpo">
           {tipo === 'lab' && <Laboratorio paneles={examenes.laboratorio || []}
@@ -105,6 +110,8 @@ export function VentanaExamen({ tipo, examenes, casoNombre, onCerrar }) {
 // Lo primero es el REPORTE que subió el profesor (foto/PDF), tal cual; las
 // tablas de valores, si las hay, van después como pestañas.
 function Laboratorio({ paneles, adjuntos }) {
+  const t = useT(EXAMENES_TXT);
+  const idioma = useIdioma();
   const imagenes = adjuntos.filter((a) => a.mime !== 'application/pdf');
   const pdfs = adjuntos.filter((a) => a.mime === 'application/pdf');
   const hayReporte = adjuntos.length > 0;
@@ -120,7 +127,7 @@ function Laboratorio({ paneles, adjuntos }) {
         <div className="tabs lab-tabs">
           {pestanas.map((p) => (
             <button key={p} type="button" className={'tab' + (p === actual ? ' act' : '')} onClick={() => setSel(p)}>
-              {p === 'reporte' ? 'Reporte' : paneles[p].titulo}
+              {p === 'reporte' ? t('ex.reporte') : (paneles[p].titulo || t('ex.lab'))}
             </button>
           ))}
         </div>
@@ -133,7 +140,7 @@ function Laboratorio({ paneles, adjuntos }) {
             <div className="lab-adjuntos-lista">
               {pdfs.map((a) => (
                 <a key={a.id} className="btn small" href={a.url} target="_blank" rel="noopener">
-                  Abrir {a.titulo || 'reporte'} (PDF) ↗
+                  {t('ex.abrirPdf', { titulo: a.titulo })}
                 </a>
               ))}
             </div>
@@ -143,10 +150,10 @@ function Laboratorio({ paneles, adjuntos }) {
 
       {panel && (
         <div className="lab-tabla-wrap">
-          {pestanas.length === 1 && <div className="lab-panel-titulo">{panel.titulo}</div>}
+          {pestanas.length === 1 && <div className="lab-panel-titulo">{panel.titulo || t('ex.lab')}</div>}
           <table className="lab-tabla">
             <thead>
-              <tr><th>Parámetro</th><th>Resultado</th><th>Unidad</th><th>Referencia</th></tr>
+              <tr><th>{t('ex.parametro')}</th><th>{t('ex.resultado')}</th><th>{t('ex.unidad')}</th><th>{t('ex.referencia')}</th></tr>
             </thead>
             <tbody>
               {panel.filas.map((f, i) => {
@@ -156,11 +163,11 @@ function Laboratorio({ paneles, adjuntos }) {
                     <td>{f.parametro}</td>
                     <td className="lab-valor">
                       {f.valor || '—'}
-                      {estado === 'alto' && <span className="lab-marca" title="Por encima del rango"> ↑</span>}
-                      {estado === 'bajo' && <span className="lab-marca" title="Por debajo del rango"> ↓</span>}
+                      {estado === 'alto' && <span className="lab-marca" title={t('ex.alto')}> ↑</span>}
+                      {estado === 'bajo' && <span className="lab-marca" title={t('ex.bajo')}> ↓</span>}
                     </td>
                     <td className="lab-unidad">{f.unidad}</td>
-                    <td className="lab-ref">{textoReferencia(f)}</td>
+                    <td className="lab-ref">{textoReferencia(f, idioma)}</td>
                   </tr>
                 );
               })}
@@ -177,6 +184,7 @@ const ZOOM_MAX = 6;
 const limitar = (min, max, v) => Math.max(min, Math.min(max, v));
 
 function VisorImagenes({ imagenes, inicial = 0 }) {
+  const t = useT(EXAMENES_TXT);
   const [idx, setIdx] = useState(Math.max(0, inicial));
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -235,7 +243,7 @@ function VisorImagenes({ imagenes, inicial = 0 }) {
     zoomA(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
   }
 
-  if (!img) return <p className="muted">No hay imágenes.</p>;
+  if (!img) return <p className="muted">{t('ex.sinImagenes')}</p>;
 
   return (
     <div className="visor-img">
@@ -248,7 +256,7 @@ function VisorImagenes({ imagenes, inicial = 0 }) {
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={img.url} alt={img.titulo || 'Imagen del examen'} draggable={false}
+          src={img.url} alt={img.titulo || t('ex.altImagen')} draggable={false}
           style={{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             filter: `brightness(${brillo}%) contrast(${contraste}%)${invertir ? ' invert(1)' : ''}`,
@@ -259,24 +267,24 @@ function VisorImagenes({ imagenes, inicial = 0 }) {
 
       <div className="visor-img-controles">
         <div className="visor-img-grupo">
-          <button type="button" className="btn small" onClick={() => zoomA(zoom / 1.4)} disabled={zoom <= 1} aria-label="Alejar">−</button>
+          <button type="button" className="btn small" onClick={() => zoomA(zoom / 1.4)} disabled={zoom <= 1} aria-label={t('ex.alejar')}>−</button>
           <span className="visor-img-zoom">{Math.round(zoom * 100)}%</span>
-          <button type="button" className="btn small" onClick={() => zoomA(zoom * 1.4)} disabled={zoom >= ZOOM_MAX} aria-label="Acercar">+</button>
-          <button type="button" className="btn small" onClick={reiniciar} disabled={zoom === 1}>Ajustar</button>
+          <button type="button" className="btn small" onClick={() => zoomA(zoom * 1.4)} disabled={zoom >= ZOOM_MAX} aria-label={t('ex.acercar')}>+</button>
+          <button type="button" className="btn small" onClick={reiniciar} disabled={zoom === 1}>{t('ex.ajustar')}</button>
         </div>
         <label className="visor-img-slider">
-          <span>Brillo</span>
+          <span>{t('ex.brillo')}</span>
           <input type="range" min="40" max="200" value={brillo} onChange={(e) => setBrillo(Number(e.target.value))} />
         </label>
         <label className="visor-img-slider">
-          <span>Contraste</span>
+          <span>{t('ex.contraste')}</span>
           <input type="range" min="40" max="250" value={contraste} onChange={(e) => setContraste(Number(e.target.value))} />
         </label>
         <div className="visor-img-grupo">
           <button type="button" className={'btn small' + (invertir ? ' btn-primary' : '')} aria-pressed={invertir}
-            onClick={() => setInvertir((v) => !v)}>Invertir</button>
+            onClick={() => setInvertir((v) => !v)}>{t('ex.invertir')}</button>
           <button type="button" className="btn small" onClick={ajustes}
-            disabled={brillo === 100 && contraste === 100 && !invertir}>Restablecer</button>
+            disabled={brillo === 100 && contraste === 100 && !invertir}>{t('ex.restablecer')}</button>
         </div>
       </div>
 
@@ -284,10 +292,10 @@ function VisorImagenes({ imagenes, inicial = 0 }) {
         <div className="visor-img-miniaturas">
           {imagenes.map((m, i) => (
             <button key={m.id} type="button" className={'visor-img-mini' + (i === idx ? ' act' : '')}
-              onClick={() => setIdx(i)} title={m.titulo || 'Imagen ' + (i + 1)}>
+              onClick={() => setIdx(i)} title={m.titulo || t('ex.imagenN', { n: i + 1 })}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={m.url} alt="" draggable={false} />
-              <span>{m.titulo || 'Imagen ' + (i + 1)}</span>
+              <span>{m.titulo || t('ex.imagenN', { n: i + 1 })}</span>
             </button>
           ))}
         </div>
@@ -300,11 +308,11 @@ function VisorImagenes({ imagenes, inicial = 0 }) {
 const PRINCIPALES = ['fc', 'spo2', 'pa', 'fr', 'temp'];
 
 function MonitorVitales({ vitales }) {
+  const t = useT(EXAMENES_TXT);
   const v = vitales || {};
   const pas = aNumero(v.pas);
   const pad = aNumero(v.pad);
   const pam = pas != null && pad != null ? Math.round((pas + 2 * pad) / 3) : null;
-  const campo = (id) => CAMPOS_VITALES.find((c) => c.id === id);
   const secundarios = CAMPOS_VITALES.filter((c) => !['fc', 'spo2', 'pas', 'pad', 'fr', 'temp', 'notas'].includes(c.id) && v[c.id]);
 
   const numero = (id, clase) => {
@@ -312,17 +320,16 @@ function MonitorVitales({ vitales }) {
       if (!v.pas && !v.pad) return null;
       return (
         <div key="pa" className={'mon-num ' + clase}>
-          <div className="mon-num-etq">PA <span>mmHg</span></div>
+          <div className="mon-num-etq">{t('ex.pa')} <span>mmHg</span></div>
           <div className="mon-num-valor mon-pa">{(v.pas || '—') + '/' + (v.pad || '—')}</div>
           {pam != null && <div className="mon-num-sub">({pam})</div>}
         </div>
       );
     }
     if (!v[id]) return null;
-    const c = campo(id);
     return (
       <div key={id} className={'mon-num ' + clase}>
-        <div className="mon-num-etq">{c.corta} <span>{c.unidad}</span></div>
+        <div className="mon-num-etq">{t('vit.' + id + '.corta')} <span>{t('vit.' + id + '.unidad')}</span></div>
         <div className="mon-num-valor">{v[id]}</div>
       </div>
     );
@@ -340,12 +347,15 @@ function MonitorVitales({ vitales }) {
       </div>
       {(secundarios.length > 0 || v.notas) && (
         <div className="monitor-extra">
-          {secundarios.map((c) => (
-            <div key={c.id} className="monitor-extra-item">
-              <span className="monitor-extra-etq">{c.etiqueta}</span>
-              <span className="monitor-extra-valor">{v[c.id]}{c.unidad ? (c.unidad.startsWith('/') ? '' : ' ') + c.unidad : ''}</span>
-            </div>
-          ))}
+          {secundarios.map((c) => {
+            const unidad = t('vit.' + c.id + '.unidad');
+            return (
+              <div key={c.id} className="monitor-extra-item">
+                <span className="monitor-extra-etq">{t('vit.' + c.id + '.etiqueta')}</span>
+                <span className="monitor-extra-valor">{v[c.id]}{unidad ? (unidad.startsWith('/') ? '' : ' ') + unidad : ''}</span>
+              </div>
+            );
+          })}
           {v.notas && <div className="monitor-notas">{v.notas}</div>}
         </div>
       )}
@@ -369,6 +379,7 @@ function pleth(t, periodo) {
 // Barrido como en un monitor real: la línea avanza de izquierda a derecha
 // y borra lo viejo justo delante. Con FC vacía queda una línea plana.
 function Ondas({ fc, conPleth }) {
+  const t = useT(EXAMENES_TXT);
   const ref = useRef(null);
   useEffect(() => {
     const canvas = ref.current;
@@ -442,5 +453,5 @@ function Ondas({ fc, conPleth }) {
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, [fc, conPleth]);
 
-  return <canvas ref={ref} className="monitor-canvas" aria-label="Trazo del monitor" role="img" />;
+  return <canvas ref={ref} className="monitor-canvas" aria-label={t('ex.trazo')} role="img" />;
 }

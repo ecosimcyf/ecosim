@@ -18,7 +18,8 @@
 // sobre sus propios casos y puntos tiene control total.
 //
 // ERRORES: toda acción exportada pasa por conErrores(), que devuelve
-// {error: 'mensaje'} en vez de lanzar. En producción Next.js reemplaza el
+// {error: 'err.clave', vars} en vez de lanzar: el panel traduce la clave
+// al idioma de quien lo usa (ver src/lib/i18n/textos/panel.js, err.*). En producción Next.js reemplaza el
 // mensaje de cualquier excepción sin atrapar en una Server Action por un
 // texto genérico en inglés, así que un throw() sería indistinguible de
 // cualquier otra falla para quien lo ve en pantalla. Y cada consulta a
@@ -30,6 +31,7 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { crearClienteServidorAuth } from '@/lib/supabase/server';
 import { LIMITES, MIME_EXTENSION, limpiarLaboratorio, limpiarVitales } from '@/lib/examenes';
+import { idiomaValido } from '@/lib/i18n/config';
 
 const BUCKET = 'videos';
 const PREFIJO_PUBLICO = '/storage/v1/object/public/' + BUCKET + '/';
@@ -43,9 +45,11 @@ const MAX_BYTES_EXAMEN = LIMITES.mbArchivo * 1024 * 1024;
 
 // ---------- errores ----------
 
-// Error con un mensaje pensado para mostrarse tal cual en el panel.
+// Error para mostrar en el panel: "clave" es una clave de err.* (el panel
+// la traduce), con sus variables ({ vars }) y un "codigo" opcional que
+// el panel usa para decidir qué hacer (p. ej. 'sin-sesion' → al login).
 class ErrorAdmin extends Error {
-  constructor(mensaje, codigo) { super(mensaje); this.codigo = codigo; }
+  constructor(clave, { vars, codigo } = {}) { super(clave); this.vars = vars; this.codigo = codigo; }
 }
 
 async function conErrores(fn) {
@@ -53,8 +57,8 @@ async function conErrores(fn) {
     return await fn();
   } catch (err) {
     console.error('[admin]', err);
-    if (err instanceof ErrorAdmin) return { error: err.message, codigo: err.codigo };
-    return { error: 'Algo falló al guardar. Revisa tu conexión e inténtalo de nuevo.' };
+    if (err instanceof ErrorAdmin) return { error: err.message, vars: err.vars, codigo: err.codigo };
+    return { error: 'err.generico' };
   }
 }
 
@@ -62,7 +66,9 @@ async function conErrores(fn) {
 function exigir(resultado, que) {
   if (resultado?.error) {
     console.error('[admin] ' + que + ':', resultado.error);
-    const err = new ErrorAdmin('No se pudo ' + que + '. Inténtalo de nuevo.');
+    // "que" (p. ej. 'leer los casos') queda en el registro del servidor;
+    // al panel le llega un aviso general.
+    const err = new ErrorAdmin('err.operacion');
     err.causa = resultado.error;
     throw err;
   }
@@ -80,27 +86,27 @@ function faltaMigracion(error) {
 
 async function requerirAdmin() {
   const { data: { user } } = await crearClienteServidorAuth().auth.getUser();
-  if (!user) throw new ErrorAdmin('Tu sesión se cerró. Vuelve a iniciar sesión.', 'sin-sesion');
+  if (!user) throw new ErrorAdmin('err.sesion', { codigo: 'sin-sesion' });
   const supabase = crearClienteAdmin();
   const { data: perfil, error } = await supabase
     .from('perfiles').select('rol,cuenta_id').eq('id', user.id).maybeSingle();
-  if (error) throw new ErrorAdmin('No se pudo comprobar tu acceso. Revisa tu conexión.', 'error-red');
-  if (!perfil) throw new ErrorAdmin('Tu cuenta todavía no está activa. Contacta a tu asesor.', 'sin-perfil');
+  if (error) throw new ErrorAdmin('err.red', { codigo: 'error-red' });
+  if (!perfil) throw new ErrorAdmin('err.sinPerfil', { codigo: 'sin-perfil' });
 
   if (perfil.rol === 'cliente') {
-    if (!perfil.cuenta_id) throw new ErrorAdmin('Tu acceso no está ligado a ninguna cuenta. Contacta a tu asesor.', 'sin-perfil');
+    if (!perfil.cuenta_id) throw new ErrorAdmin('err.sinCuenta', { codigo: 'sin-perfil' });
     const { data: cuenta, error: errCuenta } = await supabase
       .from('cuentas').select('activa').eq('id', perfil.cuenta_id).maybeSingle();
-    if (errCuenta) throw new ErrorAdmin('No se pudo comprobar tu acceso. Revisa tu conexión.', 'error-red');
-    if (!cuenta) throw new ErrorAdmin('Tu cuenta ya no existe. Contacta a tu asesor.', 'sin-perfil');
-    if (!cuenta.activa) throw new ErrorAdmin('Tu cuenta está desactivada. Contacta a tu asesor.', 'cuenta-inactiva');
+    if (errCuenta) throw new ErrorAdmin('err.red', { codigo: 'error-red' });
+    if (!cuenta) throw new ErrorAdmin('err.cuentaNoExiste', { codigo: 'sin-perfil' });
+    if (!cuenta.activa) throw new ErrorAdmin('err.desactivada', { codigo: 'cuenta-inactiva' });
   }
   return { rol: perfil.rol, cuentaId: perfil.cuenta_id, userId: user.id };
 }
 
 async function requerirSuperAdmin() {
   const r = await requerirAdmin();
-  if (r.rol !== 'super_admin') throw new ErrorAdmin('No autorizado.');
+  if (r.rol !== 'super_admin') throw new ErrorAdmin('err.noAutorizado');
   return r;
 }
 
@@ -108,8 +114,8 @@ async function requerirSuperAdmin() {
 // cualquiera que exista).
 async function requerirAccesoCuenta(cuentaId) {
   const r = await requerirAdmin();
-  if (typeof cuentaId !== 'string' || !cuentaId) throw new ErrorAdmin('Elige una cuenta primero.');
-  if (r.rol === 'cliente' && cuentaId !== r.cuentaId) throw new ErrorAdmin('No autorizado.');
+  if (typeof cuentaId !== 'string' || !cuentaId) throw new ErrorAdmin('err.eligeCuenta');
+  if (r.rol === 'cliente' && cuentaId !== r.cuentaId) throw new ErrorAdmin('err.noAutorizado');
   return r;
 }
 
@@ -128,10 +134,11 @@ function normalizarSlug(s) {
 }
 function slugValido(s) { return /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(s); }
 
-function cupo(v, nombre) {
+// "clave": err.cupoCasos o err.cupoStorage.
+function cupo(v, clave) {
   const n = Number(v);
   if (!Number.isInteger(n) || n < 0 || n > 1000000) {
-    throw new ErrorAdmin('El ' + nombre + ' debe ser un número entero de 0 en adelante.');
+    throw new ErrorAdmin(clave);
   }
   return n;
 }
@@ -217,6 +224,30 @@ async function usoStorageBytes(supabase, cuentaId) {
 
 const aMb = (bytes) => Math.round(bytes / (1024 * 1024));
 
+// Idioma de cada cuenta: { cuentaId: 'es' | 'pt' | 'en' }, o null si la
+// migración de idiomas todavía no se ejecutó (el panel oculta entonces
+// los selectores y todo sigue en español). Consulta aparte del resto, para
+// que sin la columna nueva no falle la lectura de las cuentas.
+async function idiomasDeCuentas(supabase, cuentaId) {
+  let q = supabase.from('cuentas').select('id,idioma');
+  if (cuentaId) q = q.eq('id', cuentaId);
+  const { data, error } = await q;
+  if (error) {
+    if (faltaMigracion(error)) return null;
+    exigir({ error }, 'leer el idioma de las cuentas');
+  }
+  const r = {};
+  (data || []).forEach((c) => { r[c.id] = idiomaValido(c.idioma) || 'es'; });
+  return r;
+}
+
+// Guarda el idioma de una cuenta (ya validado).
+async function guardarIdiomaCuenta(supabase, cuentaId, idioma) {
+  const { error } = await supabase.from('cuentas').update({ idioma }).eq('id', cuentaId);
+  if (faltaMigracion(error)) throw new ErrorAdmin('err.idiomaMigracion');
+  exigir({ error }, 'guardar el idioma');
+}
+
 // Lista de cuentas para el selector del super_admin — con cuánto ha
 // usado cada una (casos y storage), para ver de un vistazo quién se
 // acerca a su cupo sin tener que entrar cuenta por cuenta. 2 consultas
@@ -224,11 +255,14 @@ const aMb = (bytes) => Math.round(bytes / (1024 * 1024));
 // no es problema; si algún día hay cientos de cuentas, convendría una
 // sola consulta agregada en vez de este Promise.all.
 async function listarCuentasInterno(supabase) {
-  const { data } = exigir(await supabase
-    .from('cuentas').select('id,slug,nombre,activa,cupo_casos_propios,cupo_storage_mb').order('nombre'),
-  'leer las cuentas');
+  const [{ data }, idiomas] = await Promise.all([
+    supabase.from('cuentas').select('id,slug,nombre,activa,cupo_casos_propios,cupo_storage_mb').order('nombre')
+      .then((r) => exigir(r, 'leer las cuentas')),
+    idiomasDeCuentas(supabase),
+  ]);
   return Promise.all((data || []).map(async (c) => ({
     ...c,
+    idioma: idiomas?.[c.id] || 'es',
     casosUsados: await contarCasosDeCuenta(supabase, c.id),
     usoStorageMb: aMb(await usoStorageBytes(supabase, c.id)),
   })));
@@ -308,12 +342,14 @@ async function leerCuenta(supabase, cuentaId) {
   const { data: cuenta } = exigir(await supabase.from('cuentas')
     .select('id,slug,nombre,activa,cupo_casos_propios,cupo_storage_mb').eq('id', cuentaId).maybeSingle(),
   'leer la cuenta');
-  if (!cuenta) throw new ErrorAdmin('Esa cuenta ya no existe.');
-  const datos = await leerTodo(supabase, cuentaId);
+  if (!cuenta) throw new ErrorAdmin('err.cuentaYaNoExiste');
+  const [datos, idiomas] = await Promise.all([leerTodo(supabase, cuentaId), idiomasDeCuentas(supabase, cuentaId)]);
   return {
     cuentaId,
     cuentaNombre: cuenta.nombre,
     cuentaSlug: cuenta.slug,
+    cuentaIdioma: idiomas?.[cuentaId] || 'es',
+    idiomasDisponibles: !!idiomas,
     cupoCasosPropios: cuenta.cupo_casos_propios,
     cupoStorageMb: cuenta.cupo_storage_mb,
     usoStorageMb: aMb(await usoStorageBytes(supabase, cuentaId)),
@@ -332,7 +368,7 @@ async function leerTodoConUso(supabase, cuentaId) {
 async function casoDeCuenta(supabase, cuentaId, casoId) {
   const { data } = exigir(await supabase.from('casos').select('id,especie')
     .eq('id', casoId).eq('cuenta_id', cuentaId).maybeSingle(), 'leer el caso');
-  if (!data) throw new ErrorAdmin('Ese caso ya no existe.');
+  if (!data) throw new ErrorAdmin('err.casoNoExiste');
   return data;
 }
 
@@ -348,6 +384,8 @@ export async function leerDatosAdmin() {
   if (rol === 'super_admin') {
     return {
       rol, cuentaId: null,
+      // (se consulta una cuenta inexistente: solo importa si la columna existe)
+      idiomasDisponibles: !!(await idiomasDeCuentas(supabase, '-')),
       cuentas: await listarCuentasInterno(supabase),
       cupoCasosPropios: null, cupoStorageMb: null, usoStorageMb: null,
       puntos: [], casos: [], videosPorCaso: {},
@@ -379,7 +417,7 @@ export async function elegirCuentaAdmin(cuentaId) {
 // El orden importa: la cuenta se crea PRIMERO (es lo que más falla: slug
 // repetido) y el usuario después; si el usuario o el perfil fallan, se
 // deshace lo hecho, para no dejar nada a medias.
-export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageMb, correo }) {
+export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageMb, correo, idioma }) {
   return conErrores(async () => {
     await requerirSuperAdmin();
     const supabase = crearClienteAdmin();
@@ -387,20 +425,22 @@ export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageM
     const slugLimpio = normalizarSlug(slug);
     const nombreLimpio = texto(nombre, 120);
     const correoLimpio = texto(correo, 200).toLowerCase();
-    if (!nombreLimpio) throw new ErrorAdmin('Escribe el nombre de la clínica.');
+    if (!nombreLimpio) throw new ErrorAdmin('err.nombreClinica');
     if (!slugValido(slugLimpio)) {
-      throw new ErrorAdmin('El enlace (slug) debe tener entre 3 y 40 letras, números o guiones, p. ej. "clinica-norte".');
+      throw new ErrorAdmin('err.slug');
     }
-    if (!correoValido(correoLimpio)) throw new ErrorAdmin('Escribe un correo válido para el cliente.');
-    const cupoCasos = cupo(cupoCasosPropios, 'cupo de casos');
-    const cupoStorage = cupo(cupoStorageMb, 'cupo de almacenamiento');
+    if (!correoValido(correoLimpio)) throw new ErrorAdmin('err.correo');
+    const cupoCasos = cupo(cupoCasosPropios, 'err.cupoCasos');
+    const cupoStorage = cupo(cupoStorageMb, 'err.cupoStorage');
+    const idiomaCuenta = idioma == null ? 'es' : idiomaValido(idioma);
+    if (!idiomaCuenta) throw new ErrorAdmin('err.idioma');
 
     const { data: nuevaCuenta, error } = await supabase
       .from('cuentas')
       .insert({ slug: slugLimpio, nombre: nombreLimpio, cupo_casos_propios: cupoCasos, cupo_storage_mb: cupoStorage })
       .select('id').single();
     if (error) {
-      if (error.code === '23505') throw new ErrorAdmin('Ya existe una cuenta con el enlace "' + slugLimpio + '".');
+      if (error.code === '23505') throw new ErrorAdmin('err.slugExiste', { vars: { slug: slugLimpio } });
       exigir({ error }, 'crear la cuenta');
     }
 
@@ -409,9 +449,9 @@ export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageM
     if (usuario.error) {
       await supabase.from('cuentas').delete().eq('id', nuevaCuenta.id);
       const yaExiste = /already|registered|exists/i.test(usuario.error.message || '');
-      throw new ErrorAdmin(yaExiste
-        ? 'Ya hay un usuario con el correo ' + correoLimpio + '. No se creó la cuenta.'
-        : 'No se pudo crear el usuario. No se creó la cuenta.');
+      throw yaExiste
+        ? new ErrorAdmin('err.correoExiste', { vars: { correo: correoLimpio } })
+        : new ErrorAdmin('err.usuario');
     }
 
     const { error: errorPerfil } = await supabase
@@ -422,6 +462,14 @@ export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageM
       exigir({ error: errorPerfil }, 'crear el acceso del cliente');
     }
 
+    // Aparte del insert: así, sin la migración de idiomas, la cuenta se
+    // crea igual (en español). Si falla, la cuenta ya existe y su idioma
+    // se puede cambiar después desde «Cuentas».
+    if (idiomaCuenta !== 'es') {
+      const { error: errIdioma } = await supabase.from('cuentas').update({ idioma: idiomaCuenta }).eq('id', nuevaCuenta.id);
+      if (errIdioma) console.error('[admin] no se pudo guardar el idioma de la cuenta nueva:', errIdioma);
+    }
+
     return { cuentas: await listarCuentasInterno(supabase), claveTemporal: clave, correo: correoLimpio, slug: slugLimpio };
   });
 }
@@ -429,19 +477,36 @@ export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageM
 // Editar nombre, cupos y si está activa (una cuenta desactivada no deja
 // entrar a su cliente al panel y su enlace de estudiantes deja de
 // funcionar, pero no se borra nada).
-export async function actualizarCuenta(cuentaId, { nombre, cupoCasosPropios, cupoStorageMb, activa }) {
+export async function actualizarCuenta(cuentaId, { nombre, cupoCasosPropios, cupoStorageMb, activa, idioma }) {
   return conErrores(async () => {
     await requerirSuperAdmin();
     const supabase = crearClienteAdmin();
     const nombreLimpio = texto(nombre, 120);
-    if (!nombreLimpio) throw new ErrorAdmin('El nombre no puede quedar vacío.');
+    if (!nombreLimpio) throw new ErrorAdmin('err.nombreVacio');
     exigir(await supabase.from('cuentas').update({
       nombre: nombreLimpio,
-      cupo_casos_propios: cupo(cupoCasosPropios, 'cupo de casos'),
-      cupo_storage_mb: cupo(cupoStorageMb, 'cupo de almacenamiento'),
+      cupo_casos_propios: cupo(cupoCasosPropios, 'err.cupoCasos'),
+      cupo_storage_mb: cupo(cupoStorageMb, 'err.cupoStorage'),
       activa: !!activa,
     }).eq('id', cuentaId), 'guardar la cuenta');
+    if (idioma != null) {
+      const id = idiomaValido(idioma);
+      if (!id) throw new ErrorAdmin('err.idioma');
+      await guardarIdiomaCuenta(supabase, cuentaId, id);
+    }
     return { cuentas: await listarCuentasInterno(supabase), ...(await leerCuenta(supabase, cuentaId)) };
+  });
+}
+
+// El admin de la cuenta (o el super_admin) cambia su idioma: el del panel
+// de esa cuenta y con el que abre la vista de sus estudiantes.
+export async function cambiarIdiomaCuenta(cuentaId, idioma) {
+  return conErrores(async () => {
+    await requerirAccesoCuenta(cuentaId);
+    const id = idiomaValido(idioma);
+    if (!id) throw new ErrorAdmin('err.idioma');
+    await guardarIdiomaCuenta(crearClienteAdmin(), cuentaId, id);
+    return { cuentaIdioma: id };
   });
 }
 
@@ -453,7 +518,7 @@ export async function restablecerClaveCuenta(cuentaId) {
     const supabase = crearClienteAdmin();
     const { data: perfiles } = exigir(await supabase.from('perfiles').select('id').eq('cuenta_id', cuentaId),
       'leer los accesos de la cuenta');
-    if (!perfiles?.length) throw new ErrorAdmin('Esta cuenta no tiene ningún acceso de administrador.');
+    if (!perfiles?.length) throw new ErrorAdmin('err.sinAdmin');
     const clave = claveTemporal();
     const correos = [];
     for (const p of perfiles) {
@@ -483,7 +548,7 @@ export async function eliminarCuenta(cuentaId) {
 
     const { data: cuenta } = exigir(await supabase.from('cuentas').select('id').eq('id', cuentaId).maybeSingle(),
       'leer la cuenta');
-    if (!cuenta) throw new ErrorAdmin('Esa cuenta ya no existe.');
+    if (!cuenta) throw new ErrorAdmin('err.cuentaYaNoExiste');
 
     // 1. Videos de Storage de TODOS los casos de esta cuenta.
     const vids = await todasLasFilas(() => supabase
@@ -602,7 +667,7 @@ export async function actualizarEstadoSolicitud(id, estado) {
   return conErrores(async () => {
     await requerirSuperAdmin();
     const supabase = crearClienteAdmin();
-    if (!['nueva', 'contactada', 'convertida', 'descartada'].includes(estado)) throw new ErrorAdmin('Estado inválido.');
+    if (!['nueva', 'contactada', 'convertida', 'descartada'].includes(estado)) throw new ErrorAdmin('err.estado');
     exigir(await supabase.from('solicitudes_contacto').update({ estado }).eq('id', id), 'cambiar el estado');
     return { solicitudes: await listarSolicitudesInterno(supabase) };
   });
@@ -635,7 +700,7 @@ export async function crearCaso(cuentaId, nombre, especie) {
       const { data: cuenta } = exigir(await supabase.from('cuentas').select('cupo_casos_propios')
         .eq('id', cuentaId).single(), 'leer el cupo');
       if (await contarCasosDeCuenta(supabase, cuentaId) >= cuenta.cupo_casos_propios) {
-        throw new ErrorAdmin('Llegaste al límite de casos de tu plan. Contacta a tu asesor para ampliarlo.');
+        throw new ErrorAdmin('err.limiteCasos');
       }
     }
 
@@ -750,7 +815,7 @@ export async function eliminarPunto(cuentaId, puntoId) {
     // Verifica que el punto sea de ESTA cuenta ANTES de tocar storage.
     const { data: punto } = exigir(await supabase
       .from('puntos').select('id').eq('id', puntoId).eq('cuenta_id', cuentaId).maybeSingle(), 'leer el punto');
-    if (!punto) throw new ErrorAdmin('Ese punto ya no existe.');
+    if (!punto) throw new ErrorAdmin('err.puntoNoExiste');
     const { data: vids } = exigir(await supabase.from('caso_videos').select('video_url').eq('punto_id', puntoId),
       'leer los videos del punto');
     exigir(await supabase.from('puntos').delete().eq('id', puntoId).eq('cuenta_id', cuentaId), 'borrar el punto'); // cascade borra sus caso_videos
@@ -769,9 +834,9 @@ export async function crearUrlSubidaVideo(cuentaId, tamanoBytes) {
     const { rol } = await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
     const tamano = Number(tamanoBytes);
-    if (!Number.isFinite(tamano) || tamano <= 0) throw new ErrorAdmin('El archivo de video está vacío.');
+    if (!Number.isFinite(tamano) || tamano <= 0) throw new ErrorAdmin('err.videoVacio');
     if (tamano > MAX_BYTES_VIDEO) {
-      throw new ErrorAdmin('El video pesa ' + aMb(tamano) + ' MB; el máximo es ' + aMb(MAX_BYTES_VIDEO) + ' MB por video.');
+      throw new ErrorAdmin('err.videoPesa', { vars: { mb: aMb(tamano), max: aMb(MAX_BYTES_VIDEO) } });
     }
 
     // El cupo de storage solo limita al CLIENTE. Se revisa ANTES de firmar
@@ -781,7 +846,7 @@ export async function crearUrlSubidaVideo(cuentaId, tamanoBytes) {
       const { data: cuenta } = exigir(await supabase.from('cuentas').select('cupo_storage_mb')
         .eq('id', cuentaId).single(), 'leer el cupo');
       if (await usoStorageBytes(supabase, cuentaId) + tamano > cuenta.cupo_storage_mb * 1024 * 1024) {
-        throw new ErrorAdmin('Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.');
+        throw new ErrorAdmin('err.limiteStorage');
       }
     }
 
@@ -807,7 +872,7 @@ export async function guardarVideoCaso(cuentaId, casoId, puntoId, path) {
     // impide "reasignar" (y luego borrar) el video de OTRA cuenta.
     if (typeof path !== 'string' || !path.startsWith(cuentaId + '/') ||
         !/^[0-9a-f-]{36}\.mp4$/.test(path.slice(cuentaId.length + 1))) {
-      throw new ErrorAdmin('No autorizado.');
+      throw new ErrorAdmin('err.noAutorizado');
     }
 
     const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
@@ -821,7 +886,7 @@ export async function guardarVideoCaso(cuentaId, casoId, puntoId, path) {
       .eq('id', puntoId).eq('cuenta_id', cuentaId).maybeSingle(), 'leer el punto');
     if (!punto || punto.especie !== caso.especie) {
       await quitarSubida();
-      throw new ErrorAdmin('Ese punto ya no existe en el maniquí de este caso.');
+      throw new ErrorAdmin('err.puntoOtroManiqui');
     }
 
     // Tamaño REAL del archivo ya subido a Storage — nunca uno que mande el
@@ -830,7 +895,7 @@ export async function guardarVideoCaso(cuentaId, casoId, puntoId, path) {
     const { data: info, error: errorInfo } = await supabase.storage.from(BUCKET).info(path);
     if (errorInfo || typeof info?.size !== 'number' || !Number.isFinite(info.size) || info.size < 0) {
       await quitarSubida();
-      throw new ErrorAdmin('No se pudo verificar el video subido. Intenta de nuevo.');
+      throw new ErrorAdmin('err.videoVerificar');
     }
     const tamanoReal = info.size;
 
@@ -839,7 +904,7 @@ export async function guardarVideoCaso(cuentaId, casoId, puntoId, path) {
         .eq('id', cuentaId).single(), 'leer el cupo');
       if (await usoStorageBytes(supabase, cuentaId) + tamanoReal > cuenta.cupo_storage_mb * 1024 * 1024) {
         await quitarSubida();
-        throw new ErrorAdmin('Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.');
+        throw new ErrorAdmin('err.limiteStorage');
       }
     }
 
@@ -881,7 +946,7 @@ export async function quitarVideoCaso(cuentaId, casoId, puntoId) {
 // con un error técnico: se cambia por un mensaje claro.
 function exigirExamenes(resultado, que) {
   if (faltaMigracion(resultado?.error)) {
-    throw new ErrorAdmin('Los exámenes todavía no están habilitados en la base de datos (falta ejecutar la migración).');
+    throw new ErrorAdmin('err.examenesMigracion');
   }
   return exigir(resultado, que);
 }
@@ -914,7 +979,7 @@ async function revisarCupo(supabase, rol, cuentaId, bytes) {
   const { data: cuenta } = exigir(await supabase.from('cuentas').select('cupo_storage_mb')
     .eq('id', cuentaId).single(), 'leer el cupo');
   if (await usoStorageBytes(supabase, cuentaId) + bytes > cuenta.cupo_storage_mb * 1024 * 1024) {
-    throw new ErrorAdmin('Llegaste al límite de almacenamiento de tu plan. Contacta a tu asesor para ampliarlo.');
+    throw new ErrorAdmin('err.limiteStorage');
   }
 }
 
@@ -925,11 +990,11 @@ export async function crearUrlSubidaExamen(cuentaId, tamanoBytes, mime) {
     const { rol } = await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
     const ext = MIME_EXTENSION[mime];
-    if (!ext) throw new ErrorAdmin('Ese tipo de archivo no se admite. Usa JPG, PNG, WebP o PDF.');
+    if (!ext) throw new ErrorAdmin('err.tipoArchivo');
     const tamano = Number(tamanoBytes);
-    if (!Number.isFinite(tamano) || tamano <= 0) throw new ErrorAdmin('El archivo está vacío.');
+    if (!Number.isFinite(tamano) || tamano <= 0) throw new ErrorAdmin('err.archivoVacio');
     if (tamano > MAX_BYTES_EXAMEN) {
-      throw new ErrorAdmin('El archivo pesa ' + aMb(tamano) + ' MB; el máximo es ' + LIMITES.mbArchivo + ' MB.');
+      throw new ErrorAdmin('err.archivoPesa', { vars: { mb: aMb(tamano), max: LIMITES.mbArchivo } });
     }
     await revisarCupo(supabase, rol, cuentaId, tamano);
     const path = cuentaId + '/' + randomUUID() + '.' + ext;
@@ -945,33 +1010,33 @@ export async function guardarArchivoExamen(cuentaId, casoId, tipo, path, titulo)
     const { rol } = await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
     await casoDeCuenta(supabase, cuentaId, casoId);
-    if (tipo !== 'rx' && tipo !== 'lab') throw new ErrorAdmin('Tipo de examen inválido.');
+    if (tipo !== 'rx' && tipo !== 'lab') throw new ErrorAdmin('err.tipoExamen');
 
     // Misma regla que guardarVideoCaso: el path debe tener EXACTAMENTE la
     // forma que genera crearUrlSubidaExamen (ver el comentario de allá).
     const resto = typeof path === 'string' && path.startsWith(cuentaId + '/') ? path.slice(cuentaId.length + 1) : '';
     const m = /^[0-9a-f-]{36}\.(webp|jpg|png|pdf)$/.exec(resto);
-    if (!m) throw new ErrorAdmin('No autorizado.');
+    if (!m) throw new ErrorAdmin('err.noAutorizado');
     const mime = Object.keys(MIME_EXTENSION).find((k) => MIME_EXTENSION[k] === m[1]);
     const quitarSubida = () => supabase.storage.from(BUCKET_EXAMENES).remove([path]);
 
     if (tipo === 'rx' && mime === 'application/pdf') {
       await quitarSubida();
-      throw new ErrorAdmin('Las radiografías deben ser imágenes (JPG, PNG o WebP).');
+      throw new ErrorAdmin('err.rxImagen');
     }
 
     const { data: previos } = exigirExamenes(await supabase.from('caso_archivos').select('orden')
       .eq('caso_id', casoId).eq('tipo', tipo), 'leer los exámenes del caso');
     if ((previos || []).length >= LIMITES.archivosPorTipo) {
       await quitarSubida();
-      throw new ErrorAdmin('Este caso ya tiene ' + LIMITES.archivosPorTipo + ' archivos de este tipo; borra alguno primero.');
+      throw new ErrorAdmin('err.maxArchivos', { vars: { n: LIMITES.archivosPorTipo } });
     }
 
     // Tamaño REAL, nunca el que mande el navegador (ver guardarVideoCaso).
     const { data: info, error: errorInfo } = await supabase.storage.from(BUCKET_EXAMENES).info(path);
     if (errorInfo || typeof info?.size !== 'number' || !Number.isFinite(info.size) || info.size < 0) {
       await quitarSubida();
-      throw new ErrorAdmin('No se pudo verificar el archivo subido. Intenta de nuevo.');
+      throw new ErrorAdmin('err.archivoVerificar');
     }
     try {
       await revisarCupo(supabase, rol, cuentaId, info.size);
@@ -998,7 +1063,7 @@ async function archivoDeCuenta(supabase, cuentaId, archivoId) {
   const { data } = exigirExamenes(await supabase.from('caso_archivos')
     .select('id,caso_id,tipo,path,casos!inner(cuenta_id)')
     .eq('id', archivoId).eq('casos.cuenta_id', cuentaId).maybeSingle(), 'leer el archivo');
-  if (!data) throw new ErrorAdmin('Ese archivo ya no existe.');
+  if (!data) throw new ErrorAdmin('err.archivoNoExiste');
   return data;
 }
 

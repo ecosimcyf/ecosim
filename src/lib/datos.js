@@ -118,3 +118,16 @@ export async function resumenExamenes(supabase, cuentaId) {
     return {};
   }
 }
+
+// Idioma con que abre la vista de esta cuenta ('es' | 'pt' | 'en'), o
+// null si no se pudo saber (p. ej. la migración de idiomas aún no se
+// ejecutó): quien llama usa entonces el español.
+export async function idiomaDeCuenta(supabase, cuentaId) {
+  try {
+    const { data, error } = await supabase.rpc('idioma_de_cuenta', { p_cuenta_id: cuentaId });
+    if (error) return null;
+    return typeof data === 'string' ? data : null;
+  } catch {
+    return null;
+  }
+}

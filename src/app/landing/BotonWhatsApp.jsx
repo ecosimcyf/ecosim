@@ -1,7 +1,10 @@
 // Botón flotante de WhatsApp (abajo a la derecha) de las páginas públicas.
 // En Colombia mucha gente prefiere escribir por WhatsApp antes que llenar
 // un formulario.
-import { WHATSAPP_URL } from './contacto';
+import { crearT } from '@/lib/i18n/config';
+import { idiomaVisitante } from '@/lib/i18n/servidor';
+import { LANDING } from '@/lib/i18n/textos/landing';
+import { whatsappUrl } from './contacto';
 
 // Burbuja de chat con un teléfono (dibujo propio, sencillo).
 export function IconoWhatsApp() {
@@ -13,15 +16,16 @@ export function IconoWhatsApp() {
   );
 }
 
-export default function BotonWhatsApp() {
+export default async function BotonWhatsApp() {
+  const t = crearT(LANDING, await idiomaVisitante());
   return (
     <a
       className="whatsapp-flotante"
-      href={WHATSAPP_URL}
+      href={whatsappUrl(t('whatsapp.mensaje'))}
       target="_blank"
       rel="noopener"
-      aria-label="Escríbenos por WhatsApp"
-      title="Escríbenos por WhatsApp"
+      aria-label={t('whatsapp.escribenos')}
+      title={t('whatsapp.escribenos')}
     >
       <IconoWhatsApp />
     </a>
