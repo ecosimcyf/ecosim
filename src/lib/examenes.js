@@ -82,10 +82,44 @@ const UROANALISIS = [
   [N('Bacterias', 'Bactérias', 'Bacteria'), '', AUSENTES, AUSENTES],
 ];
 
+// Gases sanguíneos: como en el reporte de un analizador de gases, traen
+// también electrolitos, lactato y glucosa. Los gases cambian según la
+// muestra (arterial o venosa) y sus rangos son a nivel del mar. El exceso
+// de base va sin rango: que lo ponga cada laboratorio.
+const BASE_Y_QUIMICA_GASES = [
+  [N('Exceso de base (BE)', 'Excesso de base (BE)', 'Base excess (BE)'), 'mmol/L', [null, null], [null, null]],
+  [N('Sodio (Na⁺)', 'Sódio (Na⁺)', 'Sodium (Na⁺)'), 'mmol/L', [144, 160], [150, 165]],
+  [N('Potasio (K⁺)', 'Potássio (K⁺)', 'Potassium (K⁺)'), 'mmol/L', [3.5, 5.8], [3.5, 5.8]],
+  [N('Cloro (Cl⁻)', 'Cloreto (Cl⁻)', 'Chloride (Cl⁻)'), 'mmol/L', [109, 122], [112, 129]],
+  [N('Calcio iónico (iCa)', 'Cálcio ionizado (iCa)', 'Ionized calcium (iCa)'), 'mmol/L', [1.16, 1.4], [1.0, 1.4]],
+  [N('Brecha aniónica', 'Ânion gap', 'Anion gap'), 'mmol/L', [12, 24], [13, 27]],
+  [N('Lactato', 'Lactato', 'Lactate'), 'mmol/L', [null, 2.5], [null, 2.5]],
+  [N('Glucosa', 'Glicose', 'Glucose'), 'mg/dL', [70, 143], [74, 159]],
+];
+
+const GASES_ARTERIALES = [
+  [N('pH', 'pH', 'pH'), '', [7.35, 7.46], [7.31, 7.46]],
+  [N('PaCO₂', 'PaCO₂', 'PaCO₂'), 'mmHg', [31, 43], [25, 37]],
+  [N('PaO₂', 'PaO₂', 'PaO₂'), 'mmHg', [81, 103], [95, 118]],
+  [N('Bicarbonato (HCO₃⁻)', 'Bicarbonato (HCO₃⁻)', 'Bicarbonate (HCO₃⁻)'), 'mmol/L', [19, 26], [14, 22]],
+  [N('Saturación de O₂ (SaO₂)', 'Saturação de O₂ (SaO₂)', 'O₂ saturation (SaO₂)'), '%', [95, 100], [95, 100]],
+  ...BASE_Y_QUIMICA_GASES,
+];
+
+const GASES_VENOSOS = [
+  [N('pH', 'pH', 'pH'), '', [7.35, 7.44], [7.28, 7.41]],
+  [N('PvCO₂', 'PvCO₂', 'PvCO₂'), 'mmHg', [33, 42], [33, 45]],
+  [N('PvO₂', 'PvO₂', 'PvO₂'), 'mmHg', [48, 56], [28, 49]],
+  [N('Bicarbonato (HCO₃⁻)', 'Bicarbonato (HCO₃⁻)', 'Bicarbonate (HCO₃⁻)'), 'mmol/L', [21, 24], [18, 23]],
+  ...BASE_Y_QUIMICA_GASES,
+];
+
 export const PLANTILLAS_LAB = [
   { id: 'hemograma', titulo: N('Hemograma', 'Hemograma', 'Complete blood count'), filas: HEMOGRAMA },
   { id: 'quimica', titulo: N('Química sanguínea', 'Bioquímica sérica', 'Serum chemistry'), filas: QUIMICA },
   { id: 'uroanalisis', titulo: N('Uroanálisis', 'Urinálise', 'Urinalysis'), filas: UROANALISIS },
+  { id: 'gases-venosos', titulo: N('Gases sanguíneos (venosos)', 'Hemogasometria venosa', 'Blood gas (venous)'), filas: GASES_VENOSOS },
+  { id: 'gases-arteriales', titulo: N('Gases sanguíneos (arteriales)', 'Hemogasometria arterial', 'Blood gas (arterial)'), filas: GASES_ARTERIALES },
   { id: 'vacio', titulo: N('Panel personalizado', 'Tabela personalizada', 'Custom table'), filas: [] },
 ];
 
@@ -98,7 +132,7 @@ export function enIdioma(v, idioma) {
 // Panel nuevo a partir de una plantilla, con los rangos de la especie y
 // los nombres en el idioma del panel.
 export function panelDesdePlantilla(plantillaId, especie, idioma = 'es') {
-  const p = PLANTILLAS_LAB.find((x) => x.id === plantillaId) || PLANTILLAS_LAB[3];
+  const p = PLANTILLAS_LAB.find((x) => x.id === plantillaId) || PLANTILLAS_LAB.find((x) => x.id === 'vacio');
   const i = especie === 'gato' ? 3 : 2;
   return {
     titulo: enIdioma(p.titulo, idioma),
