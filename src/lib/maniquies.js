@@ -35,17 +35,15 @@ function foto(especie, vista) {
 export const MANIQUIES = {
   // vista: 'ventral' (por debajo) | 'izq' (lado izquierdo) | 'der' (lado derecho)
   // Devuelve el HTML del arte (se inyecta con dangerouslySetInnerHTML).
-  svg(especie, vista) {
+  // "etiqueta" es el texto alternativo ya traducido (si no, en español).
+  svg(especie, vista, etiqueta) {
     const f = foto(especie, vista);
-    return `<img src="${f.src}" alt="${f.etiqueta}" class="mq-svg mq-foto" draggable="false" />`;
+    const alt = String(etiqueta || f.etiqueta).replace(/["<>&]/g, '');
+    return `<img src="${f.src}" alt="${alt}" class="mq-svg mq-foto" draggable="false" />`;
   },
   // Ruta de la foto, para precargarla antes de que el estudiante cambie de vista.
   src(especie, vista) { return foto(especie, vista).src; },
   // Relación ancho/alto del arte actual (ver cabecera).
   ratio(especie, vista) { return foto(especie, vista).ratio; },
   esLado(vista) { return vista === 'izq' || vista === 'der'; },
-  nombreVista(vista) {
-    return vista === 'izq' ? 'Lado izquierdo' : vista === 'der' ? 'Lado derecho' : 'Por debajo';
-  },
-  nombre(especie) { return especie === 'gato' ? 'Gato' : 'Perro'; },
 };

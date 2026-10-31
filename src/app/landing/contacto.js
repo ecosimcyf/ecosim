@@ -3,9 +3,10 @@
 // WhatsApp del asesor (formato internacional, solo dígitos, para wa.me).
 export const WHATSAPP_NUMERO = '573011392041';
 export const WHATSAPP_VISIBLE = '+57 301 139 2041';
-export const WHATSAPP_URL =
-  'https://wa.me/' + WHATSAPP_NUMERO + '?text=' +
-  encodeURIComponent('Hola, quiero información sobre EcoSim para mi institución.');
+// Con el saludo ya escrito en el idioma del visitante (ver textos/landing.js).
+export function whatsappUrl(mensaje) {
+  return 'https://wa.me/' + WHATSAPP_NUMERO + '?text=' + encodeURIComponent(mensaje);
+}
 
 export const CORREO = 'pablosuaza4@gmail.com';
 

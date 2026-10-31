@@ -16,6 +16,9 @@
 import { headers } from 'next/headers';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { estaBloqueado, registrarIntento } from '@/lib/ratelimit';
+import { crearT } from '@/lib/i18n/config';
+import { idiomaVisitante } from '@/lib/i18n/servidor';
+import { LANDING } from '@/lib/i18n/textos/landing';
 
 const LIMITES = { nombre: 100, clinica: 150, correo: 200, telefono: 40, mensaje: 2000 };
 
@@ -27,6 +30,8 @@ export async function enviarSolicitudContacto(_prevState, formData) {
   const telefono = campo('telefono');
   const mensaje = campo('mensaje');
   const autoriza = formData.get('autorizo') === 'si';
+  // Los errores salen en el idioma en que el visitante ve la landing.
+  const t = crearT(LANDING, await idiomaVisitante());
 
   // Trampa para bots: campo oculto que una persona nunca ve ni llena. Si
   // viene con algo, se finge éxito y no se guarda nada.
@@ -39,17 +44,17 @@ export async function enviarSolicitudContacto(_prevState, formData) {
   // Prefijo propio ('contacto:'): un ataque contra este formulario no
   // agota los intentos del login para la misma IP.
   if (estaBloqueado('contacto:' + ip)) {
-    return { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' };
+    return { error: t('form.errores.intentos') };
   }
   registrarIntento('contacto:' + ip);
 
-  if (!nombre || !correo) return { error: 'Completa nombre y correo.' };
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { error: 'Revisa el correo: no parece válido.' };
+  if (!nombre || !correo) return { error: t('form.errores.faltan') };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { error: t('form.errores.correo') };
   for (const [k, max] of Object.entries(LIMITES)) {
-    if (campo(k).length > max) return { error: 'El campo «' + k + '» es demasiado largo (máximo ' + max + ' caracteres).' };
+    if (campo(k).length > max) return { error: t('form.errores.largo', { campo: t('form.campos.' + k), max }) };
   }
   if (!autoriza) {
-    return { error: 'Para poder contactarte necesitamos tu autorización para tratar tus datos (marca la casilla).' };
+    return { error: t('form.errores.autoriza') };
   }
 
   const fila = { nombre, clinica, correo, telefono, mensaje, autorizo_datos_en: new Date().toISOString() };
@@ -64,7 +69,7 @@ export async function enviarSolicitudContacto(_prevState, formData) {
   }
   if (error) {
     console.error('[contacto] no se pudo guardar la solicitud:', error);
-    return { error: 'No se pudo enviar la solicitud. Inténtalo de nuevo en unos minutos.' };
+    return { error: t('form.errores.envio') };
   }
 
   await avisarPorCorreo(fila);

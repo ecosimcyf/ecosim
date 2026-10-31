@@ -13,15 +13,18 @@
 // ============================================================
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { crearClienteNavegador } from '@/lib/supabase/client';
-import { listarCasosActivos, cargarDatosDeCaso } from '@/lib/datos';
+import { listarCasosActivos, cargarDatosDeCaso, resumenExamenes } from '@/lib/datos';
 import { MANIQUIES } from '@/lib/maniquies';
+import { BotonesExamenes, VentanaExamen, EXAMENES } from './Examenes';
+import { unir } from '@/lib/i18n/config';
+import { useIdioma, useT } from '@/lib/i18n/cliente';
+import SelectorIdioma from '@/lib/i18n/SelectorIdioma';
+import { ESTUDIANTE } from '@/lib/i18n/textos/estudiante';
+import { EXAMENES_TXT } from '@/lib/i18n/textos/examenes';
 
+const TEXTOS = unir(ESTUDIANTE, EXAMENES_TXT);
 const GRACIA_TACTIL_MS = 1500; // mismo valor que la app de escritorio
-const VISTAS = [
-  { id: 'ventral', label: 'Abajo' },
-  { id: 'izq', label: 'Izq' },
-  { id: 'der', label: 'Der' },
-];
+const VISTAS = ['ventral', 'izq', 'der'];
 
 // Posición del token: usa x/y guardados (en %) o una repartida por defecto.
 function posToken(p, i) {
@@ -35,6 +38,8 @@ function hayVideos(datos) {
 }
 
 export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
+  const t = useT(TEXTOS);
+  const idioma = useIdioma();
   const [casosActivos, setCasosActivos] = useState(casosActivosIniciales);
   const [casoSeleccionado, setCasoSeleccionado] = useState(null); // null => menú
   const [avisoCasoDesactivado, setAvisoCasoDesactivado] = useState(false);
@@ -52,6 +57,10 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   const [precarga, setPrecarga] = useState({ cargando: false, pct: 0 });
   // Falló la carga del caso (red caída): se ofrece reintentar o volver.
   const [errorCarga, setErrorCarga] = useState(false);
+  // Exámenes complementarios: cuál está abierto ('lab' | 'rx' | 'vitales')
+  // y, para los íconos del menú, qué trae cada caso.
+  const [examenAbierto, setExamenAbierto] = useState(null);
+  const [resumen, setResumen] = useState({});
 
   const videoRef = useRef(null);
   const graciaRef = useRef(null);
@@ -90,12 +99,18 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     }
     setVideoUrl(null);
     setVista('ventral');
+    setExamenAbierto(null);
     setDatos(d);
     // Precarga las 3 fotos del maniquí de esta especie: así al cambiar de
     // vista la foto ya está y no se ven los puntos flotando sobre un hueco.
     ['ventral', 'izq', 'der'].forEach((v) => {
       const src = MANIQUIES.src(d.especie, v);
       if (src) { const img = new Image(); img.src = src; }
+    });
+    // Y las imágenes de los exámenes (radiografías, reportes), para que la
+    // ventana abra sin esperas. Los PDF se abren aparte, no se precargan.
+    (d.examenes?.archivos || []).forEach((a) => {
+      if (a.mime !== 'application/pdf') { const img = new Image(); img.src = a.url; }
     });
   }, [cuentaId]);
 
@@ -105,6 +120,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     setCasoSeleccionado(null);
     setDatos(null);
     setVideoUrl(null);
+    setExamenAbierto(null);
   }, []);
 
   // -------- Descripción del caso: "Ver descripción" desde el menú (se
@@ -154,6 +170,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       // clase de su caso.
       if (!lista) return;
       setCasosActivos(lista);
+      resumenExamenes(supabase, cuentaId).then(setResumen);
       const abiertoId = casoSeleccionadoRef.current;
       if (abiertoId && !lista.some((c) => c.id === abiertoId)) {
         setAvisoCasoDesactivado(true);
@@ -162,6 +179,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
         setVideoUrl(null);
       }
     };
+    resumenExamenes(supabase, cuentaId).then(setResumen);
     const sondeo = setInterval(recargarLista, 15000);
     return () => clearInterval(sondeo);
   }, [cuentaId]);
@@ -290,18 +308,19 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       if (e.key === 'F1') { e.preventDefault(); setAyuda((a) => !a); return; }
       if (e.key === 'F11') { e.preventDefault(); alternarPantallaCompleta(); return; }
       if (e.key === 'Escape') {
+        if (examenAbierto) { setExamenAbierto(null); return; }
         if (vistaDescripcion) { cerrarDescripcion(); return; }
         if (ayuda) setAyuda(false); else irAReposo();
         return;
       }
-      if (e.code === 'Space' && videoUrl) {
+      if (e.code === 'Space' && videoUrl && !examenAbierto) {
         e.preventDefault();
         alternarCongelado();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [ayuda, videoUrl, irAReposo, vistaDescripcion, alternarCongelado]);
+  }, [ayuda, videoUrl, irAReposo, vistaDescripcion, alternarCongelado, examenAbierto]);
 
   // -------- Presionar / soltar un punto --------
   const presionar = (p, e) => {
@@ -322,10 +341,12 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   if (!casoSeleccionado) {
     return (
       <div className="menu-casos">
+        {/* Cada estudiante puede verla en otro idioma (solo para sí). */}
+        <SelectorIdioma idioma={idioma} etiqueta={t('idioma')} titulo={t('idioma')} className="menu-casos-idioma" />
         <div className="marca">ECOSIM</div>
-        <p className="menu-casos-sub">Elige un caso para practicar la ecografía</p>
+        <p className="menu-casos-sub">{t('menu.titulo')}</p>
         {avisoCasoDesactivado && (
-          <div className="aviso-caso">El profesor desactivó este caso.</div>
+          <div className="aviso-caso">{t('menu.desactivado')}</div>
         )}
         {casosActivos.length ? (
           <div className="menu-casos-grid">
@@ -339,31 +360,38 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
                 }}
               >
                 <div className="caso-card-nombre">{c.nombre}</div>
-                <div className="caso-card-especie">{MANIQUIES.nombre(c.especie)}</div>
+                <div className="caso-card-especie">{t('especie.' + (c.especie === 'gato' ? 'gato' : 'perro'))}</div>
+                {resumen[c.id] && EXAMENES.some((x) => resumen[c.id][x.id]) && (
+                  <div className="caso-card-examenes">
+                    {EXAMENES.filter((x) => resumen[c.id][x.id]).map(({ id, Icono }) => (
+                      <span key={id} className="caso-card-examen" title={t('ex.' + id)} aria-label={t('ex.' + id)}><Icono size={15} /></span>
+                    ))}
+                  </div>
+                )}
                 {c.descripcion && (
                   <button
                     type="button" className="btn small caso-card-ver-desc"
                     onClick={(e) => { e.stopPropagation(); verDescripcion(c); }}
                   >
-                    Ver descripción
+                    {t('menu.verDescripcion')}
                   </button>
                 )}
               </div>
             ))}
           </div>
         ) : (
-          <div className="txt">Esperando a que el profesor active un caso…</div>
+          <div className="txt">{t('menu.esperando')}</div>
         )}
 
         {vistaDescripcion && (
           <div className="overlay" onClick={cerrarDescripcion}>
             <div className="desc-box" onClick={(e) => e.stopPropagation()}>
-              <div className="desc-box-eyebrow">Descripción del caso</div>
+              <div className="desc-box-eyebrow">{t('desc.eyebrow')}</div>
               <div className="desc-box-nombre">{vistaDescripcion.caso.nombre}</div>
               <div className="desc-box-divider" />
               <div className="desc-box-texto">{vistaDescripcion.caso.descripcion}</div>
               <button className="btn btn-primary" onClick={cerrarDescripcion}>
-                {vistaDescripcion.entrarAlCerrar ? 'Continuar' : 'Cerrar'}
+                {vistaDescripcion.entrarAlCerrar ? t('desc.continuar') : t('desc.cerrar')}
               </button>
             </div>
           </div>
@@ -379,17 +407,17 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
         <div className="marca">ECOSIM</div>
         {errorCarga ? (
           <>
-            <div className="txt">No se pudo cargar el caso. Revisa tu conexión a internet.</div>
+            <div className="txt">{t('carga.error')}</div>
             <div className="espera-acciones">
-              <button className="btn btn-primary" onClick={() => abrirCaso(casoSeleccionado)}>Reintentar</button>
-              <button className="btn" onClick={volverAlMenu}>← Volver a los casos</button>
+              <button className="btn btn-primary" onClick={() => abrirCaso(casoSeleccionado)}>{t('carga.reintentar')}</button>
+              <button className="btn" onClick={volverAlMenu}>{t('carga.volver')}</button>
             </div>
           </>
         ) : (
           <>
-            <div className="txt">Cargando caso…</div>
+            <div className="txt">{t('carga.cargando')}</div>
             <div className="espera-acciones">
-              <button className="btn small" onClick={volverAlMenu}>← Volver a los casos</button>
+              <button className="btn small" onClick={volverAlMenu}>{t('carga.volver')}</button>
             </div>
           </>
         )}
@@ -413,20 +441,20 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
             <circle cx="50" cy="62" r="2.4" fill="#3fc6cf" />
           </g>
         </svg>
-        <div className="rotar-titulo">Gira tu teléfono</div>
-        <div className="rotar-sub">Pon la pantalla en horizontal para ver la ecografía.</div>
+        <div className="rotar-titulo">{t('rotar.titulo')}</div>
+        <div className="rotar-sub">{t('rotar.sub')}</div>
       </div>
 
       {/* Pantalla de carga (precarga de videos al entrar) */}
       {precarga.cargando && (
         <div className="carga-overlay">
           <div className="carga-box">
-            <div className="carga-titulo">Preparando las ecografías…</div>
+            <div className="carga-titulo">{t('precarga.titulo')}</div>
             <div className="carga-barra"><div className="carga-relleno" style={{ width: precarga.pct + '%' }} /></div>
             <div className="carga-pct">{precarga.pct}%</div>
-            <div className="carga-sub">Se cargan una sola vez para que luego respondan al instante.</div>
+            <div className="carga-sub">{t('precarga.sub')}</div>
             <button className="btn small carga-saltar" onClick={() => setPrecarga({ cargando: false, pct: 100 })}>
-              Empezar sin esperar
+              {t('precarga.saltar')}
             </button>
           </div>
         </div>
@@ -444,10 +472,10 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
         {!videoUrl && (
           <div className="idle-screen">
             <div className="idle-mark">ECOSIM</div>
-            <div className="idle-sub">— sonda en reposo —</div>
+            <div className="idle-sub">{t('visor.reposo')}</div>
           </div>
         )}
-        {videoUrl && congelado && <div className="freeze-tag">❚❚ Congelado</div>}
+        {videoUrl && congelado && <div className="freeze-tag">{t('visor.congelado')}</div>}
         {videoUrl && (
           <button
             type="button"
@@ -455,38 +483,39 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
             onClick={alternarCongelado}
             aria-pressed={congelado}
           >
-            {congelado ? '▶ Seguir' : '❚❚ Congelar'}
+            {congelado ? t('visor.seguir') : t('visor.congelar')}
           </button>
         )}
-        <div className="esc-hint">Espacio = congelar · F1 = ayuda</div>
+        <div className="esc-hint">{t('visor.atajos')}</div>
+        <BotonesExamenes examenes={datos.examenes} onAbrir={setExamenAbierto} />
       </div>
 
       {/* Panel del maniquí */}
       <div className={'panel-maniqui' + (esLado ? ' lado' : '')} style={{ '--mq-ratio': MANIQUIES.ratio(especie, vista) }}>
         <div className="tabs">
-          <button className="tab" onClick={volverAlMenu} title="Volver al menú de casos">
-            ← Casos
+          <button className="tab" onClick={volverAlMenu} title={t('tabs.volverMenu')}>
+            {t('tabs.casos')}
           </button>
           {casoActual?.descripcion && (
             <button className="tab" onClick={() => verDescripcion(casoActual)}>
-              Descripción
+              {t('tabs.descripcion')}
             </button>
           )}
           {VISTAS.map((v) => (
             <button
-              key={v.id}
-              className={'tab' + (v.id === vista ? ' act' : '')}
-              onClick={() => setVista(v.id)}
+              key={v}
+              className={'tab' + (v === vista ? ' act' : '')}
+              onClick={() => setVista(v)}
             >
-              {v.label}
+              {t('tabs.' + v)}
             </button>
           ))}
           {soportaPantallaCompleta && (
             <button
               className="tab tab-icono"
               onClick={alternarPantallaCompleta}
-              title={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'}
-              aria-label={pantallaCompleta ? 'Salir de pantalla completa' : 'Pantalla completa'}
+              title={pantallaCompleta ? t('tabs.salirPantalla') : t('tabs.pantallaCompleta')}
+              aria-label={pantallaCompleta ? t('tabs.salirPantalla') : t('tabs.pantallaCompleta')}
             >
               <svg viewBox="0 0 20 20" width="13" height="13" fill="none"
                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -507,7 +536,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
         <div className={'mq-canvas' + (esLado ? ' lado' : '')}>
           <div
             className="mq-arte"
-            dangerouslySetInnerHTML={{ __html: MANIQUIES.svg(especie, vista) }}
+            dangerouslySetInnerHTML={{ __html: MANIQUIES.svg(especie, vista, t('mq.' + vista, { especie })) }}
           />
           {puntosVista.map((p, i) => {
             const pos = posToken(p, i);
@@ -526,37 +555,46 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
             );
           })}
         </div>
-        <div className="panel-hint">Mantén presionado un punto del maniquí</div>
+        <div className="panel-hint">{t('hint')}</div>
       </div>
 
       {/* Ayuda (F1) */}
       {ayuda && (
         <div className="overlay" onClick={() => setAyuda(false)}>
           <div className="ayuda-box" onClick={(e) => e.stopPropagation()}>
-            <div className="titulo">Atajos de teclado</div>
+            <div className="titulo">{t('ayuda.titulo')}</div>
             <table>
               <tbody>
-                <tr><td>Espacio</td><td>Congelar / descongelar la imagen</td></tr>
-                <tr><td>Esc</td><td>Volver al reposo</td></tr>
-                <tr><td>F11</td><td>Pantalla completa / ventana</td></tr>
-                <tr><td>F1</td><td>Mostrar u ocultar esta ayuda</td></tr>
+                <tr><td>{t('ayuda.espacio')}</td><td>{t('ayuda.congelar')}</td></tr>
+                <tr><td>Esc</td><td>{t('ayuda.reposo')}</td></tr>
+                <tr><td>F11</td><td>{t('ayuda.pantalla')}</td></tr>
+                <tr><td>F1</td><td>{t('ayuda.ayuda')}</td></tr>
               </tbody>
             </table>
-            <button className="btn small" onClick={() => setAyuda(false)}>Cerrar (F1)</button>
+            <button className="btn small" onClick={() => setAyuda(false)}>{t('ayuda.cerrar')}</button>
           </div>
         </div>
+      )}
+
+      {/* Exámenes complementarios (botones arriba a la derecha del visor) */}
+      {examenAbierto && (
+        <VentanaExamen
+          tipo={examenAbierto} examenes={datos.examenes || {}}
+          casoNombre={casoActual?.nombre || datos.casoNombre}
+          onCerrar={() => setExamenAbierto(null)}
+        />
       )}
 
       {/* Descripción del caso, pedida desde dentro (botón "Descripción" de arriba) */}
       {vistaDescripcion && (
         <div className="overlay" onClick={cerrarDescripcion}>
           <div className="desc-box" onClick={(e) => e.stopPropagation()}>
-            <div className="desc-box-eyebrow">Descripción del caso</div>
+            <div className="desc-box-eyebrow">{t('desc.eyebrow')}</div>
             <div className="desc-box-nombre">{vistaDescripcion.caso.nombre}</div>
             <div className="desc-box-divider" />
             <div className="desc-box-texto">{vistaDescripcion.caso.descripcion}</div>
             <button className="btn btn-primary" onClick={cerrarDescripcion}>
-              {vistaDescripcion.entrarAlCerrar ? 'Continuar' : 'Cerrar'}
+              {vistaDescripcion.entrarAlCerrar ? t('desc.continuar') : t('desc.cerrar')}
             </button>
           </div>
         </div>

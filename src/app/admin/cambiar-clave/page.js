@@ -5,20 +5,24 @@
 // Ya queda protegida por el middleware existente (su matcher ya cubre
 // /admin/:path*): sin sesión, no se llega hasta aquí.
 import CambiarClaveForm from './CambiarClaveForm';
+import { crearT } from '@/lib/i18n/config';
+import { idiomaPanel } from '@/lib/i18n/panel-servidor';
+import { PANEL } from '@/lib/i18n/textos/panel';
 
-export const metadata = {
-  title: 'Cambiar contraseña — EcoSim',
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata() {
+  const t = crearT(PANEL, await idiomaPanel());
+  return { title: t('meta.clave'), robots: { index: false, follow: false } };
+}
 
-export default function CambiarClavePage() {
+export default async function CambiarClavePage() {
+  const t = crearT(PANEL, await idiomaPanel());
   return (
     <div className="admin">
       <div className="admin-bar">
-        <span className="admin-title">Administración</span>
+        <span className="admin-title">{t('bar.titulo')}</span>
       </div>
       <div className="admin-login">
-        <CambiarClaveForm />
+        <CambiarClaveForm textos={t('clave')} />
       </div>
     </div>
   );

@@ -17,6 +17,10 @@ import { useState, useEffect, useRef } from 'react';
 import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264, duracionDe } from '@/lib/convertir-video';
+import EditorExamenes from './EditorExamenes';
+import { IDIOMAS, LOCALE, NOMBRES_IDIOMA } from '@/lib/i18n/config';
+import { useIdioma, useT } from '@/lib/i18n/cliente';
+import { PANEL } from '@/lib/i18n/textos/panel';
 import {
   elegirCuentaAdmin, crearCuenta, actualizarCuenta, restablecerClaveCuenta, eliminarCuenta,
   limpiarVideosHuerfanos, actualizarEstadoSolicitud,
@@ -31,13 +35,10 @@ const DURACION_MAX_SEG = 30;
 // Debe coincidir con file_size_limit del bucket (supabase/schema.sql).
 const MAX_MB_VIDEO = 50;
 
-const VISTAS = [
-  { id: 'ventral', label: 'Por debajo' },
-  { id: 'izq', label: 'Lado izquierdo' },
-  { id: 'der', label: 'Lado derecho' },
-];
+const VISTAS = ['ventral', 'izq', 'der'];
 
 const clamp = (min, max, v) => Math.max(min, Math.min(max, v));
+const especieOk = (e) => (e === 'gato' ? 'gato' : 'perro');
 
 // Color de texto para una celda de uso (casos o storage) según qué tan
 // cerca está del cupo — mismo lenguaje de color que BarraCupo.
@@ -75,10 +76,11 @@ async function copiar(textoACopiar) {
 // el servidor no conoce esa zona, y un HTML inicial distinto del que calcula
 // el navegador provocaría un error de hidratación de React.
 function FechaLocal({ iso }) {
+  const idioma = useIdioma();
   const [txt, setTxt] = useState('');
   useEffect(() => {
-    setTxt(new Date(iso).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' }));
-  }, [iso]);
+    setTxt(new Date(iso).toLocaleString(LOCALE[idioma], { dateStyle: 'medium', timeStyle: 'short' }));
+  }, [iso, idioma]);
   return <span>{txt}</span>;
 }
 
@@ -101,6 +103,7 @@ function BarraCupo({ etiqueta, usado, tope, unidad = '' }) {
 
 // Texto con botón "Copiar" (enlace de estudiantes, contraseña temporal).
 function Copiable({ valor }) {
+  const t = useT(PANEL);
   const [copiado, setCopiado] = useState(false);
   return (
     <div className="copiable">
@@ -109,7 +112,7 @@ function Copiable({ valor }) {
         type="button" className="btn small"
         onClick={async () => { if (await copiar(valor)) { setCopiado(true); setTimeout(() => setCopiado(false), 1800); } }}
       >
-        {copiado ? 'Copiado ✓' : 'Copiar'}
+        {copiado ? t('comun.copiado') : t('comun.copiar')}
       </button>
     </div>
   );
@@ -119,18 +122,21 @@ function Copiable({ valor }) {
 // navegador tras montar (el servidor no lo sabe con certeza detrás del
 // proxy de Vercel, y así no hay error de hidratación).
 function EnlaceEstudiantes({ slug }) {
+  const t = useT(PANEL);
   const [origen, setOrigen] = useState('');
   useEffect(() => { setOrigen(window.location.origin); }, []);
   if (!slug) return null;
   return (
     <div className="enlace-estudiantes">
-      <span className="lbl">Enlace para los estudiantes (no pide usuario ni contraseña):</span>
+      <span className="lbl">{t('comun.enlaceEst')}</span>
       <Copiable valor={(origen || '') + '/c/' + slug} />
     </div>
   );
 }
 
 export default function AdminPanel({ inicial }) {
+  const t = useT(PANEL);
+  const idioma = useIdioma();
   const [datos, setDatos] = useState(inicial);
 
   // Qué sección se ve (solo aplica a super_admin: cliente no tiene ni
@@ -144,7 +150,9 @@ export default function AdminPanel({ inicial }) {
 
   // Selector / alta de cuentas (solo super_admin)
   const [cambiandoCuenta, setCambiandoCuenta] = useState(false);
-  const [nuevaCuenta, setNuevaCuenta] = useState({ slug: '', nombre: '', cupoCasos: '', cupoStorage: '', correo: '' });
+  // El idioma de una cuenta nueva arranca en el del panel de quien la crea.
+  const cuentaVacia = { slug: '', nombre: '', cupoCasos: '', cupoStorage: '', correo: '', idioma };
+  const [nuevaCuenta, setNuevaCuenta] = useState(cuentaVacia);
   const [creandoCuenta, setCreandoCuenta] = useState(false);
   const [edicionCuenta, setEdicionCuenta] = useState(null); // copia editable de la cuenta elegida
   const [limpiando, setLimpiando] = useState(false);
@@ -163,6 +171,9 @@ export default function AdminPanel({ inicial }) {
   const [casoEnEdicion, setCasoEnEdicion] = useState(null);
   const [vistaCaso, setVistaCaso] = useState('ventral');
   const [casoPuntoSel, setCasoPuntoSel] = useState(null);
+
+  // Editor de exámenes complementarios del caso (laboratorio, rx, vitales)
+  const [casoExamenes, setCasoExamenes] = useState(null);
 
   // Crear caso
   const [nuevoNombre, setNuevoNombre] = useState('');
@@ -189,7 +200,8 @@ export default function AdminPanel({ inicial }) {
     try {
       const r = await accion();
       if (r?.error) {
-        alert(r.error);
+        // El servidor manda una clave (err.*) que se traduce aquí.
+        alert(t(r.error, r.vars));
         if (r.codigo === 'sin-sesion') window.location.href = '/admin/login';
         return null;
       }
@@ -197,7 +209,7 @@ export default function AdminPanel({ inicial }) {
       return r || {};
     } catch (err) {
       console.error(err);
-      alert('No se pudo completar la acción. Revisa tu conexión a internet e inténtalo de nuevo.');
+      alert(t('comun.errorRed'));
       return null;
     }
   }
@@ -206,6 +218,7 @@ export default function AdminPanel({ inicial }) {
     (datos.puntos || []).filter((p) => p.especie === especie && (p.vista || 'ventral') === vista);
 
   const caso = (datos.casos || []).find((c) => c.id === casoEnEdicion) || null;
+  const casoEx = (datos.casos || []).find((c) => c.id === casoExamenes) || null;
   const casosActivosCount = (datos.casos || []).filter((c) => c.activo).length;
   const cuentaElegida = (datos.cuentas || []).find((c) => c.id === datos.cuentaId) || null;
 
@@ -223,35 +236,37 @@ export default function AdminPanel({ inicial }) {
       cupoCasos: String(cuentaElegida.cupo_casos_propios),
       cupoStorage: String(cuentaElegida.cupo_storage_mb),
       activa: cuentaElegida.activa,
+      idioma: cuentaElegida.idioma || 'es',
     } : null);
   }, [cuentaElegida?.id, cuentaElegida?.nombre, cuentaElegida?.cupo_casos_propios,
-      cuentaElegida?.cupo_storage_mb, cuentaElegida?.activa]);
+      cuentaElegida?.cupo_storage_mb, cuentaElegida?.activa, cuentaElegida?.idioma]);
 
   // ---------------- Cuentas (solo super_admin) ----------------
   async function elegirCuenta(cuentaId) {
     if (!cuentaId) return;
     setCambiandoCuenta(true);
     const r = await ejecutar(() => elegirCuentaAdmin(cuentaId));
-    if (r) { setPuntoSel(null); setCasoEnEdicion(null); }
+    if (r) { setPuntoSel(null); setCasoEnEdicion(null); setCasoExamenes(null); }
     setCambiandoCuenta(false);
   }
 
   async function crearCuentaNueva() {
     const n = nuevaCuenta;
     if (!n.slug.trim() || !n.nombre.trim() || !n.correo.trim()) {
-      alert('Completa enlace (slug), nombre y correo para crear la cuenta.');
+      alert(t('cuentas.completar'));
       return;
     }
     setCreandoCuenta(true);
     const r = await ejecutar(() => crearCuenta({
       slug: n.slug, nombre: n.nombre, correo: n.correo,
       cupoCasosPropios: n.cupoCasos || 0, cupoStorageMb: n.cupoStorage || 0,
+      ...(datos.idiomasDisponibles ? { idioma: n.idioma } : {}),
     }));
     setCreandoCuenta(false);
     if (!r) return;
     // La clave temporal se muestra UNA sola vez: no se guarda en ningún lado.
-    setClaveNueva({ titulo: 'Cuenta creada', correos: [r.correo], clave: r.claveTemporal, slug: r.slug });
-    setNuevaCuenta({ slug: '', nombre: '', cupoCasos: '', cupoStorage: '', correo: '' });
+    setClaveNueva({ titulo: t('cuentas.creada'), correos: [r.correo], clave: r.claveTemporal, slug: r.slug });
+    setNuevaCuenta(cuentaVacia);
   }
 
   async function guardarCuentaElegida() {
@@ -261,26 +276,27 @@ export default function AdminPanel({ inicial }) {
       cupoCasosPropios: edicionCuenta.cupoCasos,
       cupoStorageMb: edicionCuenta.cupoStorage,
       activa: edicionCuenta.activa,
+      ...(datos.idiomasDisponibles ? { idioma: edicionCuenta.idioma } : {}),
     }));
-    if (r) alert('Cuenta guardada.');
+    if (r) alert(t('cuentas.guardada'));
   }
 
   async function restablecerClave() {
     if (!cuentaElegida) return;
-    if (!confirm('¿Generar una contraseña temporal nueva para "' + cuentaElegida.nombre + '"?\nLa actual dejará de funcionar.')) return;
+    if (!confirm(t('cuentas.confirmRestablecer', { nombre: cuentaElegida.nombre }))) return;
     const r = await ejecutar(() => restablecerClaveCuenta(cuentaElegida.id), { fusionarResultado: false });
-    if (r) setClaveNueva({ titulo: 'Contraseña restablecida', correos: r.correos, clave: r.claveTemporal, slug: null });
+    if (r) setClaveNueva({ titulo: t('cuentas.restablecida'), correos: r.correos, clave: r.claveTemporal, slug: null });
   }
 
   async function limpiarHuerfanos() {
-    if (!confirm('Esto borra de Storage los videos que ya no usa ningún caso (y tienen más de 24 h). ¿Continuar?')) return;
+    if (!confirm(t('cuentas.confirmLimpiar'))) return;
     setLimpiando(true);
     const r = await ejecutar(() => limpiarVideosHuerfanos(), { fusionarResultado: false });
     setLimpiando(false);
     if (r) {
       alert(r.borrados
-        ? 'Listo: se borraron ' + r.borrados + ' video(s) huérfano(s), ' + r.liberadosMb + ' MB liberados.'
-        : 'No había videos huérfanos.');
+        ? t('cuentas.limpiezaOk', { n: r.borrados, mb: r.liberadosMb })
+        : t('cuentas.sinHuerfanos'));
     }
   }
 
@@ -300,12 +316,9 @@ export default function AdminPanel({ inicial }) {
   // El super_admin borra la cuenta que tiene elegida en el selector.
   async function borrarCuentaElegida() {
     if (!cuentaElegida) return;
-    const escrito = prompt(
-      'Esto borra TODO de "' + cuentaElegida.nombre + '": sus casos, videos y el acceso de su administrador, ' +
-        'sin reversa. Escribe el nombre exacto de la cuenta para confirmar:'
-    );
+    const escrito = prompt(t('cuentas.promptBorrar', { nombre: cuentaElegida.nombre }));
     if (escrito === null) return;
-    if (escrito.trim() !== cuentaElegida.nombre) { alert('El nombre no coincide. No se borró nada.'); return; }
+    if (escrito.trim() !== cuentaElegida.nombre) { alert(t('cuentas.noCoincide')); return; }
     await ejecutar(() => eliminarCuenta(cuentaElegida.id));
   }
 
@@ -371,7 +384,7 @@ export default function AdminPanel({ inicial }) {
   }
   async function borrarPunto() {
     if (!puntoSel) return;
-    if (!confirm('¿Borrar este punto del cuerpo?\nTodos los casos perderán el video asignado a este punto.')) return;
+    if (!confirm(t('maniqui.confirmBorrar'))) return;
     const id = puntoSel;
     setPuntoSel(null);
     await ejecutar(() => eliminarPunto(datos.cuentaId, id));
@@ -379,7 +392,7 @@ export default function AdminPanel({ inicial }) {
 
   // ---------------- Casos ----------------
   async function crear() {
-    if (!nuevoNombre.trim()) { alert('Escribe un nombre para el caso.'); return; }
+    if (!nuevoNombre.trim()) { alert(t('casos.alertNombre')); return; }
     const r = await ejecutar(() => crearCaso(datos.cuentaId, nuevoNombre, nuevaEspecie));
     if (r) setNuevoNombre('');
   }
@@ -393,10 +406,9 @@ export default function AdminPanel({ inicial }) {
     ejecutar(() => describirCaso(datos.cuentaId, c.id, descripcion));
   }
   async function cambiarEspecie(c, especie, selectEl) {
-    if (c.numVideos > 0 && !confirm(
-      'Este caso tiene ' + c.numVideos + ' video(s) asignados a puntos del ' + MANIQUIES.nombre(c.especie).toLowerCase() +
-        '. Al cambiarlo a ' + MANIQUIES.nombre(especie).toLowerCase() + ' esos videos se borran. ¿Continuar?'
-    )) {
+    if (c.numVideos > 0 && !confirm(t('casos.confirmEspecie', {
+      n: c.numVideos, de: t('especieMin.' + especieOk(c.especie)), a: t('especieMin.' + especieOk(especie)),
+    }))) {
       selectEl.value = c.especie;
       return;
     }
@@ -405,14 +417,30 @@ export default function AdminPanel({ inicial }) {
     if (!r) selectEl.value = c.especie;
   }
   async function borrarCaso(id) {
-    if (!confirm('¿Borrar este caso y todos sus videos?')) return;
+    if (!confirm(t('casos.confirmBorrar'))) return;
     const r = await ejecutar(() => eliminarCaso(datos.cuentaId, id));
     if (r && casoEnEdicion === id) setCasoEnEdicion(null);
+    if (r && casoExamenes === id) setCasoExamenes(null);
   }
   function editarVideos(id) {
     setCasoPuntoSel(null);
     setVistaCaso('ventral');
     setCasoEnEdicion(id);
+  }
+  function editarExamenes(id) {
+    setCasoExamenes(id);
+    // Lleva la vista al editor (queda debajo de la lista de casos).
+    setTimeout(() => document.getElementById('editor-examenes')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  }
+  // Cuántos exámenes tiene cargados un caso (para la lista de casos).
+  function resumenExamenesCaso(id) {
+    const ex = datos.examenesPorCaso?.[id];
+    if (!ex) return 0;
+    let n = 0;
+    if ((ex.laboratorio || []).length || (ex.archivos || []).some((a) => a.tipo === 'lab')) n++;
+    if ((ex.archivos || []).some((a) => a.tipo === 'rx')) n++;
+    if (Object.keys(ex.vitales || {}).length) n++;
+    return n;
   }
 
   // ---------------- Videos del caso ----------------
@@ -433,10 +461,7 @@ export default function AdminPanel({ inicial }) {
       // adelante con un error más claro al intentar reproducirlo/convertirlo.
       const duracion = await duracionDe(file);
       if (duracion != null && duracion > DURACION_MAX_SEG + 0.5) {
-        alert(
-          'Este video dura ' + Math.round(duracion) + ' segundos. El máximo permitido es ' +
-            DURACION_MAX_SEG + ' segundos — recórtalo y vuelve a intentar.'
-        );
+        alert(t('videos.duracion', { seg: Math.round(duracion), max: DURACION_MAX_SEG }));
         return;
       }
 
@@ -452,7 +477,7 @@ export default function AdminPanel({ inicial }) {
         setConvProgreso(null);
       }
       if (aSubir.size > MAX_MB_VIDEO * 1024 * 1024) {
-        alert('El video pesa ' + Math.round(aSubir.size / 1048576) + ' MB; el máximo es ' + MAX_MB_VIDEO + ' MB.');
+        alert(t('videos.pesa', { mb: Math.round(aSubir.size / 1048576), max: MAX_MB_VIDEO }));
         return;
       }
 
@@ -466,7 +491,7 @@ export default function AdminPanel({ inicial }) {
       if (error) throw error;
       await ejecutar(() => guardarVideoCaso(datos.cuentaId, casoId, puntoId, subida.path));
     } catch (err) {
-      alert('No se pudo procesar el video: ' + (err?.message || err));
+      alert(t('videos.procesar', { error: err?.message || err }));
     } finally {
       setSubiendo(false);
       setConvProgreso(null);
@@ -474,12 +499,12 @@ export default function AdminPanel({ inicial }) {
   }
   async function quitarVideo() {
     if (!casoEnEdicion || !casoPuntoSel) return;
-    if (!confirm('¿Quitar el video de este punto en este caso?')) return;
+    if (!confirm(t('videos.confirmQuitar'))) return;
     await ejecutar(() => quitarVideoCaso(datos.cuentaId, casoEnEdicion, casoPuntoSel));
   }
   function verVideo() {
     const url = datos.videosPorCaso?.[casoEnEdicion]?.[casoPuntoSel];
-    if (!url) { alert('Este punto aún no tiene video en este caso.'); return; }
+    if (!url) { alert(t('videos.sinVideoAlert')); return; }
     setPreviewUrl(url);
   }
 
@@ -513,20 +538,20 @@ export default function AdminPanel({ inicial }) {
             className={'admin-nav-tab' + (seccion === 'cuentas' ? ' act' : '')}
             onClick={() => setSeccion('cuentas')}
           >
-            Cuentas
+            {t('nav.cuentas')}
           </button>
           <button
             className={'admin-nav-tab' + (seccion === 'solicitudes' ? ' act' : '')}
             onClick={() => setSeccion('solicitudes')}
           >
-            Solicitudes
+            {t('nav.solicitudes')}
             {solicitudesNuevas > 0 && <span className="admin-nav-badge">{solicitudesNuevas}</span>}
           </button>
           <button
             className={'admin-nav-tab' + (seccion === 'simulador' ? ' act' : '')}
             onClick={() => setSeccion('simulador')}
           >
-            Simulador{cuentaElegida ? ' · ' + cuentaElegida.nombre : ''}
+            {t('nav.simulador')}{cuentaElegida ? ' · ' + cuentaElegida.nombre : ''}
           </button>
         </nav>
       )}
@@ -534,22 +559,20 @@ export default function AdminPanel({ inicial }) {
       {/* -------- Cuentas de clientes (solo super_admin) -------- */}
       {esSuperAdmin && seccion === 'cuentas' && (
         <section className="card">
-          <h3>Cuentas de clientes</h3>
-          <p className="muted">
-            Elige con qué cuenta quieres trabajar, o crea una cuenta nueva para un cliente.
-          </p>
+          <h3>{t('cuentas.titulo')}</h3>
+          <p className="muted">{t('cuentas.intro')}</p>
           <div className="row">
-            <label className="lbl" htmlFor="selector-cuenta">Cuenta activa:</label>
+            <label className="lbl" htmlFor="selector-cuenta">{t('cuentas.activa')}</label>
             <select
               id="selector-cuenta"
               value={datos.cuentaId || ''}
               disabled={cambiandoCuenta}
               onChange={(e) => elegirCuenta(e.target.value)}
             >
-              <option value="">— Elige una cuenta —</option>
+              <option value="">{t('cuentas.elige')}</option>
               {(datos.cuentas || []).map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.nombre}{c.activa ? '' : ' (inactiva)'}
+                  {c.nombre}{c.activa ? '' : t('cuentas.inactiva')}
                 </option>
               ))}
             </select>
@@ -560,30 +583,38 @@ export default function AdminPanel({ inicial }) {
             <div className="editar-cuenta">
               <EnlaceEstudiantes slug={cuentaElegida.slug} />
               <div className="row">
-                <label>Nombre
+                <label>{t('cuentas.nombre')}
                   <input value={edicionCuenta.nombre} maxLength={120}
                     onChange={(e) => setEdicionCuenta({ ...edicionCuenta, nombre: e.target.value })} />
                 </label>
-                <label>Cupo de casos
+                <label>{t('cuentas.cupoCasos')}
                   <input type="number" min="0" step="1" value={edicionCuenta.cupoCasos}
                     onChange={(e) => setEdicionCuenta({ ...edicionCuenta, cupoCasos: e.target.value })} />
                 </label>
-                <label>Cupo de almacenamiento (MB)
+                <label>{t('cuentas.cupoStorage')}
                   <input type="number" min="0" step="1" value={edicionCuenta.cupoStorage}
                     onChange={(e) => setEdicionCuenta({ ...edicionCuenta, cupoStorage: e.target.value })} />
                 </label>
+                {datos.idiomasDisponibles && (
+                  <label>{t('cuentas.idioma')}
+                    <select value={edicionCuenta.idioma}
+                      onChange={(e) => setEdicionCuenta({ ...edicionCuenta, idioma: e.target.value })}>
+                      {IDIOMAS.map((id) => <option key={id} value={id}>{NOMBRES_IDIOMA[id]}</option>)}
+                    </select>
+                  </label>
+                )}
               </div>
               <div className="row">
-                <label className="chk-activo" title="Una cuenta inactiva no puede entrar al panel y su enlace deja de funcionar; no se borra nada.">
+                <label className="chk-activo" title={t('cuentas.activaTitle')}>
                   <input type="checkbox" checked={edicionCuenta.activa}
                     onChange={(e) => setEdicionCuenta({ ...edicionCuenta, activa: e.target.checked })} />
                   <span className={edicionCuenta.activa ? 'accent' : 'warn'}>
-                    {edicionCuenta.activa ? 'Cuenta activa' : 'Cuenta desactivada'}
+                    {edicionCuenta.activa ? t('cuentas.cuentaActiva') : t('cuentas.cuentaDesactivada')}
                   </span>
                 </label>
-                <button className="btn small btn-primary" onClick={guardarCuentaElegida}>Guardar cambios</button>
-                <button className="btn small" onClick={restablecerClave}>Restablecer contraseña</button>
-                <button className="btn small danger" onClick={borrarCuentaElegida}>Borrar esta cuenta</button>
+                <button className="btn small btn-primary" onClick={guardarCuentaElegida}>{t('cuentas.guardar')}</button>
+                <button className="btn small" onClick={restablecerClave}>{t('cuentas.restablecer')}</button>
+                <button className="btn small danger" onClick={borrarCuentaElegida}>{t('cuentas.borrar')}</button>
               </div>
             </div>
           )}
@@ -592,13 +623,18 @@ export default function AdminPanel({ inicial }) {
           {(datos.cuentas || []).length > 0 && (
             <table className="tabla-cuentas">
               <thead>
-                <tr><th>Cuenta</th><th>Enlace</th><th>Casos</th><th>Storage</th></tr>
+                <tr>
+                  <th>{t('cuentas.colCuenta')}</th><th>{t('cuentas.colEnlace')}</th>
+                  {datos.idiomasDisponibles && <th>{t('cuentas.colIdioma')}</th>}
+                  <th>{t('cuentas.colCasos')}</th><th>{t('cuentas.colStorage')}</th>
+                </tr>
               </thead>
               <tbody>
                 {(datos.cuentas || []).map((c) => (
                   <tr key={c.id}>
-                    <td>{c.nombre}{c.activa ? '' : ' (inactiva)'}</td>
+                    <td>{c.nombre}{c.activa ? '' : t('cuentas.inactiva')}</td>
                     <td className="muted">/c/{c.slug}</td>
+                    {datos.idiomasDisponibles && <td className="muted">{(c.idioma || 'es').toUpperCase()}</td>}
                     <td style={{ color: colorCupo(c.casosUsados, c.cupo_casos_propios) }}>
                       {c.casosUsados} / {c.cupo_casos_propios}
                     </td>
@@ -611,49 +647,52 @@ export default function AdminPanel({ inicial }) {
             </table>
           )}
 
-          <p className="muted" style={{ marginTop: 14 }}>Crear una cuenta nueva:</p>
+          <p className="muted" style={{ marginTop: 14 }}>{t('cuentas.crearTitulo')}</p>
           <div className="row">
             <input
               value={nuevaCuenta.nombre}
               onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, nombre: e.target.value })}
-              placeholder="Nombre de la clínica" maxLength={120}
+              placeholder={t('cuentas.phNombre')} maxLength={120}
             />
             <input
               value={nuevaCuenta.slug}
               onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, slug: e.target.value })}
-              placeholder="Enlace, p. ej. clinica-norte" maxLength={40}
-              title="Solo minúsculas, números y guiones. Es lo que va en el enlace de los estudiantes: /c/clinica-norte"
+              placeholder={t('cuentas.phSlug')} maxLength={40}
+              title={t('cuentas.slugTitle')}
             />
           </div>
           <div className="row">
             <input
               value={nuevaCuenta.cupoCasos}
               onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, cupoCasos: e.target.value })}
-              placeholder="Cupo de casos" type="number" min="0" step="1"
+              placeholder={t('cuentas.phCupoCasos')} type="number" min="0" step="1"
             />
             <input
               value={nuevaCuenta.cupoStorage}
               onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, cupoStorage: e.target.value })}
-              placeholder="Cupo de almacenamiento (MB)" type="number" min="0" step="1"
+              placeholder={t('cuentas.phCupoStorage')} type="number" min="0" step="1"
             />
           </div>
           <div className="row">
             <input
               value={nuevaCuenta.correo}
               onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, correo: e.target.value })}
-              placeholder="Correo del cliente" type="email" maxLength={200}
+              placeholder={t('cuentas.phCorreo')} type="email" maxLength={200}
             />
+            {datos.idiomasDisponibles && (
+              <select value={nuevaCuenta.idioma} aria-label={t('cuentas.idioma')} title={t('cuentas.idioma')}
+                onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, idioma: e.target.value })}>
+                {IDIOMAS.map((id) => <option key={id} value={id}>{NOMBRES_IDIOMA[id]}</option>)}
+              </select>
+            )}
             <button className="btn btn-primary" disabled={creandoCuenta} onClick={crearCuentaNueva}>
-              {creandoCuenta ? 'Creando…' : 'Crear cuenta'}
+              {creandoCuenta ? t('cuentas.creando') : t('cuentas.crear')}
             </button>
           </div>
 
-          <p className="muted" style={{ marginTop: 18 }}>
-            Mantenimiento: borra de Storage los videos que ya no usa ningún caso
-            (subidas que no se terminaron, borrados a medias).
-          </p>
+          <p className="muted" style={{ marginTop: 18 }}>{t('cuentas.mantenimiento')}</p>
           <button className="btn small" disabled={limpiando} onClick={limpiarHuerfanos}>
-            {limpiando ? 'Limpiando…' : 'Limpiar videos huérfanos'}
+            {limpiando ? t('cuentas.limpiando') : t('cuentas.limpiar')}
           </button>
         </section>
       )}
@@ -661,11 +700,8 @@ export default function AdminPanel({ inicial }) {
       {/* -------- Solicitudes de contacto (solo super_admin) -------- */}
       {esSuperAdmin && seccion === 'solicitudes' && (
         <section className="card">
-          <h3>Solicitudes</h3>
-          <p className="muted">
-            Personas que llenaron el formulario de la landing. Cambia el estado
-            de cada una conforme las vayas contactando.
-          </p>
+          <h3>{t('solicitudes.titulo')}</h3>
+          <p className="muted">{t('solicitudes.intro')}</p>
           {(datos.solicitudes || []).length ? (datos.solicitudes).map((s) => (
             <div className="item" key={s.id}>
               <div style={{ flex: '1 1 260px', minWidth: 0, overflowWrap: 'anywhere' }}>
@@ -681,83 +717,75 @@ export default function AdminPanel({ inicial }) {
               <select
                 value={s.estado}
                 onChange={(e) => cambiarEstadoSolicitud(s.id, e.target.value)}
-                title="Estado de la solicitud"
+                title={t('solicitudes.estadoTitle')}
               >
-                <option value="nueva">Nueva</option>
-                <option value="contactada">Contactada</option>
-                <option value="convertida">Convertida</option>
-                <option value="descartada">Descartada</option>
+                {['nueva', 'contactada', 'convertida', 'descartada'].map((e) => (
+                  <option key={e} value={e}>{t('solicitudes.estados.' + e)}</option>
+                ))}
               </select>
             </div>
-          )) : <p className="muted">Todavía no hay solicitudes de contacto.</p>}
+          )) : <p className="muted">{t('solicitudes.vacio')}</p>}
         </section>
       )}
 
       {/* -------- Super_admin en «Simulador» sin cuenta elegida -------- */}
       {esSuperAdmin && seccion === 'simulador' && !hayCuenta && (
         <section className="card">
-          <h3>Elige una cuenta</h3>
-          <p className="muted">
-            Los casos, puntos y videos son de cada cuenta. Elige con cuál quieres trabajar.
-          </p>
-          <button className="btn btn-primary" onClick={() => setSeccion('cuentas')}>Ir a Cuentas</button>
+          <h3>{t('eligeCuenta.titulo')}</h3>
+          <p className="muted">{t('eligeCuenta.texto')}</p>
+          <button className="btn btn-primary" onClick={() => setSeccion('cuentas')}>{t('eligeCuenta.ir')}</button>
         </section>
       )}
 
       {hayCuenta && (!esSuperAdmin || seccion === 'simulador') && <>
       {/* -------- Casos activos -------- */}
       <section className="card">
-        <h3>Casos activos</h3>
-        <p className="muted">
-          Los estudiantes ven un menú con los casos activos y eligen cuál
-          simular. Enciende o apaga cada uno abajo, en «Casos» — puede haber
-          varios encendidos a la vez.
-        </p>
+        <h3>{t('activos.titulo')}</h3>
+        <p className="muted">{t('activos.intro')}</p>
         <div style={{ fontSize: 15, marginTop: 4 }}>
           {casosActivosCount
-            ? <>Casos activos ahora: <span className="accent">{casosActivosCount}</span></>
-            : <span className="warn">Ningún caso activo — los estudiantes ven el menú vacío</span>}
+            ? <>{t('activos.ahora')} <span className="accent">{casosActivosCount}</span></>
+            : <span className="warn">{t('activos.ninguno')}</span>}
         </div>
         <EnlaceEstudiantes slug={slugActual} />
+        {!esSuperAdmin && datos.idiomasDisponibles && (
+          <p className="muted nota-idioma">{t('activos.idiomaEst', { idioma: t('idiomas.' + (datos.cuentaIdioma || 'es')) })}</p>
+        )}
         {datos.cupoCasosPropios != null && (
-          <BarraCupo etiqueta="Casos" usado={(datos.casos || []).length} tope={datos.cupoCasosPropios} />
+          <BarraCupo etiqueta={t('activos.barraCasos')} usado={(datos.casos || []).length} tope={datos.cupoCasosPropios} />
         )}
         {datos.cupoStorageMb != null && (
-          <BarraCupo etiqueta="Almacenamiento" usado={datos.usoStorageMb ?? 0} tope={datos.cupoStorageMb} unidad=" MB" />
+          <BarraCupo etiqueta={t('activos.barraStorage')} usado={datos.usoStorageMb ?? 0} tope={datos.cupoStorageMb} unidad=" MB" />
         )}
       </section>
 
       {/* -------- Maniquí: puntos del cuerpo (propios de esta cuenta) -------- */}
       <section className="card">
         <div className="editor-head">
-          <h3>Maniquí — puntos del cuerpo</h3>
+          <h3>{t('maniqui.titulo')}</h3>
           <div className="editor-tools">
-            <label className="tool-lbl">Especie
+            <label className="tool-lbl">{t('comun.especie')}
               <select value={especiePuntos} onChange={(e) => { setPuntoSel(null); setEspeciePuntos(e.target.value); }}>
-                <option value="perro">Perro</option>
-                <option value="gato">Gato</option>
+                <option value="perro">{t('especie.perro')}</option>
+                <option value="gato">{t('especie.gato')}</option>
               </select>
             </label>
-            <button className="btn small btn-primary" onClick={nuevoPunto}>+ Añadir punto</button>
+            <button className="btn small btn-primary" onClick={nuevoPunto}>{t('maniqui.anadir')}</button>
           </div>
         </div>
-        <p className="muted">
-          Define una sola vez las partes del cuerpo (su posición). Todos tus
-          casos usan estos mismos puntos: lo único que cambia en cada caso es
-          el video de cada punto.
-        </p>
+        <p className="muted">{t('maniqui.intro')}</p>
 
         <div className="tabs">
           {VISTAS.map((v) => (
-            <button key={v.id}
-              className={'tab' + (v.id === vistaPuntos ? ' act' : '')}
-              onClick={() => { setPuntoSel(null); setVistaPuntos(v.id); }}>
-              {v.label}
+            <button key={v}
+              className={'tab' + (v === vistaPuntos ? ' act' : '')}
+              onClick={() => { setPuntoSel(null); setVistaPuntos(v); }}>
+              {t('vistas.' + v)}
             </button>
           ))}
         </div>
         <div className="mq-leyenda">
-          <span className="muted">Arrastra cada punto a su lugar · clic para renombrar o borrar</span>
+          <span className="muted">{t('maniqui.leyenda')}</span>
         </div>
 
         <div className="mq-stage">
@@ -769,7 +797,7 @@ export default function AdminPanel({ inicial }) {
               if (!e.target.closest('.mq-token') && !e.target.closest('.mq-pop')) setPuntoSel(null);
             }}
           >
-            <div className="mq-arte" dangerouslySetInnerHTML={{ __html: MANIQUIES.svg(especiePuntos, vistaPuntos) }} />
+            <div className="mq-arte" dangerouslySetInnerHTML={{ __html: MANIQUIES.svg(especiePuntos, vistaPuntos, t('mq.' + vistaPuntos, { especie: especiePuntos })) }} />
             {listaPuntos.map((p, i) => {
               const pos = posToken(p, i);
               return (
@@ -789,7 +817,7 @@ export default function AdminPanel({ inicial }) {
 
             {puntoSelObj && (
               <div className="mq-pop" style={popStyle(posToken(puntoSelObj, listaPuntos.indexOf(puntoSelObj)))}>
-                <label>Nombre de la parte del cuerpo</label>
+                <label>{t('maniqui.nombreParte')}</label>
                 <input
                   value={nombreEdit}
                   autoFocus
@@ -797,57 +825,62 @@ export default function AdminPanel({ inicial }) {
                   onChange={(e) => setNombreEdit(e.target.value)}
                   onBlur={guardarNombrePunto}
                   onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                  placeholder="Ej. Corazón"
+                  placeholder={t('maniqui.phParte')}
                 />
                 <div className="mq-pop-foot">
-                  <button className="btn small danger" onClick={borrarPunto}>Borrar</button>
-                  <button className="btn small btn-primary" onClick={async () => { await guardarNombrePunto(); setPuntoSel(null); }}>Listo</button>
+                  <button className="btn small danger" onClick={borrarPunto}>{t('comun.borrar')}</button>
+                  <button className="btn small btn-primary" onClick={async () => { await guardarNombrePunto(); setPuntoSel(null); }}>{t('comun.listo')}</button>
                 </div>
               </div>
             )}
           </div>
-          {!listaPuntos.length && <p className="muted mq-vacio">No hay puntos en esta vista. Pulsa «+ Añadir punto».</p>}
+          {!listaPuntos.length && <p className="muted mq-vacio">{t('maniqui.vacio')}</p>}
         </div>
       </section>
 
       {/* -------- Casos -------- */}
       <section className="card">
-        <h3>Casos</h3>
+        <h3>{t('casos.titulo')}</h3>
         {(datos.casos || []).length ? (datos.casos).map((c) => (
           <div className="item" key={c.id}>
             <input className="nombre-caso" defaultValue={c.nombre} maxLength={120}
               onBlur={(e) => renombrar(c, e.target.value)} />
-            <select value={c.especie} onChange={(e) => cambiarEspecie(c, e.target.value, e.target)} title="Especie del maniquí">
-              <option value="perro">Perro</option>
-              <option value="gato">Gato</option>
+            <select value={c.especie} onChange={(e) => cambiarEspecie(c, e.target.value, e.target)} title={t('comun.especieTitle')}>
+              <option value="perro">{t('especie.perro')}</option>
+              <option value="gato">{t('especie.gato')}</option>
             </select>
-            <span className="muted">{c.numVideos} video(s)</span>
-            <label className="chk-activo" title="Visible en el menú del estudiante">
+            <span className="muted">{t('casos.videos', { n: c.numVideos })}</span>
+            <label className="chk-activo" title={t('casos.activoTitle')}>
               <input type="checkbox" checked={!!c.activo} onChange={() => activar(c)} />
-              <span className={c.activo ? 'accent' : 'muted'}>{c.activo ? '● Activo' : 'Inactivo'}</span>
+              <span className={c.activo ? 'accent' : 'muted'}>{c.activo ? t('casos.activo') : t('casos.inactivo')}</span>
             </label>
-            <button className="btn small" onClick={() => editarVideos(c.id)}>Asignar videos</button>
-            <button className="btn small danger" onClick={() => borrarCaso(c.id)}>Borrar</button>
+            <button className="btn small" onClick={() => editarVideos(c.id)}>{t('casos.asignar')}</button>
+            {datos.examenesDisponibles && (
+              <button className="btn small" onClick={() => editarExamenes(c.id)}>
+                {t('casos.examenes', { n: resumenExamenesCaso(c.id) })}
+              </button>
+            )}
+            <button className="btn small danger" onClick={() => borrarCaso(c.id)}>{t('comun.borrar')}</button>
             <textarea
               className="descripcion-caso"
               defaultValue={c.descripcion || ''}
               onBlur={(e) => describir(c, e.target.value)}
-              placeholder="Descripción para el estudiante (motivo de consulta, síntomas…). Se muestra antes de entrar al caso."
+              placeholder={t('casos.phDescripcion')}
               rows={2}
               maxLength={500}
             />
           </div>
-        )) : <p className="muted">No hay casos todavía. Crea el primero abajo.</p>}
+        )) : <p className="muted">{t('casos.vacio')}</p>}
 
         <div className="row">
           <input value={nuevoNombre} maxLength={120} onChange={(e) => setNuevoNombre(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') crear(); }}
-            placeholder="Nombre del nuevo caso (ej. Embarazo)" />
-          <select value={nuevaEspecie} onChange={(e) => setNuevaEspecie(e.target.value)} title="Especie del maniquí">
-            <option value="perro">Perro</option>
-            <option value="gato">Gato</option>
+            placeholder={t('casos.phNuevo')} />
+          <select value={nuevaEspecie} onChange={(e) => setNuevaEspecie(e.target.value)} title={t('comun.especieTitle')}>
+            <option value="perro">{t('especie.perro')}</option>
+            <option value="gato">{t('especie.gato')}</option>
           </select>
-          <button className="btn" onClick={crear}>Crear caso</button>
+          <button className="btn" onClick={crear}>{t('casos.crear')}</button>
         </div>
       </section>
 
@@ -855,23 +888,23 @@ export default function AdminPanel({ inicial }) {
       {caso && (
         <section className="card">
           <div className="editor-head">
-            <h3>Videos de: <span className="accent">{caso.nombre}</span></h3>
-            <button className="btn small" onClick={() => setCasoEnEdicion(null)}>Cerrar</button>
+            <h3>{t('videos.titulo')} <span className="accent">{caso.nombre}</span></h3>
+            <button className="btn small" onClick={() => setCasoEnEdicion(null)}>{t('comun.cerrar')}</button>
           </div>
-          <p className="muted">Toca un punto del cuerpo para asignarle el video de ESTE caso.</p>
+          <p className="muted">{t('videos.intro')}</p>
 
           <div className="tabs">
             {VISTAS.map((v) => (
-              <button key={v.id}
-                className={'tab' + (v.id === vistaCaso ? ' act' : '')}
-                onClick={() => { setCasoPuntoSel(null); setVistaCaso(v.id); }}>
-                {v.label}
+              <button key={v}
+                className={'tab' + (v === vistaCaso ? ' act' : '')}
+                onClick={() => { setCasoPuntoSel(null); setVistaCaso(v); }}>
+                {t('vistas.' + v)}
               </button>
             ))}
           </div>
           <div className="mq-leyenda">
-            <span><i className="dotleg config" />Con video</span>
-            <span><i className="dotleg sinvid" />Sin video</span>
+            <span><i className="dotleg config" />{t('videos.conVideo')}</span>
+            <span><i className="dotleg sinvid" />{t('videos.sinVideo')}</span>
           </div>
 
           <div className="mq-stage">
@@ -882,7 +915,7 @@ export default function AdminPanel({ inicial }) {
                 if (!e.target.closest('.mq-token') && !e.target.closest('.mq-pop')) setCasoPuntoSel(null);
               }}
             >
-              <div className="mq-arte" dangerouslySetInnerHTML={{ __html: MANIQUIES.svg(especieCaso, vistaCaso) }} />
+              <div className="mq-arte" dangerouslySetInnerHTML={{ __html: MANIQUIES.svg(especieCaso, vistaCaso, t('mq.' + vistaCaso, { especie: especieCaso })) }} />
               {listaCaso.map((p, i) => {
                 const pos = posToken(p, i);
                 const clase = videosDelCaso[p.id] ? 'config' : 'sinvid';
@@ -903,56 +936,67 @@ export default function AdminPanel({ inicial }) {
                   <div className="pop-titulo">{casoPuntoObj.nombre}</div>
                   <div className={'pop-estado' + (videosDelCaso[casoPuntoObj.id] ? ' con-video' : '')}>
                     {subiendo
-                      ? (convProgreso !== null ? `convirtiendo a H.264… ${convProgreso}%` : 'subiendo video…')
-                      : (videosDelCaso[casoPuntoObj.id] ? 'video ✓' : 'sin video')}
+                      ? (convProgreso !== null ? t('videos.convirtiendo', { pct: convProgreso }) : t('videos.subiendo'))
+                      : (videosDelCaso[casoPuntoObj.id] ? t('videos.videoOk') : t('videos.sinVideoMin'))}
                   </div>
                   {subiendo && convProgreso !== null && (
-                    <div className="pop-nota">(puede tardar 1-3 min; no cierres esta ventana)</div>
+                    <div className="pop-nota">{t('videos.notaConv')}</div>
                   )}
                   {!subiendo && (
-                    <div className="pop-nota">Máximo {DURACION_MAX_SEG} segundos y {MAX_MB_VIDEO} MB por video.</div>
+                    <div className="pop-nota">{t('videos.notaMax', { seg: DURACION_MAX_SEG, mb: MAX_MB_VIDEO })}</div>
                   )}
                   <div className="row" style={{ margin: 0 }}>
                     <button className="btn small" disabled={subiendo} onClick={elegirVideo}>
-                      {videosDelCaso[casoPuntoObj.id] ? 'Reemplazar video…' : 'Elegir video…'}
+                      {videosDelCaso[casoPuntoObj.id] ? t('videos.reemplazar') : t('videos.elegir')}
                     </button>
                     <button className="btn small" disabled={!videosDelCaso[casoPuntoObj.id]} onClick={verVideo}
-                      title="Ver el video asignado" aria-label="Ver el video asignado">▶</button>
+                      title={t('videos.ver')} aria-label={t('videos.ver')}>▶</button>
                   </div>
                   <div className="mq-pop-foot">
                     <button className="btn small danger" disabled={subiendo || !videosDelCaso[casoPuntoObj.id]}
-                      onClick={quitarVideo}>Quitar video</button>
-                    <button className="btn small btn-primary" onClick={() => setCasoPuntoSel(null)}>Listo</button>
+                      onClick={quitarVideo}>{t('videos.quitar')}</button>
+                    <button className="btn small btn-primary" onClick={() => setCasoPuntoSel(null)}>{t('comun.listo')}</button>
                   </div>
                 </div>
               )}
             </div>
-            {!listaCaso.length && <p className="muted mq-vacio">Esta especie aún no tiene puntos en esta vista. Créalos arriba, en «Maniquí».</p>}
+            {!listaCaso.length && <p className="muted mq-vacio">{t('videos.vacio')}</p>}
           </div>
         </section>
+      )}
+
+      {/* -------- Exámenes complementarios del caso -------- */}
+      {casoEx && datos.examenesDisponibles && (
+        <div id="editor-examenes">
+          <EditorExamenes
+            key={casoEx.id}
+            cuentaId={datos.cuentaId}
+            caso={casoEx}
+            examenes={datos.examenesPorCaso?.[casoEx.id]}
+            ejecutar={ejecutar}
+            onCerrar={() => setCasoExamenes(null)}
+          />
+        </div>
       )}
 
       {/* -------- Zona de peligro: borrar la cuenta propia (no aplica
           al super_admin, que borra cuentas desde la pestaña «Cuentas») -------- */}
       {!esSuperAdmin && (
         <section className="card card-peligro">
-          <h3>Zona de peligro</h3>
-          <p className="muted">
-            Esto borra tu cuenta por completo: todos tus casos, videos y tu
-            acceso de administrador. No se puede deshacer.
-          </p>
+          <h3>{t('peligro.titulo')}</h3>
+          <p className="muted">{t('peligro.texto')}</p>
           <div className="row">
             <input
               value={confirmBorrarCuenta}
               onChange={(e) => setConfirmBorrarCuenta(e.target.value)}
-              placeholder={'Escribe "' + (datos.cuentaNombre || '') + '" para confirmar'}
+              placeholder={t('peligro.ph', { nombre: datos.cuentaNombre || '' })}
             />
             <button
               className="btn danger"
               disabled={borrandoCuenta || confirmBorrarCuenta.trim() !== (datos.cuentaNombre || '')}
               onClick={borrarCuentaPropia}
             >
-              {borrandoCuenta ? 'Borrando…' : 'Borrar mi cuenta para siempre'}
+              {borrandoCuenta ? t('peligro.borrando') : t('peligro.borrar')}
             </button>
           </div>
         </section>
@@ -964,15 +1008,14 @@ export default function AdminPanel({ inicial }) {
         <div className="overlay">
           <div className="modal-box" role="dialog" aria-modal="true" aria-labelledby="titulo-clave">
             <h4 id="titulo-clave">{claveNueva.titulo}</h4>
-            <p>Contraseña temporal para {claveNueva.correos.join(', ')}:</p>
+            <p>{t('claveModal.para', { correos: claveNueva.correos.join(', ') })}</p>
             <Copiable valor={claveNueva.clave} />
             {claveNueva.slug && <EnlaceEstudiantes slug={claveNueva.slug} />}
             <p>
-              Cópiala y pásasela al cliente: <strong>no se vuelve a mostrar</strong>.
-              Al entrar, debe cambiarla en «Cambiar contraseña».
+              {t('claveModal.antes')}<strong>{t('claveModal.fuerte')}</strong>{t('claveModal.despues')}
             </p>
             <div className="modal-acciones">
-              <button className="btn btn-primary" onClick={() => setClaveNueva(null)}>Ya la copié</button>
+              <button className="btn btn-primary" onClick={() => setClaveNueva(null)}>{t('claveModal.ok')}</button>
             </div>
           </div>
         </div>
@@ -982,7 +1025,7 @@ export default function AdminPanel({ inicial }) {
       {previewUrl && (
         <div className="overlay" onClick={() => setPreviewUrl(null)}>
           <video src={previewUrl} controls autoPlay muted onClick={(e) => e.stopPropagation()} />
-          <button className="btn small" onClick={() => setPreviewUrl(null)}>Cerrar</button>
+          <button className="btn small" onClick={() => setPreviewUrl(null)}>{t('comun.cerrar')}</button>
         </div>
       )}
     </div>
