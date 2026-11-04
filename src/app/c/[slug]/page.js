@@ -6,8 +6,11 @@
 //
 // Idioma: el que el estudiante eligió con el selector (cookie) o, si no
 // eligió ninguno, el de la cuenta.
+import { cache } from 'react';
+import { cookies } from 'next/headers';
 import { crearClienteServidor } from '@/lib/supabase/server';
-import { resolverCuenta, listarCasosActivos, idiomaDeCuenta } from '@/lib/datos';
+import { resolverCuenta, listarCasosActivos, SIN_ACCESO } from '@/lib/datos';
+import { nombreCookieAcceso } from '@/lib/acceso';
 import { crearT, idiomaValido, IDIOMA_DEFECTO } from '@/lib/i18n/config';
 import { idiomaElegido, idiomaVisitante } from '@/lib/i18n/servidor';
 import { Idioma } from '@/lib/i18n/cliente';
@@ -17,12 +20,24 @@ import VistaPrincipal from './VistaPrincipal';
 // Siempre datos frescos (no cachear la página).
 export const dynamic = 'force-dynamic';
 
+// generateMetadata y la página piden la misma cuenta: cache() hace que en
+// una misma petición se consulte una sola vez. null si no existe o si la
+// consulta falla (se muestra "no disponible", no un error 500).
+const cuentaDe = cache(async (slug) => {
+  try {
+    return await resolverCuenta(crearClienteServidor(), slug);
+  } catch (err) {
+    console.error('[estudiante] no se pudo resolver la cuenta:', err?.message || err);
+    return null;
+  }
+});
+
 // Enlace privado de cada cuenta: no debe indexarse ni salir en buscadores.
 // El título sí usa el nombre real de la cuenta cuando existe, para que la
 // pestaña del navegador diga algo útil mientras el estudiante practica.
 export async function generateMetadata({ params }) {
   const { slug } = await params;
-  const cuenta = await resolverCuenta(crearClienteServidor(), slug);
+  const cuenta = await cuentaDe(slug);
   return {
     title: cuenta ? `${cuenta.nombre} — EcoSim` : 'EcoSim',
     robots: { index: false, follow: false },
@@ -33,8 +48,7 @@ export async function generateMetadata({ params }) {
 
 export default async function PaginaCuenta({ params }) {
   const { slug } = await params;
-  const supabase = crearClienteServidor();
-  const cuenta = await resolverCuenta(supabase, slug);
+  const cuenta = await cuentaDe(slug);
 
   if (!cuenta || !cuenta.activa) {
     const t = crearT(ESTUDIANTE, await idiomaVisitante());
@@ -46,16 +60,22 @@ export default async function PaginaCuenta({ params }) {
     );
   }
 
+  // Token de acceso que este navegador guardó al escribir el código (si la
+  // cuenta tiene código). Sin él, la base no entrega los casos.
+  const token = (await cookies()).get(nombreCookieAcceso(cuenta.id))?.value || null;
   // null = no se pudo consultar; el sondeo del cliente lo vuelve a intentar.
-  const [casos, elegido, deCuenta] = await Promise.all([
-    listarCasosActivos(supabase, cuenta.id),
+  const [casos, elegido] = await Promise.all([
+    listarCasosActivos(crearClienteServidor(), cuenta.id, token),
     idiomaElegido(),
-    idiomaDeCuenta(supabase, cuenta.id),
   ]);
-  const idioma = elegido || idiomaValido(deCuenta) || IDIOMA_DEFECTO;
+  const idioma = elegido || idiomaValido(cuenta.idioma) || IDIOMA_DEFECTO;
+  const sinAcceso = casos === SIN_ACCESO;
   return (
     <Idioma valor={idioma}>
-      <VistaPrincipal casosActivosIniciales={casos || []} cuentaId={cuenta.id} />
+      <VistaPrincipal
+        casosActivosIniciales={Array.isArray(casos) ? casos : []}
+        cuentaId={cuenta.id} slug={slug} sinAccesoInicial={sinAcceso}
+      />
     </Idioma>
   );
 }

@@ -23,7 +23,7 @@ import { useIdioma, useT } from '@/lib/i18n/cliente';
 import { PANEL } from '@/lib/i18n/textos/panel';
 import {
   elegirCuentaAdmin, crearCuenta, actualizarCuenta, restablecerClaveCuenta, eliminarCuenta,
-  limpiarVideosHuerfanos, actualizarEstadoSolicitud,
+  limpiarVideosHuerfanos, actualizarEstadoSolicitud, listarErrores, borrarErrores, cambiarCodigoAcceso,
   alternarCasoActivo, crearCaso, renombrarCaso, describirCaso, cambiarEspecieCaso, eliminarCaso,
   addPunto, actualizarPunto, eliminarPunto,
   crearUrlSubidaVideo, guardarVideoCaso, quitarVideoCaso,
@@ -156,6 +156,11 @@ export default function AdminPanel({ inicial }) {
   const [creandoCuenta, setCreandoCuenta] = useState(false);
   const [edicionCuenta, setEdicionCuenta] = useState(null); // copia editable de la cuenta elegida
   const [limpiando, setLimpiando] = useState(false);
+
+  // Código de acceso de los estudiantes (de la cuenta elegida)
+  const [codigoNuevo, setCodigoNuevo] = useState('');
+  const [guardandoCodigo, setGuardandoCodigo] = useState(false);
+  const [cargandoErrores, setCargandoErrores] = useState(false);
 
   // Borrar cuenta propia (zona de peligro del cliente)
   const [confirmBorrarCuenta, setConfirmBorrarCuenta] = useState('');
@@ -322,6 +327,33 @@ export default function AdminPanel({ inicial }) {
     await ejecutar(() => eliminarCuenta(cuentaElegida.id));
   }
 
+  // ---------------- Código de acceso de los estudiantes ----------------
+  async function guardarCodigo() {
+    if (!codigoNuevo.trim()) return;
+    setGuardandoCodigo(true);
+    const r = await ejecutar(() => cambiarCodigoAcceso(datos.cuentaId, codigoNuevo));
+    setGuardandoCodigo(false);
+    if (r) { setCodigoNuevo(''); alert(t('codigo.guardado')); }
+  }
+  async function quitarCodigo() {
+    if (!confirm(t('codigo.confirmQuitar'))) return;
+    setGuardandoCodigo(true);
+    const r = await ejecutar(() => cambiarCodigoAcceso(datos.cuentaId, null));
+    setGuardandoCodigo(false);
+    if (r) alert(t('codigo.quitado'));
+  }
+
+  // ---------------- Errores del servidor (solo super_admin) ----------------
+  async function actualizarErrores() {
+    setCargandoErrores(true);
+    await ejecutar(() => listarErrores());
+    setCargandoErrores(false);
+  }
+  async function borrarTodosErrores() {
+    if (!confirm(t('errores.confirmBorrar'))) return;
+    await ejecutar(() => borrarErrores());
+  }
+
   // ---------------- Solicitudes de contacto (solo super_admin) ----------------
   function cambiarEstadoSolicitud(id, estado) {
     ejecutar(() => actualizarEstadoSolicitud(id, estado));
@@ -396,7 +428,12 @@ export default function AdminPanel({ inicial }) {
     const r = await ejecutar(() => crearCaso(datos.cuentaId, nuevoNombre, nuevaEspecie));
     if (r) setNuevoNombre('');
   }
-  function activar(c) { ejecutar(() => alternarCasoActivo(datos.cuentaId, c.id, !c.activo)); }
+  function activar(c) {
+    // Un caso sin videos ni exámenes no sale en el menú del estudiante: se
+    // avisa antes, para que nadie crea que lo activó y "no aparece".
+    if (!c.activo && !c.numVideos && !resumenExamenesCaso(c.id) && !confirm(t('casos.confirmActivarVacio'))) return;
+    ejecutar(() => alternarCasoActivo(datos.cuentaId, c.id, !c.activo));
+  }
   function renombrar(c, nombre) {
     if (nombre.trim() === c.nombre) return;
     ejecutar(() => renombrarCaso(datos.cuentaId, c.id, nombre));
@@ -547,6 +584,15 @@ export default function AdminPanel({ inicial }) {
             {t('nav.solicitudes')}
             {solicitudesNuevas > 0 && <span className="admin-nav-badge">{solicitudesNuevas}</span>}
           </button>
+          {datos.errores !== null && datos.errores !== undefined && (
+            <button
+              className={'admin-nav-tab' + (seccion === 'errores' ? ' act' : '')}
+              onClick={() => setSeccion('errores')}
+            >
+              {t('nav.errores')}
+              {datos.errores.length > 0 && <span className="admin-nav-badge">{datos.errores.length}</span>}
+            </button>
+          )}
           <button
             className={'admin-nav-tab' + (seccion === 'simulador' ? ' act' : '')}
             onClick={() => setSeccion('simulador')}
@@ -728,6 +774,38 @@ export default function AdminPanel({ inicial }) {
         </section>
       )}
 
+      {/* -------- Errores del servidor (solo super_admin) -------- */}
+      {esSuperAdmin && seccion === 'errores' && (
+        <section className="card">
+          <div className="editor-head">
+            <h3>{t('errores.titulo')}</h3>
+            <div className="editor-tools">
+              <button className="btn small" disabled={cargandoErrores} onClick={actualizarErrores}>{t('errores.actualizar')}</button>
+              {(datos.errores || []).length > 0 && (
+                <button className="btn small danger" onClick={borrarTodosErrores}>{t('errores.borrar')}</button>
+              )}
+            </div>
+          </div>
+          <p className="muted">{datos.errores ? t('errores.intro') : t('errores.sinMigracion')}</p>
+          {(datos.errores || []).length ? datos.errores.map((e) => (
+            <div className="item item-error" key={e.id}>
+              <div style={{ flex: '1 1 260px', minWidth: 0, overflowWrap: 'anywhere' }}>
+                <div className="muted" style={{ fontSize: 13 }}>
+                  <FechaLocal iso={e.creado_en} /> · <code>{e.origen}</code>
+                </div>
+                <div style={{ fontSize: 14, marginTop: 2 }}>{e.mensaje}</div>
+                {e.detalle && (
+                  <details style={{ marginTop: 4 }}>
+                    <summary className="muted" style={{ fontSize: 13, cursor: 'pointer' }}>{t('errores.detalle')}</summary>
+                    <pre className="error-detalle">{e.detalle}</pre>
+                  </details>
+                )}
+              </div>
+            </div>
+          )) : (datos.errores && <p className="muted">{t('errores.vacio')}</p>)}
+        </section>
+      )}
+
       {/* -------- Super_admin en «Simulador» sin cuenta elegida -------- */}
       {esSuperAdmin && seccion === 'simulador' && !hayCuenta && (
         <section className="card">
@@ -748,6 +826,32 @@ export default function AdminPanel({ inicial }) {
             : <span className="warn">{t('activos.ninguno')}</span>}
         </div>
         <EnlaceEstudiantes slug={slugActual} />
+        {datos.codigoDisponible && (
+          <div className="codigo-cuenta">
+            <div className="lbl">{t('codigo.titulo')}</div>
+            <p className="muted">{t('codigo.intro')}</p>
+            <div style={{ fontSize: 14 }}>
+              {datos.requiereCodigo
+                ? <span className="accent">● {t('codigo.activo')}</span>
+                : <span className="warn">○ {t('codigo.inactivo')}</span>}
+            </div>
+            <div className="row">
+              <input
+                value={codigoNuevo} onChange={(e) => setCodigoNuevo(e.target.value)}
+                placeholder={t('codigo.ph')} maxLength={40} autoComplete="off" spellCheck={false}
+                aria-label={t('codigo.ph')}
+                onKeyDown={(e) => { if (e.key === 'Enter') guardarCodigo(); }}
+              />
+              <button className="btn small btn-primary" disabled={guardandoCodigo || codigoNuevo.trim().length < 4} onClick={guardarCodigo}>
+                {datos.requiereCodigo ? t('codigo.cambiar') : t('codigo.guardar')}
+              </button>
+              {datos.requiereCodigo && (
+                <button className="btn small" disabled={guardandoCodigo} onClick={quitarCodigo}>{t('codigo.quitar')}</button>
+              )}
+            </div>
+            <p className="muted" style={{ fontSize: 13 }}>{t('codigo.nota')}</p>
+          </div>
+        )}
         {!esSuperAdmin && datos.idiomasDisponibles && (
           <p className="muted nota-idioma">{t('activos.idiomaEst', { idioma: t('idiomas.' + (datos.cuentaIdioma || 'es')) })}</p>
         )}

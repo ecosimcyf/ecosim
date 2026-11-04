@@ -180,6 +180,12 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .idle-mark { color: var(--accent); font-size: 40px; letter-spacing: 6px; opacity: .45; }
 .idle-sub { color: var(--text-faint); font-size: 14px; }
 .freeze-tag { position: absolute; top: 14px; left: 16px; font-size: 15px; color: var(--warn); }
+/* Video pedido al tocar el punto (caso pesado, sin precarga). */
+.video-cargando {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  font-size: 14px; color: var(--text-soft); background: rgba(4, 6, 10, .7);
+  padding: 8px 14px; border-radius: 8px; pointer-events: none;
+}
 .esc-hint { position: absolute; right: 14px; bottom: 10px; font-size: 12px; color: #3a444d; }
 /* Botón de congelar: imprescindible en móvil/tablet, donde no hay tecla Espacio. */
 .btn-congelar { position: absolute; left: 14px; bottom: 12px; z-index: 2; opacity: .85; }
@@ -257,6 +263,17 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .menu-casos-sub { color: var(--text-faint); font-size: 14px; margin: -8px 0 4px; }
 .menu-casos .txt { color: var(--text-soft); font-size: 16px; max-width: 420px; }
 .aviso-caso { color: var(--warn); font-size: 14px; }
+/* Código de acceso de la cuenta (antes del menú). */
+.codigo-acceso {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  width: min(340px, 100%); text-align: center;
+}
+.codigo-acceso .menu-casos-sub { margin: 0; }
+.codigo-acceso input {
+  width: 100%; text-align: center; font-size: 20px; letter-spacing: .08em; padding: 10px 12px;
+}
+.codigo-acceso .btn { width: 100%; }
+.codigo-ayuda { color: var(--text-faint); font-size: 13px; margin: 0; }
 .menu-casos-grid {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; max-width: 760px;
 }
@@ -441,6 +458,19 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 /* ---- Enlace de los estudiantes, con botón de copiar ---- */
 .enlace-estudiantes { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
 .enlace-estudiantes .lbl { font-size: 12.5px; }
+/* Código de acceso de los estudiantes (tarjeta «Casos activos»). */
+.codigo-cuenta {
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.codigo-cuenta .lbl { font-size: 12.5px; }
+.codigo-cuenta p { margin: 0; }
+.codigo-cuenta input { flex: 1 1 200px; min-width: 0; }
+/* Pestaña «Errores» del super_admin. */
+.error-detalle {
+  font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto;
+  background: var(--bg-1); border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px; margin: 6px 0 0;
+}
 
 /* ---- Editar una cuenta (super_admin) ---- */
 .editar-cuenta { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft); }

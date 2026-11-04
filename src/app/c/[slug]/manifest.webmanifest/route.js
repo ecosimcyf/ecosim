@@ -8,7 +8,7 @@
 // ventas. Ahora cada enlace instala SU propia app, que abre en su menú de
 // casos. La landing no tiene manifiesto (no es algo para instalar).
 import { crearClienteServidor } from '@/lib/supabase/server';
-import { resolverCuenta, idiomaDeCuenta } from '@/lib/datos';
+import { resolverCuenta } from '@/lib/datos';
 import { crearT, idiomaValido } from '@/lib/i18n/config';
 import { idiomaElegido } from '@/lib/i18n/servidor';
 import { ESTUDIANTE } from '@/lib/i18n/textos/estudiante';
@@ -16,8 +16,8 @@ import { ESTUDIANTE } from '@/lib/i18n/textos/estudiante';
 export async function GET(_request, { params }) {
   const { slug } = await params;
   const supabase = crearClienteServidor();
-  const cuenta = await resolverCuenta(supabase, slug);
-  const idioma = (await idiomaElegido()) || idiomaValido(cuenta && await idiomaDeCuenta(supabase, cuenta.id)) || 'es';
+  const cuenta = await resolverCuenta(supabase, slug).catch(() => null);
+  const idioma = (await idiomaElegido()) || idiomaValido(cuenta?.idioma) || 'es';
   const nombre = cuenta ? cuenta.nombre + ' — EcoSim' : 'EcoSim';
   const ruta = '/c/' + encodeURIComponent(slug);
   return Response.json({

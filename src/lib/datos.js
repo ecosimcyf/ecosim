@@ -3,131 +3,104 @@
 // una cuenta (ver resolverCuenta): cada cliente solo ve sus propios casos.
 //
 // Las mismas funciones sirven en el servidor (primer pintado) y en el
-// navegador (al recargar por tiempo real). Reciben un cliente de Supabase
-// ya creado y devuelven lo que la vista necesita.
+// navegador (sondeo). Reciben un cliente de Supabase ya creado.
 //
-// Puede haber varios casos activos a la vez: primero se lista cuáles son
-// (para el menú) y solo al elegir uno se cargan sus puntos y videos.
-//
-// La lectura pública de "casos"/"caso_videos" es solo por función RPC
-// (casos_activos_de_cuenta / caso_publico / videos_de_caso_publico): esas
-// 2 tablas ya no tienen select directo para anon/authenticated, así nadie
-// puede pedir por la REST API los casos de otra cuenta (ver migración
-// 2026-10-26 en supabase/schema.sql).
+// Todo pasa por funciones RPC "_v2" (supabase/migracion-2026-11-04-revision.sql)
+// que exigen el TOKEN de acceso de la cuenta cuando esta tiene código
+// (ver src/lib/acceso.js). Sin token válido devuelven el error 28000 y aquí
+// se traduce a SIN_ACCESO: la vista pide entonces el código.
 // ============================================================
+import { esErrorDeCodigo } from './acceso.js';
 
-// Resuelve el slug de la URL (/c/[slug]) a su cuenta, por función RPC.
-// Antes era un select directo sobre la vista "cuentas_publicas", que
-// devolvía TODAS las cuentas (nombre, slug, activa) a cualquiera con la
-// clave anon — cómodo para enumerar el listado completo de clientes desde
-// afuera. La función cuenta_por_slug solo devuelve la cuenta de ESE slug
-// (o ninguna fila si no existe), nunca el listado (ver migración
-// "cerrar cuentas_publicas" en supabase/schema.sql).
+export const SIN_ACCESO = 'sin-acceso';
+
+// Si el caso pesa hasta esto en total, se descargan todos sus videos al
+// entrar (cada punto arranca al instante). Si pesa más, cada video se pide
+// al tocar su punto: en un salón con Wi-Fi compartido, 40 estudiantes
+// bajando 50 MB cada uno ya son ~2 GB, y más que eso hace esperar mucho
+// (y puede dejar sin memoria a un teléfono viejo).
+// Medido en nov-2026: un video de 30 s pesa ~2,5 MB; el caso real de cyf
+// (14 puntos) suma 34 MB y el de Leão completo (17 puntos) daría ~42 MB.
+// 50 MB cubre ambos con margen (~20 videos).
+export const PRECARGA_MAX_MB = 50;
+// Videos viejos sin tamaño guardado: se suponen de este peso (30 s ≈ 3 MB).
+const MB_SUPUESTOS_SIN_TAMANO = 5;
+
+// slug de la URL (/c/[slug]) -> { id, slug, nombre, activa, requiereCodigo, idioma } | null
 export async function resolverCuenta(supabase, slug) {
-  const { data } = await supabase.rpc('cuenta_por_slug', { p_slug: slug });
-  return data?.[0] || null;
+  const { data, error } = await supabase.rpc('cuenta_por_slug_v2', { p_slug: slug });
+  if (error) throw error;
+  const c = data?.[0];
+  return c ? { id: c.id, slug: c.slug, nombre: c.nombre, activa: c.activa, requiereCodigo: c.requiere_codigo, idioma: c.idioma } : null;
 }
 
-// Menú: casos activos de ESTA cuenta que el estudiante puede elegir ahora
-// mismo.
+// Menú: casos activos de ESTA cuenta, cada uno con qué exámenes trae
+// ({ id, nombre, descripcion, especie, examenes: { lab, rx, vitales } }).
 //
 // Devuelve null (no []) si la consulta FALLA (red caída, Supabase lento…):
 // así quien llama distingue "no hay casos activos" de "no se pudo
-// preguntar". Antes un corte de red se leía como lista vacía y el sondeo
-// sacaba al estudiante de su caso con "El profesor desactivó este caso".
-export async function listarCasosActivos(supabase, cuentaId) {
+// preguntar". Un corte de red no debe sacar a nadie de su caso.
+// Devuelve SIN_ACCESO si falta el código (o el profesor lo cambió).
+export async function listarCasosActivos(supabase, cuentaId, token) {
   try {
-    const { data, error } = await supabase.rpc('casos_activos_de_cuenta', { p_cuenta_id: cuentaId });
+    const { data, error } = await supabase.rpc('casos_activos_v2', { p_cuenta_id: cuentaId, p_token: token || null });
+    if (esErrorDeCodigo(error)) return SIN_ACCESO;
     if (error) return null;
-    return data || [];
+    return (data || []).map((c) => ({
+      id: c.id, nombre: c.nombre, descripcion: c.descripcion, especie: c.especie,
+      examenes: { lab: !!c.lab, rx: !!c.rx, vitales: !!c.vitales },
+    }));
   } catch {
     return null;
   }
 }
 
-// Datos completos de UN caso de ESTA cuenta (al elegirlo en el menú).
-//
-// Equivale a lo que hacía "simulacion-datos" en la app de escritorio
-// (main.js:267-283): trae TODOS los puntos de la especie del caso y
-// adjunta el video del caso a cada uno (o null si no tiene). Nunca trae
-// el NOMBRE del punto (eso sería una pista para el estudiante).
-export async function cargarDatosDeCaso(supabase, casoId, cuentaId) {
+// Datos completos de UN caso (al elegirlo en el menú): todos los puntos de
+// su especie con el video del caso en cada uno (o null), SIN el nombre del
+// punto (sería una pista), y sus exámenes complementarios.
+//   { casoId: null }                 -> el caso ya no está activo
+//   { casoId: null, error: true }    -> falló la red (ofrecer reintentar)
+//   { casoId: null, sinAcceso: true }-> falta el código
+export async function cargarDatosDeCaso(supabase, casoId, cuentaId, token) {
   if (!casoId) return { casoId: null };
-
-  // 1. Datos del caso (para saber la especie), por función RPC: exige que
-  // el caso sea de esta cuenta y que tanto el caso como la cuenta estén
-  // activos. Un error de red se devuelve como {error} (no como "caso
-  // desactivado"), para que la vista ofrezca reintentar.
-  const { data: filas, error: errCaso } = await supabase.rpc('caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId });
-  if (errCaso) return { casoId: null, error: true };
-  const caso = filas?.[0];
-  if (!caso) return { casoId: null };
-
-  // 2. Todos los puntos de ESTA cuenta y esa especie (SIN nombre: eso sería
-  // una pista), por función RPC — los puntos son propios de cada cuenta,
-  // así que no basta con filtrar por especie (ver migración 2026-10-28 en
-  // supabase/schema.sql).
-  // 3. Los videos que este caso asigna a cada punto, por función RPC.
-  // 4. Sus exámenes complementarios (laboratorio, radiografías, vitales).
-  // Si fallan (o la migración de exámenes aún no se ejecutó) el caso se
-  // abre igual, solo que sin esos botones: no vale la pena bloquear la
-  // ecografía por ellos.
-  const [{ data: puntos, error: errPuntos }, { data: videos, error: errVideos }, examenes] = await Promise.all([
-    supabase.rpc('puntos_publicos_de_cuenta', { p_cuenta_id: cuentaId, p_especie: caso.especie }),
-    supabase.rpc('videos_de_caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId }),
-    supabase.rpc('examenes_de_caso_publico', { p_cuenta_id: cuentaId, p_caso_id: casoId })
-      .then(({ data, error }) => (error ? null : data?.[0] || null), () => null),
-  ]);
-  if (errPuntos || errVideos) return { casoId: null, error: true };
+  const { data, error } = await supabase.rpc('datos_caso_v2', {
+    p_cuenta_id: cuentaId, p_caso_id: casoId, p_token: token || null,
+  });
+  if (esErrorDeCodigo(error)) return { casoId: null, sinAcceso: true };
+  if (error) return { casoId: null, error: true };
+  if (!data?.caso) return { casoId: null };
 
   const mapa = {};
-  (videos || []).forEach((v) => { mapa[v.punto_id] = v.video_url; });
+  (data.videos || []).forEach((v) => { mapa[v.punto_id] = v; });
 
-  const lista = (puntos || []).map((p) => ({
+  const puntos = (data.puntos || []).map((p) => ({
     id: p.id,
     vista: p.vista || 'ventral',
-    x: p.x,
-    y: p.y,
-    videoUrl: mapa[p.id] || null,
+    x: p.x == null ? null : Number(p.x),
+    y: p.y == null ? null : Number(p.y),
+    videoUrl: mapa[p.id]?.video_url || null,
   }));
 
+  // Peso total de los videos que de verdad se ven (una vez por archivo).
+  const porUrl = {};
+  puntos.forEach((p) => {
+    if (!p.videoUrl) return;
+    const b = Number(mapa[p.id].tamano_bytes);
+    porUrl[p.videoUrl] = Number.isFinite(b) && b > 0 ? b : MB_SUPUESTOS_SIN_TAMANO * 1024 * 1024;
+  });
+  const totalMb = Object.values(porUrl).reduce((s, b) => s + b, 0) / (1024 * 1024);
+
+  const ex = data.examenes || {};
   return {
-    casoId: caso.id,
-    especie: caso.especie === 'gato' ? 'gato' : 'perro',
-    casoNombre: caso.nombre,
-    puntos: lista,
+    casoId: data.caso.id,
+    especie: data.caso.especie === 'gato' ? 'gato' : 'perro',
+    casoNombre: data.caso.nombre,
+    puntos,
+    precargar: totalMb <= PRECARGA_MAX_MB,
     examenes: {
-      laboratorio: Array.isArray(examenes?.laboratorio) ? examenes.laboratorio : [],
-      vitales: examenes?.vitales && typeof examenes.vitales === 'object' ? examenes.vitales : {},
-      archivos: Array.isArray(examenes?.archivos) ? examenes.archivos : [],
+      laboratorio: Array.isArray(ex.laboratorio) ? ex.laboratorio : [],
+      vitales: ex.vitales && typeof ex.vitales === 'object' && !Array.isArray(ex.vitales) ? ex.vitales : {},
+      archivos: Array.isArray(ex.archivos) ? ex.archivos : [],
     },
   };
-}
-
-// Para los íconos del menú: { casoId: { lab, rx, vitales } } de los casos
-// activos de la cuenta. {} si falla o si la migración aún no se ejecutó
-// (las tarjetas simplemente salen sin íconos).
-export async function resumenExamenes(supabase, cuentaId) {
-  try {
-    const { data, error } = await supabase.rpc('resumen_examenes_de_cuenta', { p_cuenta_id: cuentaId });
-    if (error) return {};
-    const r = {};
-    (data || []).forEach((f) => { r[f.caso_id] = { lab: !!f.lab, rx: !!f.rx, vitales: !!f.vitales }; });
-    return r;
-  } catch {
-    return {};
-  }
-}
-
-// Idioma con que abre la vista de esta cuenta ('es' | 'pt' | 'en'), o
-// null si no se pudo saber (p. ej. la migración de idiomas aún no se
-// ejecutó): quien llama usa entonces el español.
-export async function idiomaDeCuenta(supabase, cuentaId) {
-  try {
-    const { data, error } = await supabase.rpc('idioma_de_cuenta', { p_cuenta_id: cuentaId });
-    if (error) return null;
-    return typeof data === 'string' ? data : null;
-  } catch {
-    return null;
-  }
 }

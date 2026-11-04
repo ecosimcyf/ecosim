@@ -13,9 +13,9 @@
 // Ley 1581 de 2012 (habeas data): sin la casilla de autorización marcada
 // no se guarda nada, y se anota cuándo se autorizó (autorizo_datos_en).
 // ============================================================
-import { headers } from 'next/headers';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
-import { estaBloqueado, registrarIntento } from '@/lib/ratelimit';
+import { estaBloqueado, registrarIntento, ipVisitante } from '@/lib/ratelimit';
+import { registrarError } from '@/lib/errores';
 import { crearT } from '@/lib/i18n/config';
 import { idiomaVisitante } from '@/lib/i18n/servidor';
 import { LANDING } from '@/lib/i18n/textos/landing';
@@ -38,15 +38,14 @@ export async function enviarSolicitudContacto(_prevState, formData) {
   if (campo('sitio_web')) return { ok: true };
 
   // Identificar el origen para el límite de intentos.
-  const hdrs = await headers();
-  const ip = (hdrs.get('x-forwarded-for') || '').split(',')[0].trim() || 'desconocido';
+  const ip = await ipVisitante();
 
   // Prefijo propio ('contacto:'): un ataque contra este formulario no
   // agota los intentos del login para la misma IP.
-  if (estaBloqueado('contacto:' + ip)) {
+  if (await estaBloqueado('contacto:' + ip)) {
     return { error: t('form.errores.intentos') };
   }
-  registrarIntento('contacto:' + ip);
+  await registrarIntento('contacto:' + ip);
 
   if (!nombre || !correo) return { error: t('form.errores.faltan') };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { error: t('form.errores.correo') };
@@ -68,7 +67,7 @@ export async function enviarSolicitudContacto(_prevState, formData) {
     ({ error } = await supabase.from('solicitudes_contacto').insert(fila));
   }
   if (error) {
-    console.error('[contacto] no se pudo guardar la solicitud:', error);
+    await registrarError('contacto', error, 'no se pudo guardar la solicitud');
     return { error: t('form.errores.envio') };
   }
 
@@ -107,8 +106,8 @@ async function avisarPorCorreo(s) {
       }),
       signal: AbortSignal.timeout(8000),
     });
-    if (!resp.ok) console.error('[contacto] el aviso por correo falló:', resp.status, await resp.text());
+    if (!resp.ok) await registrarError('contacto-correo', 'HTTP ' + resp.status, await resp.text());
   } catch (err) {
-    console.error('[contacto] el aviso por correo falló:', err);
+    await registrarError('contacto-correo', err);
   }
 }

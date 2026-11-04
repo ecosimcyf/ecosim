@@ -32,6 +32,7 @@ export const ESTUDIANTE = {
       seguir: '▶ Seguir',
       congelar: '❚❚ Congelar',
       atajos: 'Espacio = congelar · F1 = ayuda',
+      cargando: 'Cargando video…',
     },
     tabs: {
       casos: '← Casos',
@@ -44,6 +45,15 @@ export const ESTUDIANTE = {
       salirPantalla: 'Salir de pantalla completa',
     },
     hint: 'Mantén presionado un punto del maniquí',
+    codigo: {
+      titulo: 'Escribe el código de acceso que te dio tu profesor',
+      entrar: 'Entrar',
+      entrando: 'Comprobando…',
+      ayuda: 'Solo hace falta una vez en este dispositivo (se recuerda 30 días).',
+      incorrecto: 'Ese código no es correcto. Revísalo con tu profesor.',
+      intentos: 'Demasiados intentos. Espera unos minutos y vuelve a probar.',
+      fallo: 'No se pudo comprobar el código. Revisa tu conexión e inténtalo de nuevo.',
+    },
     ayuda: {
       titulo: 'Atajos de teclado',
       espacio: 'Espacio',
@@ -90,6 +100,7 @@ export const ESTUDIANTE = {
       seguir: '▶ Continuar',
       congelar: '❚❚ Congelar',
       atajos: 'Espaço = congelar · F1 = ajuda',
+      cargando: 'Carregando vídeo…',
     },
     tabs: {
       casos: '← Casos',
@@ -102,6 +113,15 @@ export const ESTUDIANTE = {
       salirPantalla: 'Sair da tela cheia',
     },
     hint: 'Mantenha um ponto do manequim pressionado',
+    codigo: {
+      titulo: 'Digite o código de acesso que seu professor passou',
+      entrar: 'Entrar',
+      entrando: 'Verificando…',
+      ayuda: 'Só é preciso uma vez neste dispositivo (fica salvo por 30 dias).',
+      incorrecto: 'Esse código não está correto. Confira com seu professor.',
+      intentos: 'Tentativas demais. Aguarde alguns minutos e tente de novo.',
+      fallo: 'Não foi possível verificar o código. Confira sua conexão e tente de novo.',
+    },
     ayuda: {
       titulo: 'Atalhos de teclado',
       espacio: 'Espaço',
@@ -148,6 +168,7 @@ export const ESTUDIANTE = {
       seguir: '▶ Resume',
       congelar: '❚❚ Freeze',
       atajos: 'Space = freeze · F1 = help',
+      cargando: 'Loading video…',
     },
     tabs: {
       casos: '← Cases',
@@ -160,6 +181,15 @@ export const ESTUDIANTE = {
       salirPantalla: 'Exit full screen',
     },
     hint: 'Press and hold a point on the mannequin',
+    codigo: {
+      titulo: 'Enter the access code your teacher gave you',
+      entrar: 'Enter',
+      entrando: 'Checking…',
+      ayuda: 'You only need to do this once on this device (it is remembered for 30 days).',
+      incorrecto: 'That code is not correct. Check it with your teacher.',
+      intentos: 'Too many attempts. Wait a few minutes and try again.',
+      fallo: 'The code could not be checked. Check your connection and try again.',
+    },
     ayuda: {
       titulo: 'Keyboard shortcuts',
       espacio: 'Space',

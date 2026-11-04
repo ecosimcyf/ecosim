@@ -1,35 +1,76 @@
 // ============================================================
-// Límite de intentos de login — muy simple, en memoria.
+// Límite de intentos (login, cambio de clave, contacto, código de
+// estudiante), SOLO para el servidor.
 //
-// Frena la fuerza bruta contra el panel: tras 5 fallos en 10 minutos,
-// bloquea ese origen (IP) durante el resto de la ventana.
+// El contador vive en la base (tabla "intentos", ver
+// supabase/migracion-2026-11-04-revision.sql), así que lo comparten todos
+// los servidores de Vercel. Antes vivía en la memoria de cada uno, y un
+// atacante que cayera en servidores distintos tenía varios contadores.
 //
-// Nota: en Vercel (servidor "sin estado") cada instancia tiene su propia
-// memoria, así que no es un candado perfecto, pero para una app de un
-// solo administrador basta para frenar un ataque básico.
+// Si la base no responde (o la migración aún no se ejecutó) se usa el
+// contador en memoria de antes: es mejor un límite imperfecto que dejar
+// el login sin límite o, peor, bloquear a todo el mundo.
 // ============================================================
+import { headers } from 'next/headers';
+import { crearClienteAdmin } from '@/lib/supabase/admin';
+import { registrarError } from '@/lib/errores';
 
-const MAX_INTENTOS = 5;
-const VENTANA_MS = 10 * 60 * 1000; // 10 minutos
+// Ventanas por defecto: 5 intentos en 10 minutos.
+export const LIMITE_DEFECTO = { max: 5, ventanaSeg: 10 * 60 };
 
-const intentos = new Map(); // ip -> { count, primero }
+const memoria = new Map(); // clave -> { count, primero }
 
-export function estaBloqueado(ip) {
-  const reg = intentos.get(ip);
+function bloqueadoEnMemoria(clave, { max, ventanaSeg }) {
+  const reg = memoria.get(clave);
   if (!reg) return false;
-  if (Date.now() - reg.primero > VENTANA_MS) { intentos.delete(ip); return false; }
-  return reg.count >= MAX_INTENTOS;
+  if (Date.now() - reg.primero > ventanaSeg * 1000) { memoria.delete(clave); return false; }
+  return reg.count >= max;
 }
 
-export function registrarIntento(ip) {
-  const reg = intentos.get(ip);
-  if (!reg || Date.now() - reg.primero > VENTANA_MS) {
-    intentos.set(ip, { count: 1, primero: Date.now() });
-  } else {
-    reg.count++;
+function registrarEnMemoria(clave, { ventanaSeg }) {
+  const reg = memoria.get(clave);
+  if (!reg || Date.now() - reg.primero > ventanaSeg * 1000) memoria.set(clave, { count: 1, primero: Date.now() });
+  else reg.count++;
+}
+
+// IP de quien hace la petición. En Vercel, x-real-ip y x-forwarded-for los
+// pone la propia plataforma (el visitante no los puede falsear).
+export async function ipVisitante() {
+  const h = await headers();
+  return (h.get('x-real-ip') || (h.get('x-forwarded-for') || '').split(',')[0]).trim() || 'desconocido';
+}
+
+export async function estaBloqueado(clave, limite = LIMITE_DEFECTO) {
+  try {
+    const { data, error } = await crearClienteAdmin().rpc('intento_bloqueado', {
+      p_clave: clave.slice(0, 200), p_max: limite.max, p_ventana_seg: limite.ventanaSeg,
+    });
+    if (error) throw error;
+    return !!data;
+  } catch (err) {
+    console.error('[ratelimit] usando el contador en memoria:', err?.message || err);
+    return bloqueadoEnMemoria(clave, limite);
   }
 }
 
-export function limpiarIntentos(ip) {
-  intentos.delete(ip);
+export async function registrarIntento(clave, limite = LIMITE_DEFECTO) {
+  registrarEnMemoria(clave, limite); // siempre, por si la base falla después
+  try {
+    const { error } = await crearClienteAdmin().rpc('registrar_intento', {
+      p_clave: clave.slice(0, 200), p_ventana_seg: limite.ventanaSeg,
+    });
+    if (error) throw error;
+  } catch (err) {
+    // Sin la tabla (migración pendiente) es esperado; cualquier otra cosa se registra.
+    if (err?.code !== 'PGRST202') await registrarError('ratelimit', err);
+  }
+}
+
+export async function limpiarIntentos(clave) {
+  memoria.delete(clave);
+  try {
+    await crearClienteAdmin().from('intentos').delete().eq('clave', clave.slice(0, 200));
+  } catch {
+    // No pasa nada: el contador caduca solo al terminar la ventana.
+  }
 }

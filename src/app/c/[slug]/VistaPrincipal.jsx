@@ -2,18 +2,25 @@
 // ============================================================
 // Vista del estudiante, dentro de una cuenta (/c/[slug]).
 //
-// Primero se ve un MENÚ con los casos activos de ESTA cuenta (puede haber
-// varios a la vez). Al elegir uno se cargan sus datos y se PRECARGAN todos
-// sus videos en memoria, mostrando una barra de progreso — así, al mantener
-// presionado un punto, el video ya está listo y se reproduce al instante.
-// Los videos de los demás casos activos nunca se descargan.
+// Si la cuenta tiene código de acceso y este navegador todavía no lo
+// escribió (o el profesor lo cambió), primero se pide el código.
+//
+// Luego se ve un MENÚ con los casos activos de ESTA cuenta (puede haber
+// varios a la vez). Al elegir uno se cargan sus datos. Si sus videos suman
+// poco (PRECARGA_MAX_MB, en src/lib/datos.js) se PRECARGAN todos en
+// memoria con una barra de progreso, y cada punto arranca al instante. Si
+// suman más, cada video se pide al tocar su punto (el navegador lo guarda
+// en caché para la siguiente vez). Los videos de los demás casos nunca se
+// descargan.
 //
 // El <video> se maneja de forma imperativa (poner src, silenciar y
 // reproducir por código), igual que en la app de escritorio.
 // ============================================================
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { crearClienteNavegador } from '@/lib/supabase/client';
-import { listarCasosActivos, cargarDatosDeCaso, resumenExamenes } from '@/lib/datos';
+import { listarCasosActivos, cargarDatosDeCaso, SIN_ACCESO } from '@/lib/datos';
+import { tokenAccesoNavegador } from '@/lib/acceso';
+import PantallaCodigo from './PantallaCodigo';
 import { MANIQUIES } from '@/lib/maniquies';
 import { BotonesExamenes, VentanaExamen, EXAMENES } from './Examenes';
 import { unir } from '@/lib/i18n/config';
@@ -37,10 +44,12 @@ function hayVideos(datos) {
   return !!(datos && datos.puntos && datos.puntos.some((p) => p.videoUrl));
 }
 
-export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
+export default function VistaPrincipal({ casosActivosIniciales, cuentaId, slug, sinAccesoInicial = false }) {
   const t = useT(TEXTOS);
   const idioma = useIdioma();
   const [casosActivos, setCasosActivos] = useState(casosActivosIniciales);
+  // La cuenta pide código y este navegador no tiene uno válido.
+  const [sinAcceso, setSinAcceso] = useState(sinAccesoInicial);
   const [casoSeleccionado, setCasoSeleccionado] = useState(null); // null => menú
   const [avisoCasoDesactivado, setAvisoCasoDesactivado] = useState(false);
   const [vistaDescripcion, setVistaDescripcion] = useState(null); // {caso, entrarAlCerrar} | null
@@ -57,10 +66,10 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   const [precarga, setPrecarga] = useState({ cargando: false, pct: 0 });
   // Falló la carga del caso (red caída): se ofrece reintentar o volver.
   const [errorCarga, setErrorCarga] = useState(false);
-  // Exámenes complementarios: cuál está abierto ('lab' | 'rx' | 'vitales')
-  // y, para los íconos del menú, qué trae cada caso.
+  // Exámenes complementarios: cuál está abierto ('lab' | 'rx' | 'vitales').
   const [examenAbierto, setExamenAbierto] = useState(null);
-  const [resumen, setResumen] = useState({});
+  // El video del punto tocado se está descargando (modo "bajo demanda").
+  const [videoCargando, setVideoCargando] = useState(false);
 
   const videoRef = useRef(null);
   const graciaRef = useRef(null);
@@ -83,7 +92,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     setDatos(null);
     let d;
     try {
-      d = await cargarDatosDeCaso(crearClienteNavegador(), casoId, cuentaId);
+      d = await cargarDatosDeCaso(crearClienteNavegador(), casoId, cuentaId, tokenAccesoNavegador(cuentaId));
     } catch {
       d = { casoId: null, error: true };
     }
@@ -91,6 +100,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     // esta respuesta ya no le corresponde.
     if (miCarga !== cargaIdRef.current) return;
     if (d.error) { setErrorCarga(true); return; }
+    if (d.sinAcceso) { setCasoSeleccionado(null); setSinAcceso(true); return; }
     if (!d.casoId) {
       // Pudo desactivarse justo entre que se listó y se eligió.
       setAvisoCasoDesactivado(true);
@@ -160,29 +170,48 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   // El sondeo cada 15s, que antes era solo la red de seguridad para el caso
   // de una desactivación (Realtime no lo notifica por RLS), ahora es el
   // ÚNICO mecanismo: el menú puede tardar hasta 15s en reflejar un cambio.
-  useEffect(() => {
-    const supabase = crearClienteNavegador();
-    const recargarLista = async () => {
-      const lista = await listarCasosActivos(supabase, cuentaId);
-      // null = la consulta falló (red caída): se conserva lo que había y se
-      // reintenta en el siguiente sondeo. NUNCA se interpreta como "el
-      // profesor desactivó todo", o un corte de Wi-Fi sacaría a toda la
-      // clase de su caso.
-      if (!lista) return;
-      setCasosActivos(lista);
-      resumenExamenes(supabase, cuentaId).then(setResumen);
-      const abiertoId = casoSeleccionadoRef.current;
-      if (abiertoId && !lista.some((c) => c.id === abiertoId)) {
-        setAvisoCasoDesactivado(true);
-        setCasoSeleccionado(null);
-        setDatos(null);
-        setVideoUrl(null);
-      }
-    };
-    resumenExamenes(supabase, cuentaId).then(setResumen);
-    const sondeo = setInterval(recargarLista, 15000);
-    return () => clearInterval(sondeo);
+  //
+  // Con la pestaña oculta (otra app, pantalla apagada) NO se consulta: en
+  // un salón de 40 estudiantes eso son muchas consultas que nadie ve. Al
+  // volver a la pestaña se consulta en el acto y se reanuda el sondeo.
+  const recargarLista = useCallback(async () => {
+    const lista = await listarCasosActivos(crearClienteNavegador(), cuentaId, tokenAccesoNavegador(cuentaId));
+    // null = la consulta falló (red caída): se conserva lo que había y se
+    // reintenta en el siguiente sondeo. NUNCA se interpreta como "el
+    // profesor desactivó todo", o un corte de Wi-Fi sacaría a toda la
+    // clase de su caso.
+    if (!lista) return;
+    // El profesor puso (o cambió) el código: hay que escribirlo de nuevo.
+    if (lista === SIN_ACCESO) {
+      setSinAcceso(true);
+      setCasoSeleccionado(null);
+      setDatos(null);
+      setVideoUrl(null);
+      return;
+    }
+    setSinAcceso(false);
+    setCasosActivos(lista);
+    const abiertoId = casoSeleccionadoRef.current;
+    if (abiertoId && !lista.some((c) => c.id === abiertoId)) {
+      setAvisoCasoDesactivado(true);
+      setCasoSeleccionado(null);
+      setDatos(null);
+      setVideoUrl(null);
+    }
   }, [cuentaId]);
+
+  useEffect(() => {
+    let sondeo = null;
+    const arrancar = () => { if (!sondeo) sondeo = setInterval(recargarLista, 15000); };
+    const parar = () => { clearInterval(sondeo); sondeo = null; };
+    const alCambiarVisibilidad = () => {
+      if (document.hidden) parar();
+      else { recargarLista(); arrancar(); }
+    };
+    if (!document.hidden) arrancar();
+    document.addEventListener('visibilitychange', alCambiarVisibilidad);
+    return () => { parar(); document.removeEventListener('visibilitychange', alCambiarVisibilidad); };
+  }, [recargarLista]);
 
   // -------- Precarga de todos los videos del caso elegido --------
   useEffect(() => {
@@ -190,7 +219,8 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     new Set(Object.values(blobsRef.current)).forEach((u) => URL.revokeObjectURL(u));
     blobsRef.current = {};
 
-    if (!datos || !datos.casoId || !hayVideos(datos)) {
+    // Caso pesado: nada de precarga, cada video se pide al tocar su punto.
+    if (!datos || !datos.casoId || !hayVideos(datos) || !datos.precargar) {
       setPrecarga({ cargando: false, pct: 100 });
       return;
     }
@@ -262,6 +292,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     const v = videoRef.current;
     if (!v) return;
     setCongelado(false);
+    setVideoCargando(false);
     if (videoUrl) {
       v.muted = true;
       if (v.getAttribute('src') !== videoUrl) v.src = videoUrl;
@@ -337,6 +368,11 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     graciaRef.current = setTimeout(() => { graciaRef.current = null; irAReposo(); }, GRACIA_TACTIL_MS);
   };
 
+  // -------- Falta el código de acceso de la cuenta --------
+  if (sinAcceso) {
+    return <PantallaCodigo slug={slug} onEntrar={recargarLista} />;
+  }
+
   // -------- Menú: todavía no se ha elegido ningún caso --------
   if (!casoSeleccionado) {
     return (
@@ -361,9 +397,9 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
               >
                 <div className="caso-card-nombre">{c.nombre}</div>
                 <div className="caso-card-especie">{t('especie.' + (c.especie === 'gato' ? 'gato' : 'perro'))}</div>
-                {resumen[c.id] && EXAMENES.some((x) => resumen[c.id][x.id]) && (
+                {c.examenes && EXAMENES.some((x) => c.examenes[x.id]) && (
                   <div className="caso-card-examenes">
-                    {EXAMENES.filter((x) => resumen[c.id][x.id]).map(({ id, Icono }) => (
+                    {EXAMENES.filter((x) => c.examenes[x.id]).map(({ id, Icono }) => (
                       <span key={id} className="caso-card-examen" title={t('ex.' + id)} aria-label={t('ex.' + id)}><Icono size={15} /></span>
                     ))}
                   </div>
@@ -468,7 +504,11 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
           loop
           playsInline
           style={{ display: videoUrl ? 'block' : 'none' }}
+          onWaiting={() => setVideoCargando(true)}
+          onPlaying={() => setVideoCargando(false)}
+          onCanPlay={() => setVideoCargando(false)}
         />
+        {videoUrl && videoCargando && <div className="video-cargando">{t('visor.cargando')}</div>}
         {!videoUrl && (
           <div className="idle-screen">
             <div className="idle-mark">ECOSIM</div>

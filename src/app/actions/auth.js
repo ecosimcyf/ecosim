@@ -2,10 +2,9 @@
 // ============================================================
 // Acciones de login / logout del administrador, con Supabase Auth.
 // ============================================================
-import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { crearClienteServidorAuth } from '@/lib/supabase/server';
-import { estaBloqueado, registrarIntento, limpiarIntentos } from '@/lib/ratelimit';
+import { estaBloqueado, registrarIntento, limpiarIntentos, ipVisitante } from '@/lib/ratelimit';
 import { crearT } from '@/lib/i18n/config';
 import { idiomaVisitante } from '@/lib/i18n/servidor';
 import { idiomaPanel } from '@/lib/i18n/panel-servidor';
@@ -17,14 +16,13 @@ export async function login(_prevState, formData) {
   const t = crearT(PANEL, await idiomaVisitante());
 
   // Identificar el origen para el límite de intentos.
-  const hdrs = await headers();
-  const ip = (hdrs.get('x-forwarded-for') || '').split(',')[0].trim() || 'desconocido';
+  const ip = await ipVisitante();
 
   // Prefijo propio: el formulario de contacto de la landing usa el mismo
   // limitador (src/lib/ratelimit.js) pero con su propio prefijo
   // ('contacto:'), así que un ataque contra uno de los dos formularios no
   // agota de paso los intentos del otro para la misma IP.
-  if (estaBloqueado('login:' + ip)) {
+  if (await estaBloqueado('login:' + ip)) {
     return { error: t('err.intentos') };
   }
 
@@ -33,11 +31,11 @@ export async function login(_prevState, formData) {
     password,
   });
   if (error) {
-    registrarIntento('login:' + ip);
+    await registrarIntento('login:' + ip);
     return { error: t('err.credenciales') };
   }
 
-  limpiarIntentos('login:' + ip);
+  await limpiarIntentos('login:' + ip);
   redirect('/admin');
 }
 
@@ -70,17 +68,16 @@ export async function cambiarContrasena(_prevState, formData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user?.email) return { error: t('err.sesion') };
 
-  const hdrs = await headers();
-  const ip = (hdrs.get('x-forwarded-for') || '').split(',')[0].trim() || 'desconocido';
-  if (estaBloqueado('clave:' + ip)) {
+  const ip = await ipVisitante();
+  if (await estaBloqueado('clave:' + ip)) {
     return { error: t('err.intentos') };
   }
   const { error: errActual } = await supabase.auth.signInWithPassword({ email: user.email, password: actual });
   if (errActual) {
-    registrarIntento('clave:' + ip);
+    await registrarIntento('clave:' + ip);
     return { error: t('err.actualMal') };
   }
-  limpiarIntentos('clave:' + ip);
+  await limpiarIntentos('clave:' + ip);
 
   const { error } = await supabase.auth.updateUser({ password: nueva });
   if (error) {
