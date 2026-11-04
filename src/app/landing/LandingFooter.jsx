@@ -14,7 +14,7 @@ export default async function LandingFooter() {
         {' · '}<a href={'mailto:' + CORREO}>{CORREO}</a>
       </span>
       <span className="landing-footer-legal">
-        <a href="/terminos">{t('pie.terminos')}</a> · <a href="/privacidad">{t('pie.privacidad')}</a>
+        <a href="/guia">{t('pie.guia')}</a> · <a href="/terminos">{t('pie.terminos')}</a> · <a href="/privacidad">{t('pie.privacidad')}</a>
       </span>
     </footer>
   );

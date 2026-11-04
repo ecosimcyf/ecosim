@@ -10,6 +10,7 @@ export const PANEL = {
     bar: {
       titulo: 'Administración',
       cambiarClave: 'Cambiar contraseña',
+      guia: 'Guía de uso',
       cerrarSesion: 'Cerrar sesión',
       idioma: 'Idioma',
       idiomaCuenta: 'Idioma del panel y, por defecto, de la vista de tus estudiantes',
@@ -325,6 +326,7 @@ export const PANEL = {
     bar: {
       titulo: 'Administração',
       cambiarClave: 'Alterar senha',
+      guia: 'Guia de uso',
       cerrarSesion: 'Sair',
       idioma: 'Idioma',
       idiomaCuenta: 'Idioma do painel e, por padrão, da tela dos seus alunos',
@@ -640,6 +642,7 @@ export const PANEL = {
     bar: {
       titulo: 'Administration',
       cambiarClave: 'Change password',
+      guia: 'User guide',
       cerrarSesion: 'Log out',
       idioma: 'Language',
       idiomaCuenta: 'Language of the dashboard and, by default, of your students’ view',

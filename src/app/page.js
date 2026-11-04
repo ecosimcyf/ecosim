@@ -174,6 +174,7 @@ export default async function Home() {
             </li>
           ))}
         </ol>
+        <p className="landing-paso-guia"><a href="/guia">{t('pasos.verGuia')} →</a></p>
       </section>
 
       <section className="landing-section" data-reveal>

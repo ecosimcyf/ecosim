@@ -15,6 +15,7 @@ export const LANDING = {
       comoFunciona: 'Cómo funciona',
       planes: 'Planes',
       preguntas: 'Preguntas',
+      guia: 'Guía de uso',
       iniciarSesion: 'Iniciar sesión',
       asesor: 'Hablar con un asesor',
       idioma: 'Idioma',
@@ -48,6 +49,7 @@ export const LANDING = {
     pasos: {
       eyebrow: 'Cómo funciona',
       titulo: 'En clase en tres pasos',
+      verGuia: 'Ver la guía de uso paso a paso',
       lista: [
         { titulo: 'Cargas tus casos', texto: 'Desde tu panel creas cada caso, le escribes el motivo de consulta y asignas un video de ecografía a cada punto del maniquí. También podemos dejarte casos precargados.' },
         { titulo: 'Compartes un enlace', texto: 'Tu cuenta tiene su propio enlace. Se lo pasas a tus estudiantes: no necesitan instalar nada ni crear usuario.' },
@@ -93,8 +95,8 @@ export const LANDING = {
       titulo: 'Lo que suelen preguntarnos',
       verPrivacidad: 'Ver la política de privacidad',
       lista: [
-        { p: '¿Qué necesitan mis estudiantes para usarlo?', r: 'Solo el enlace de tu cuenta y un navegador: funciona en celular, tablet o computador. No instalan nada ni crean usuario ni contraseña.' },
-        { p: '¿Necesita internet?', r: 'Sí. Al entrar a un caso, sus videos se descargan una sola vez; a partir de ahí responden al instante, aunque la conexión del salón no sea la mejor.' },
+        { p: '¿Qué necesitan mis estudiantes para usarlo?', r: 'Solo el enlace de tu cuenta y un navegador: funciona en celular, tablet o computador. No instalan nada ni crean usuario ni contraseña. Si quieres que solo entren tus estudiantes, puedes ponerle a tu cuenta un código de acceso: lo escriben una vez por dispositivo.' },
+        { p: '¿Necesita internet?', r: 'Sí. Al entrar a un caso, sus videos se descargan una sola vez y a partir de ahí responden al instante, aunque la conexión del salón no sea la mejor. En los casos muy grandes (más de unos 20 videos), cada video se descarga la primera vez que se toca su punto, para no hacer esperar a la clase.' },
         { p: '¿Puedo subir mis propios videos?', r: 'Sí, desde tu panel, con los videos de tu ecógrafo (hasta 30 segundos cada uno). Si el formato no se puede ver en el navegador —pasa con muchos ecógrafos—, el panel lo convierte solo antes de subirlo.' },
         { p: '¿Se le muestra el diagnóstico al estudiante?', r: 'No. El estudiante solo ve el maniquí y los videos, nunca el nombre de la estructura ni el diagnóstico. Tú decides si cada caso lleva una descripción previa (motivo de consulta, síntomas).' },
         { p: '¿Cuántos estudiantes pueden usar el mismo enlace?', r: 'Todos los de tu grupo usan el mismo enlace, cada uno desde su propio dispositivo. No tienes que crear un usuario por estudiante.' },
@@ -137,6 +139,7 @@ export const LANDING = {
       iniciarSesion: 'Iniciar sesión',
       terminos: 'Términos y condiciones',
       privacidad: 'Política de privacidad',
+      guia: 'Guía de uso',
     },
     error404: {
       titulo: 'Página no encontrada — EcoSim',
@@ -159,6 +162,7 @@ export const LANDING = {
       comoFunciona: 'Como funciona',
       planes: 'Planos',
       preguntas: 'Perguntas',
+      guia: 'Guia de uso',
       iniciarSesion: 'Entrar',
       asesor: 'Falar com um consultor',
       idioma: 'Idioma',
@@ -192,6 +196,7 @@ export const LANDING = {
     pasos: {
       eyebrow: 'Como funciona',
       titulo: 'Na sala de aula em três passos',
+      verGuia: 'Ver o guia de uso passo a passo',
       lista: [
         { titulo: 'Você cadastra seus casos', texto: 'No seu painel, você cria cada caso, escreve a queixa principal e atribui um vídeo de ultrassonografia a cada ponto do manequim. Também podemos deixar casos pré-carregados para você.' },
         { titulo: 'Você compartilha um link', texto: 'Sua conta tem um link próprio. Basta enviá-lo aos seus alunos: eles não precisam instalar nada nem criar usuário.' },
@@ -237,8 +242,8 @@ export const LANDING = {
       titulo: 'O que costumam nos perguntar',
       verPrivacidad: 'Ver a política de privacidade',
       lista: [
-        { p: 'Do que meus alunos precisam para usar?', r: 'Só do link da sua conta e de um navegador: funciona no celular, no tablet ou no computador. Eles não instalam nada nem criam usuário ou senha.' },
-        { p: 'Precisa de internet?', r: 'Sim. Ao entrar em um caso, os vídeos são baixados uma única vez; a partir daí respondem na hora, mesmo que a conexão da sala não seja das melhores.' },
+        { p: 'Do que meus alunos precisam para usar?', r: 'Só do link da sua conta e de um navegador: funciona no celular, no tablet ou no computador. Eles não instalam nada nem criam usuário ou senha. Se quiser que só seus alunos entrem, você pode colocar um código de acesso na sua conta: eles o digitam uma vez por dispositivo.' },
+        { p: 'Precisa de internet?', r: 'Sim. Ao entrar em um caso, os vídeos são baixados uma única vez e a partir daí respondem na hora, mesmo que a conexão da sala não seja das melhores. Nos casos muito grandes (mais de uns 20 vídeos), cada vídeo é baixado na primeira vez que seu ponto é tocado, para a turma não ficar esperando.' },
         { p: 'Posso enviar meus próprios vídeos?', r: 'Sim, pelo seu painel, com os vídeos do seu aparelho de ultrassom (até 30 segundos cada). Se o formato não puder ser exibido no navegador — o que acontece com muitos aparelhos —, o painel o converte automaticamente antes do envio.' },
         { p: 'O diagnóstico é mostrado ao aluno?', r: 'Não. O aluno só vê o manequim e os vídeos, nunca o nome da estrutura nem o diagnóstico. Você decide se cada caso tem uma descrição prévia (queixa principal, sintomas).' },
         { p: 'Quantos alunos podem usar o mesmo link?', r: 'Todos da sua turma usam o mesmo link, cada um no seu próprio dispositivo. Você não precisa criar um usuário para cada aluno.' },
@@ -281,6 +286,7 @@ export const LANDING = {
       iniciarSesion: 'Entrar',
       terminos: 'Termos e condições',
       privacidad: 'Política de privacidade',
+      guia: 'Guia de uso',
     },
     error404: {
       titulo: 'Página não encontrada — EcoSim',
@@ -303,6 +309,7 @@ export const LANDING = {
       comoFunciona: 'How it works',
       planes: 'Plans',
       preguntas: 'FAQ',
+      guia: 'User guide',
       iniciarSesion: 'Log in',
       asesor: 'Talk to an advisor',
       idioma: 'Language',
@@ -336,6 +343,7 @@ export const LANDING = {
     pasos: {
       eyebrow: 'How it works',
       titulo: 'In class in three steps',
+      verGuia: 'See the step-by-step user guide',
       lista: [
         { titulo: 'You upload your cases', texto: 'From your dashboard you create each case, write the presenting complaint, and assign an ultrasound video to each point on the mannequin. We can also preload cases for you.' },
         { titulo: 'You share a link', texto: 'Your account has its own link. Share it with your students: they don’t need to install anything or create an account.' },
@@ -381,8 +389,8 @@ export const LANDING = {
       titulo: 'What people usually ask us',
       verPrivacidad: 'Read the privacy policy',
       lista: [
-        { p: 'What do my students need to use it?', r: 'Just your account’s link and a web browser: it works on a phone, tablet, or computer. They don’t install anything or create a username or password.' },
-        { p: 'Does it need internet?', r: 'Yes. When a student opens a case, its videos are downloaded only once; from then on they respond instantly, even if the classroom connection isn’t great.' },
+        { p: 'What do my students need to use it?', r: 'Just your account’s link and a web browser: it works on a phone, tablet, or computer. They don’t install anything or create a username or password. If you want only your students to get in, you can add an access code to your account: they type it once per device.' },
+        { p: 'Does it need internet?', r: 'Yes. When a student opens a case, its videos are downloaded only once and from then on they respond instantly, even if the classroom connection isn’t great. For very large cases (more than about 20 videos), each video is downloaded the first time its point is touched, so the class isn’t kept waiting.' },
         { p: 'Can I upload my own videos?', r: 'Yes, from your dashboard, using the videos from your ultrasound machine (up to 30 seconds each). If the format can’t be played in the browser — which happens with many machines — the dashboard converts it automatically before uploading.' },
         { p: 'Is the diagnosis shown to the student?', r: 'No. The student only sees the mannequin and the videos, never the name of the structure or the diagnosis. You decide whether each case has a description beforehand (presenting complaint, signs).' },
         { p: 'How many students can use the same link?', r: 'Everyone in your group uses the same link, each on their own device. You don’t have to create an account for each student.' },
@@ -425,6 +433,7 @@ export const LANDING = {
       iniciarSesion: 'Log in',
       terminos: 'Terms and conditions',
       privacidad: 'Privacy policy',
+      guia: 'User guide',
     },
     error404: {
       titulo: 'Page not found — EcoSim',

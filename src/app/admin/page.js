@@ -55,6 +55,7 @@ export default async function AdminPage() {
             {deCuenta
               ? <SelectorIdiomaCuenta cuentaId={datos.cuentaId} />
               : <SelectorIdioma idioma={idioma} etiqueta={t('bar.idioma')} titulo={t('bar.idioma')} />}
+            <a className="btn" href="/guia#profesor" target="_blank" rel="noopener">{t('bar.guia')}</a>
             <a className="btn" href="/admin/cambiar-clave">{t('bar.cambiarClave')}</a>
             <form action={logout}>
               <button className="btn">{t('bar.cerrarSesion')}</button>

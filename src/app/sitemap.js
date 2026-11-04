@@ -2,9 +2,9 @@
 import { SITIO_URL } from '@/lib/sitio';
 
 export default function sitemap() {
-  return ['', '/terminos', '/privacidad'].map((ruta) => ({
+  return ['', '/guia', '/terminos', '/privacidad'].map((ruta) => ({
     url: SITIO_URL + ruta,
-    changeFrequency: ruta ? 'yearly' : 'monthly',
-    priority: ruta ? 0.3 : 1,
+    changeFrequency: ruta && ruta !== '/guia' ? 'yearly' : 'monthly',
+    priority: !ruta ? 1 : ruta === '/guia' ? 0.6 : 0.3,
   }));
 }

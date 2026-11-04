@@ -21,6 +21,7 @@ export default async function LandingHeader() {
         <a className="landing-nav-seccion" href="/#como-funciona">{t('nav.comoFunciona')}</a>
         <a className="landing-nav-seccion" href="/#planes">{t('nav.planes')}</a>
         <a className="landing-nav-seccion" href="/#preguntas">{t('nav.preguntas')}</a>
+        <a className="landing-nav-seccion" href="/guia">{t('nav.guia')}</a>
       </nav>
       <div className="landing-nav-acciones">
         <SelectorIdioma idioma={idioma} etiqueta={t('nav.idioma')} titulo={t('nav.idioma')} className="selector-idioma-claro" />
