@@ -1,13 +1,16 @@
 name: Build
 
-# Corre las pruebas (npm test) y "npm run build" en cada Pull Request
-# contra main, antes de poder
-# mergear — si algo no compila, se ve en rojo en el PR. No necesita
-# variables de entorno: el build no hace llamadas a Supabase en tiempo de
-# compilación (las páginas que lo necesitan son dinámicas).
+# Corre las pruebas (npm test), la auditoría de dependencias y
+# "npm run build" en cada Pull Request contra main Y en cada push a main
+# (un push directo también se publica en Vercel: que al menos quede en
+# rojo si algo se rompió). No necesita variables de entorno: el build no
+# hace llamadas a Supabase en tiempo de compilación (las páginas que lo
+# necesitan son dinámicas).
 
 on:
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
 
 jobs:
@@ -21,4 +24,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # Falla si hay alguna vulnerabilidad alta o crítica en lo que llega a producción.
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run build

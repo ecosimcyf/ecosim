@@ -29,7 +29,7 @@ export default function TextoLegal({ idioma, documento }) {
   const doc = textos[documento];
   return (
     <div className={'landing ' + jakarta.className}>
-      <LandingHeader />
+      <LandingHeader idioma={idioma} />
       <main className="legal-page">
         <h1>{doc.titulo}</h1>
         <p className="legal-fecha">{textos.actualizacion}: {doc.fecha}</p>
@@ -42,7 +42,7 @@ export default function TextoLegal({ idioma, documento }) {
           </Fragment>
         ))}
       </main>
-      <LandingFooter />
+      <LandingFooter idioma={idioma} />
     </div>
   );
 }

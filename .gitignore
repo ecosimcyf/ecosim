@@ -22,3 +22,6 @@ npm-debug.log*
 
 # Ledger/briefs/reportes/paquetes de revisión de superpowers (scratch, no versionar)
 /.superpowers
+
+# Respaldos locales (npm run respaldo): datos de TODOS los clientes, nunca a git
+/respaldos

@@ -36,5 +36,5 @@ export async function actualizarSesion(request) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  return { response, usuario: user ?? null };
+  return { response, usuario: user ?? null, supabase };
 }

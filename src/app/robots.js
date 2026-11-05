@@ -4,7 +4,7 @@ import { SITIO_URL } from '@/lib/sitio';
 
 export default function robots() {
   return {
-    rules: { userAgent: '*', allow: '/', disallow: ['/admin', '/c/'] },
+    rules: { userAgent: '*', allow: '/', disallow: ['/admin', '/c/', '/api/'] },
     sitemap: SITIO_URL + '/sitemap.xml',
   };
 }

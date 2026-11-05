@@ -5,6 +5,7 @@ export const ESTUDIANTE = {
   es: {
     idioma: 'Idioma',
     noDisponible: 'Este enlace no está disponible. Contacta a tu asesor.',
+    sinConexion: 'No se pudo conectar con EcoSim. Revisa tu conexión a internet y prueba de nuevo.',
     manifiesto: 'Simulador de ecografía veterinaria',
     especie: { perro: 'Perro', gato: 'Gato' },
     menu: {
@@ -73,6 +74,7 @@ export const ESTUDIANTE = {
   pt: {
     idioma: 'Idioma',
     noDisponible: 'Este link não está disponível. Fale com o seu consultor.',
+    sinConexion: 'Não foi possível conectar ao EcoSim. Verifique a sua conexão com a internet e tente de novo.',
     manifiesto: 'Simulador de ultrassonografia veterinária',
     especie: { perro: 'Cão', gato: 'Gato' },
     menu: {
@@ -141,6 +143,7 @@ export const ESTUDIANTE = {
   en: {
     idioma: 'Language',
     noDisponible: 'This link isn’t available. Please contact your advisor.',
+    sinConexion: 'Couldn’t connect to EcoSim. Check your internet connection and try again.',
     manifiesto: 'Veterinary ultrasound simulator',
     especie: { perro: 'Dog', gato: 'Cat' },
     menu: {

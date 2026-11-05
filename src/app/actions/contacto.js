@@ -3,7 +3,9 @@
 // Acción pública del formulario de contacto de la landing ("/").
 //
 // Cualquiera puede llamarla (no hay sesión de por medio), así que usa el
-// mismo limitador por IP que el login (src/lib/ratelimit.js). A diferencia
+// mismo limitador que el login (src/lib/ratelimit.js), por correo y por IP
+// (ver src/lib/limites.js: tras una charla, muchos asistentes lo llenan
+// a la vez desde el mismo Wi-Fi). A diferencia
 // del login —que solo penaliza los intentos FALLIDOS y limpia el contador
 // al entrar bien—, aquí contamos TODO envío, válido o no: el límite no
 // protege una contraseña, protege al formulario en sí de que alguien lo
@@ -15,12 +17,13 @@
 // ============================================================
 import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { estaBloqueado, registrarIntento, ipVisitante } from '@/lib/ratelimit';
+import { LIMITES, claveLimite } from '@/lib/limites';
 import { registrarError } from '@/lib/errores';
 import { crearT } from '@/lib/i18n/config';
 import { idiomaVisitante } from '@/lib/i18n/servidor';
 import { LANDING } from '@/lib/i18n/textos/landing';
 
-const LIMITES = { nombre: 100, clinica: 150, correo: 200, telefono: 40, mensaje: 2000 };
+const LARGOS = { nombre: 100, clinica: 150, correo: 200, telefono: 40, mensaje: 2000 };
 
 export async function enviarSolicitudContacto(_prevState, formData) {
   const campo = (k) => String(formData.get(k) || '').trim();
@@ -37,19 +40,22 @@ export async function enviarSolicitudContacto(_prevState, formData) {
   // viene con algo, se finge éxito y no se guarda nada.
   if (campo('sitio_web')) return { ok: true };
 
-  // Identificar el origen para el límite de intentos.
-  const ip = await ipVisitante();
-
-  // Prefijo propio ('contacto:'): un ataque contra este formulario no
+  // Prefijo propio ('contacto'): un ataque contra este formulario no
   // agota los intentos del login para la misma IP.
-  if (await estaBloqueado('contacto:' + ip)) {
+  const claveIp = claveLimite('contacto-ip', await ipVisitante());
+  // Por correo solo si viene uno (si no, todos los envíos sin correo
+  // compartirían el mismo contador).
+  const claveCorreo = correo ? claveLimite('contacto', correo) : null;
+  if (await estaBloqueado(claveIp, LIMITES.contactoIp)
+    || (claveCorreo && await estaBloqueado(claveCorreo, LIMITES.contactoCorreo))) {
     return { error: t('form.errores.intentos') };
   }
-  await registrarIntento('contacto:' + ip);
+  await registrarIntento(claveIp, LIMITES.contactoIp);
+  if (claveCorreo) await registrarIntento(claveCorreo, LIMITES.contactoCorreo);
 
   if (!nombre || !correo) return { error: t('form.errores.faltan') };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { error: t('form.errores.correo') };
-  for (const [k, max] of Object.entries(LIMITES)) {
+  for (const [k, max] of Object.entries(LARGOS)) {
     if (campo(k).length > max) return { error: t('form.errores.largo', { campo: t('form.campos.' + k), max }) };
   }
   if (!autoriza) {

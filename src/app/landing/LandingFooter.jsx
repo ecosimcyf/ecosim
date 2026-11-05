@@ -1,11 +1,10 @@
 import { crearT } from '@/lib/i18n/config';
-import { idiomaVisitante } from '@/lib/i18n/servidor';
 import { LANDING } from '@/lib/i18n/textos/landing';
 import { whatsappUrl, WHATSAPP_VISIBLE, CORREO } from './contacto';
 
 // Pie compartido por todas las páginas públicas livianas.
-export default async function LandingFooter() {
-  const t = crearT(LANDING, await idiomaVisitante());
+export default function LandingFooter({ idioma }) {
+  const t = crearT(LANDING, idioma);
   return (
     <footer className="landing-footer">
       <span>© {new Date().getFullYear()} EcoSim · <a href="/admin/login">{t('pie.iniciarSesion')}</a></span>

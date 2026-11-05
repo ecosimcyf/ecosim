@@ -2,7 +2,6 @@
 // En Colombia mucha gente prefiere escribir por WhatsApp antes que llenar
 // un formulario.
 import { crearT } from '@/lib/i18n/config';
-import { idiomaVisitante } from '@/lib/i18n/servidor';
 import { LANDING } from '@/lib/i18n/textos/landing';
 import { whatsappUrl } from './contacto';
 
@@ -16,8 +15,8 @@ export function IconoWhatsApp() {
   );
 }
 
-export default async function BotonWhatsApp() {
-  const t = crearT(LANDING, await idiomaVisitante());
+export default function BotonWhatsApp({ idioma }) {
+  const t = crearT(LANDING, idioma);
   return (
     <a
       className="whatsapp-flotante"

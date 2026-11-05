@@ -7,12 +7,10 @@
 // CENTRO (texto simple) y, a la derecha, el idioma y las dos ACCIONES
 // como botones («Iniciar sesión» y «Hablar con un asesor» relleno).
 import { crearT } from '@/lib/i18n/config';
-import { idiomaVisitante } from '@/lib/i18n/servidor';
 import { LANDING } from '@/lib/i18n/textos/landing';
 import SelectorIdioma from '@/lib/i18n/SelectorIdioma';
 
-export default async function LandingHeader() {
-  const idioma = await idiomaVisitante();
+export default function LandingHeader({ idioma }) {
   const t = crearT(LANDING, idioma);
   return (
     <header className="landing-bar">

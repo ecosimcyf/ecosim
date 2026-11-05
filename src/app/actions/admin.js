@@ -30,6 +30,7 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { crearClienteServidorAuth } from '@/lib/supabase/server';
+import { faltaSegundoPaso } from '@/lib/mfa';
 import { LIMITES, MIME_EXTENSION, limpiarLaboratorio, limpiarVitales } from '@/lib/examenes';
 import { idiomaValido } from '@/lib/i18n/config';
 import { registrarError } from '@/lib/errores';
@@ -88,8 +89,11 @@ function exigir(resultado, que) {
 // ---------- sesión y permisos ----------
 
 async function requerirAdmin() {
-  const { data: { user } } = await crearClienteServidorAuth().auth.getUser();
+  const auth = crearClienteServidorAuth();
+  const { data: { user } } = await auth.auth.getUser();
   if (!user) throw new ErrorAdmin('err.sesion', { codigo: 'sin-sesion' });
+  // 2FA activada pero sin el código todavía: como si no hubiera sesión.
+  if (await faltaSegundoPaso(auth)) throw new ErrorAdmin('err.sesion', { codigo: 'sin-sesion' });
   const supabase = crearClienteAdmin();
   const { data: perfil, error } = await supabase
     .from('perfiles').select('rol,cuenta_id').eq('id', user.id).maybeSingle();
@@ -570,6 +574,12 @@ export async function restablecerClaveCuenta(cuentaId) {
       const r = await supabase.auth.admin.updateUserById(p.id, { password: clave });
       exigir(r, 'cambiar la contraseña');
       correos.push(r.data.user.email);
+      // Si perdió el teléfono de la verificación en dos pasos, también se
+      // la quitamos: con la contraseña temporal debe poder entrar.
+      const { data: factores } = await supabase.auth.admin.mfa.listFactors({ userId: p.id });
+      for (const f of factores?.factors || []) {
+        exigir(await supabase.auth.admin.mfa.deleteFactor({ userId: p.id, id: f.id }), 'quitar la verificación en dos pasos');
+      }
     }
     return { claveTemporal: clave, correos };
   });

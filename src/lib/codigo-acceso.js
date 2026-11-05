@@ -5,7 +5,11 @@
 // ============================================================
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 
-export const CODIGO_MIN = 4;
+// 6 como mínimo: con letras y números son más de 2.000 millones de
+// combinaciones, imposibles de adivinar al ritmo que permite el límite de
+// intentos (ver actions/estudiante.js). Los códigos de 4 o 5 que ya existían
+// siguen funcionando; solo los NUEVOS deben tener 6.
+export const CODIGO_MIN = 6;
 export const CODIGO_MAX = 40;
 
 // Sin distinguir mayúsculas ni espacios de los extremos: el profesor lo

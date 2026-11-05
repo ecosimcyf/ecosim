@@ -7,19 +7,17 @@
 // Si es correcto, se guarda en una cookie el token de acceso de la cuenta
 // (ver src/lib/acceso.js), que es lo que la base exige después.
 //
-// Límite: 30 fallos cada 10 minutos por IP y cuenta. Es alto a propósito:
-// un salón entero sale a internet con la MISMA IP, y unos cuantos errores
-// de tipeo no deben dejar a la clase fuera. Aun así, adivinar un código de
-// 6 letras a ese ritmo tomaría años.
+// Límite: LIMITES.codigo (src/lib/limites.js), por IP y cuenta. Es alto a
+// propósito: un auditorio entero sale a internet con la MISMA IP, y los
+// errores de tipeo de unos pocos no deben dejar fuera a todos.
 // ============================================================
 import { cookies } from 'next/headers';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { estaBloqueado, registrarIntento, ipVisitante } from '@/lib/ratelimit';
+import { LIMITES, claveLimite } from '@/lib/limites';
 import { registrarError } from '@/lib/errores';
 import { comprobarCodigo, CODIGO_MAX } from '@/lib/codigo-acceso';
 import { nombreCookieAcceso, DIAS_ACCESO } from '@/lib/acceso';
-
-const LIMITE_CODIGO = { max: 30, ventanaSeg: 10 * 60 };
 
 // Devuelve { ok: true } o { error: 'codigo.incorrecto' | 'codigo.intentos' | 'codigo.fallo' }
 // (claves de los textos del estudiante).
@@ -36,10 +34,10 @@ export async function entrarConCodigo(slug, codigo) {
     // La cuenta ya no pide código: no hay nada que comprobar.
     if (!cuenta.token_acceso) return { ok: true };
 
-    const clave = 'codigo:' + (await ipVisitante()) + ':' + cuenta.id;
-    if (await estaBloqueado(clave, LIMITE_CODIGO)) return { error: 'codigo.intentos' };
+    const clave = claveLimite('codigo', await ipVisitante(), cuenta.id);
+    if (await estaBloqueado(clave, LIMITES.codigo)) return { error: 'codigo.intentos' };
     if (!comprobarCodigo(codigo, cuenta.codigo_hash)) {
-      await registrarIntento(clave, LIMITE_CODIGO);
+      await registrarIntento(clave, LIMITES.codigo);
       return { error: 'codigo.incorrecto' };
     }
 

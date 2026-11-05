@@ -45,8 +45,8 @@ test('código de acceso: se cifra, se comprueba y no distingue mayúsculas', () 
   assert.ok(!comprobarCodigo('perro2026', null));
   // Dos cifrados del mismo código son distintos (sal aleatoria).
   assert.notEqual(cifrarCodigo('abcd'), cifrarCodigo('abcd'));
-  assert.ok(codigoValido('abcd'));
-  assert.ok(!codigoValido('abc'));
+  assert.ok(codigoValido('perro1'));
+  assert.ok(!codigoValido('perro'));
   assert.ok(!codigoValido('x'.repeat(41)));
   assert.ok(nuevoTokenAcceso().length >= 32);
   assert.notEqual(nuevoTokenAcceso(), nuevoTokenAcceso());

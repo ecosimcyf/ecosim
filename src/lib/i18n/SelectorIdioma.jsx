@@ -58,6 +58,14 @@ export default function SelectorIdioma({ idioma, etiqueta, titulo, alCambiar, cl
       if (!ok) return;
     }
     guardarIdioma(nuevo);
+    // Página pública abierta con el idioma en la dirección (/pt/guia): se
+    // va a la misma página en el idioma nuevo. Si no (/guia, /c/…), basta
+    // con volver a pintarla: el servidor lee la cookie recién guardada.
+    const conPrefijo = window.location.pathname.match(/^\/(es|pt|en)(\/.*)?$/);
+    if (conPrefijo) {
+      iniciar(() => router.push('/' + nuevo + (conPrefijo[2] || '') + window.location.hash));
+      return;
+    }
     iniciar(() => router.refresh());
   }
 
