@@ -20,6 +20,7 @@
 | 6 | 👤 **Dominio propio** (p. ej. `ecosim.co`) en Vercel, y `NEXT_PUBLIC_SITE_URL` apuntando a él. | Hoy es `ecosim-eta.vercel.app`. |
 | 7 | 👤 **Probar una vez el login con 2FA** en la vista previa de Vercel: activarla, cerrar sesión, entrar y escribir el código. | Activarla, confirmarla y quitarla sí se probó; el paso del código al iniciar sesión necesita tu contraseña. |
 | 8 | 👤 **Imagen de vista previa de 1200×630 px** para cuando se comparte el enlace. | La actual es de 800×455. |
+| 9 | 👤 **Activar el aviso de errores por correo:** crear una cuenta gratis en resend.com y poner en Vercel `RESEND_API_KEY` y `AVISO_ERRORES_A` (tu correo). | Sin esas dos variables no se envía nada. Ver `src/lib/aviso-errores.js`. |
 
 ---
 
@@ -28,7 +29,7 @@
 | Qué | Antes | Después (en la rama) |
 |---|---|---|
 | Landing `/` | ~0,5 s activa / ~1,4 s en frío, sin caché del CDN | ✅ Estática por idioma: la sirve el CDN (en local: 24 ms). |
-| Página del estudiante `/c/cyf` | ~0,85 s / ~1,8 s | Igual: es dinámica a propósito (casos en vivo). La carga probada aguanta (ver §3). |
+| Página del estudiante `/c/cyf` | ~0,85 s / ~1,8 s | ✅ Desde la caché del CDN, renovada cada 60 s (en local: 15 ms; con 300 estudiantes a la vez, p95 de 22 ms). Los casos se siguen consultando en vivo. |
 | Videos (Supabase Storage) | ✅ Caché de 1 año + CDN `HIT` | Sin cambios. |
 | Imágenes de maniquíes | `max-age=0` | ✅ Una semana de caché. |
 | `/c/noexiste` | 200 | ✅ 404. |
@@ -72,6 +73,7 @@
 | ✅ | **Landing, guía y legales estáticas por idioma** | `/es`, `/pt`, `/en` se generan al compilar; el middleware sirve la del visitante sin cambiar la dirección. Incluye `hreflang` y un sitemap por idioma. |
 | ✅ | Caché de imágenes fijas y de ffmpeg | |
 | ✅ | Página del estudiante ligera, precarga con tope, sondeo pausado con la pestaña oculta | |
+| ✅ | **Página del estudiante en la caché del CDN** | `c/[slug]/page.js` con ISR de 60 s y layout propio sin cookies (`src/app/(estudiante)/`). El idioma y el código los decide el navegador (`EntradaEstudiante.jsx`) y, hasta saberlos, solo se ve el logo, así que no hay parpadeos. Los cambios en la cuenta (desactivarla, renombrarla, cambiar su idioma) tardan hasta 1 minuto en verse para quien entra de nuevo. Los cambios en los casos y en el código se ven al momento. Una cuenta inexistente también queda 1 minuto en caché como 404 (es muy poco espacio). |
 | ⚠️ | Wi-Fi saturado del salón | 40 × 35 MB = 1,4 GB por el mismo punto de acceso. En eventos grandes, usar un caso de demostración ligero. |
 
 ## 4. Fiabilidad durante la clase
@@ -90,6 +92,7 @@
 |---|---|---|
 | ✅ | Errores del servidor guardados | Pestaña «Errores» del super_admin. |
 | ✅ | **Errores del navegador guardados** | Llegan a la misma pestaña con origen `navegador:*`, la ruta y el navegador.<br>• Se filtra el ruido (extensiones, «Script error.»).<br>• Límite de 30 por IP cada 10 minutos y 5 por página. |
+| ✅ | **Aviso de errores por correo** | Un resumen como mucho cada 30 minutos, compartido entre servidores. Los errores del navegador solo avisan si son 3 o más en 10 minutos. Si la base no responde, avisa igual. Probado en modo «solo registro». Falta activarlo (pendiente #9). |
 | ✅ | **Ruta de salud** `/api/salud` | Falta conectarle el monitor (pendiente #3). |
 | ✅ | **Prueba de humo tras cada despliegue** | `npm run humo -- https://<dominio> cyf`: 15 comprobaciones en segundos. |
 | ✅ | Analítica y métricas de velocidad | Vercel. |
@@ -107,9 +110,9 @@
 | Estado | Punto | Notas |
 |---|---|---|
 | ✅ | Compila sin errores | |
-| ✅ | **14 pruebas automáticas** | Antes eran 7. Ahora cubren también límites, filtro de errores, idiomas y 2FA. Una de las nuevas encontró un fallo real en el filtro de errores, ya corregido. |
+| ✅ | **16 pruebas automáticas** | Antes eran 7. Ahora cubren también límites, filtro de errores, idiomas, 2FA y el correo de aviso. Una de las nuevas encontró un fallo real en el filtro de errores, ya corregido. |
 | ✅ | **CI en cada PR y en cada push a `main`** | Corre pruebas, `npm audit` y build. |
-| ✅ | Panel probado con sesión iniciada | Puntos, casos, código, exámenes, **subida de video con conversión**, 2FA y cupo, con la cuenta `prueba2`. |
+| ✅ | Panel probado con sesión iniciada | Puntos, casos, código, exámenes, **subida de video con conversión**, 2FA y cupo, con la cuenta `prueba2` (ya borrada desde entonces). |
 | ⚠️👤 | Login con 2FA de punta a punta | Pendiente #7. |
 | ✅ | Vista previa por rama y vuelta atrás en un clic | Vercel. |
 

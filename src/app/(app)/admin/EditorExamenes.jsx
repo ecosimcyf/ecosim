@@ -23,7 +23,7 @@ import {
   guardarLaboratorio, guardarVitales,
   crearUrlSubidaExamen, guardarArchivoExamen, actualizarArchivoExamen, quitarArchivoExamen,
 } from '@/app/actions/admin';
-import { IconoLab, IconoRx, IconoMonitor } from '@/app/(app)/c/[slug]/Examenes';
+import { IconoLab, IconoRx, IconoMonitor } from '@/app/(estudiante)/c/[slug]/Examenes';
 
 const TEXTOS = unir(PANEL, EXAMENES_TXT);
 // El nombre de cada pestaña: t('ex.' + id).

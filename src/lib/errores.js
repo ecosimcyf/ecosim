@@ -4,8 +4,11 @@
 //
 // Nunca lanza: si no se puede guardar (base caída, migración pendiente),
 // queda al menos en el registro de Vercel con console.error.
+//
+// Después, si está configurado, avisa por correo (ver aviso-errores.js).
 // ============================================================
 import { crearClienteAdmin } from '@/lib/supabase/admin';
+import { quizasAvisar } from './aviso-errores';
 
 const corto = (v, max) => String(v ?? '').slice(0, max);
 
@@ -24,4 +27,5 @@ export async function registrarError(origen, err, extra) {
   } catch {
     // Ya quedó en console.error.
   }
+  await quizasAvisar(corto(origen, 80), mensaje);
 }

@@ -73,3 +73,28 @@ test('2FA: solo se aceptan códigos de 6 dígitos (con o sin espacio)', () => {
   assert.equal(codigoTotp('abcdef'), null);
   assert.equal(codigoTotp(null), null);
 });
+
+test('aviso de errores: resumen agrupado y caso «base caída»', async () => {
+  const { resumenErrores, PAUSA_MIN } = await import('../src/lib/resumen-errores.js');
+  const filas = [
+    { origen: 'navegador:global', mensaje: 'x is null', creado_en: '2026-11-07T10:00:00Z' },
+    { origen: 'navegador:global', mensaje: 'x is null', creado_en: '2026-11-07T09:59:00Z' },
+    { origen: 'codigo-estudiante', mensaje: 'timeout', creado_en: '2026-11-07T09:58:00Z' },
+  ];
+  const r = resumenErrores(filas, { sitio: 'https://ecosim.co/', origen: 'x', mensaje: 'y' });
+  assert.equal(r.asunto, `EcoSim: 3 errores en los últimos ${PAUSA_MIN} minutos`);
+  assert.match(r.texto, /navegador:global — 2 veces/);
+  assert.match(r.texto, /codigo-estudiante — 1 vez\b/);
+  assert.ok(r.texto.indexOf('navegador:global') < r.texto.indexOf('codigo-estudiante')); // el más frecuente primero
+  assert.match(r.texto, /https:\/\/ecosim\.co\/admin/);
+  const caida = resumenErrores(null, { sitio: 'https://ecosim.co', origen: 'cron', mensaje: 'fetch failed' });
+  assert.match(caida.asunto, /no responde/);
+  assert.match(caida.texto, /cron.*fetch failed/);
+  assert.match(caida.texto, /\/api\/salud/);
+});
+
+test('correo: lista de destinatarios desde una variable', async () => {
+  const { destinatarios } = await import('../src/lib/correo.js');
+  assert.deepEqual(destinatarios(' a@x.co, b@y.co ,, '), ['a@x.co', 'b@y.co']);
+  assert.deepEqual(destinatarios(undefined), []);
+});

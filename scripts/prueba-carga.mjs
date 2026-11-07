@@ -3,8 +3,9 @@
 // (lo que pasa al empezar una clase o al escanear el QR en una charla).
 //
 // Cada estudiante virtual hace lo mismo que el navegador real:
-//   1. (si se da --sitio) pide la página /c/<slug>
-//   2. cuenta_por_slug_v2 y casos_activos_v2 (el menú)
+//   1. (si se da --sitio) pide la página /c/<slug> (sale de la caché del CDN
+//      con los datos de la cuenta: el navegador ya no los pide aparte)
+//   2. casos_activos_v2 (el menú)
 //   3. datos_caso_v2 del primer caso (abrir el caso)
 //   4. casos_activos_v2 cada 15 s (el sondeo) hasta que acaba la prueba
 // NO descarga videos (eso lo sirve el CDN de Supabase, que escala solo, y
@@ -66,7 +67,6 @@ async function estudiante(i, fin, token, cuentaId) {
   await new Promise((r) => setTimeout(r, (i / N) * LLEGADA_MS));
   const sb = createClient(url, anon, { auth: { persistSession: false } });
   if (SITIO) await medir('pagina', () => fetch(SITIO + '/c/' + SLUG).then((r) => ({ ok: r.ok, txt: r.text() })));
-  await medir('cuenta', () => sb.rpc('cuenta_por_slug_v2', { p_slug: SLUG }));
   const menu = await medir('menu', () => sb.rpc('casos_activos_v2', { p_cuenta_id: cuentaId, p_token: token }));
   const caso = menu?.data?.[0];
   if (caso) await medir('abrir-caso', () => sb.rpc('datos_caso_v2', { p_cuenta_id: cuentaId, p_caso_id: caso.id, p_token: token }));

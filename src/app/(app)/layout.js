@@ -1,5 +1,6 @@
-// Layout raíz de la vista del estudiante (/c/...) y del panel (/admin):
-// páginas dinámicas, en el idioma del visitante (ver src/app/base.js).
+// Layout raíz del panel (/admin): páginas dinámicas, en el idioma del
+// visitante (ver src/app/base.js). La vista del estudiante tiene el suyo,
+// estático: src/app/(estudiante)/layout.js.
 import '@/app/globals.css';
 import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
@@ -14,8 +15,8 @@ export async function generateMetadata() {
 
 export const viewport = viewportBase;
 
-// <html lang> sale con el idioma del visitante; la vista del estudiante y
-// el panel lo corrigen al de la cuenta si es otro (ver i18n/cliente.jsx).
+// <html lang> sale con el idioma del visitante; el panel lo corrige al de
+// la cuenta si es otro (ver i18n/cliente.jsx).
 export default async function RootLayout({ children }) {
   const idioma = await idiomaVisitante();
   return (

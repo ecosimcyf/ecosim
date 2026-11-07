@@ -19,6 +19,7 @@ import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { estaBloqueado, registrarIntento, ipVisitante } from '@/lib/ratelimit';
 import { LIMITES, claveLimite } from '@/lib/limites';
 import { registrarError } from '@/lib/errores';
+import { enviarCorreo } from '@/lib/correo';
 import { crearT } from '@/lib/i18n/config';
 import { idiomaVisitante } from '@/lib/i18n/servidor';
 import { LANDING } from '@/lib/i18n/textos/landing';
@@ -84,36 +85,23 @@ export async function enviarSolicitudContacto(_prevState, formData) {
 // Aviso por correo al asesor de que llegó una solicitud nueva (si no, solo
 // se ve al entrar al panel). Es OPCIONAL: solo se envía si están
 // configuradas RESEND_API_KEY y AVISO_SOLICITUDES_A (ver
-// .env.local.example). Si falla, la solicitud ya quedó guardada: no se le
-// muestra ningún error al visitante.
+// .env.local.example y src/lib/correo.js). Si falla, la solicitud ya quedó
+// guardada: no se le muestra ningún error al visitante.
 async function avisarPorCorreo(s) {
-  const clave = process.env.RESEND_API_KEY;
-  const para = process.env.AVISO_SOLICITUDES_A;
-  if (!clave || !para) return;
-  try {
-    const resp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + clave, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: process.env.AVISO_SOLICITUDES_DE || 'EcoSim <onboarding@resend.dev>',
-        to: para.split(',').map((x) => x.trim()).filter(Boolean),
-        reply_to: s.correo,
-        subject: 'Nueva solicitud de EcoSim: ' + s.nombre + (s.clinica ? ' (' + s.clinica + ')' : ''),
-        text: [
-          'Nombre: ' + s.nombre,
-          'Clínica: ' + (s.clinica || '—'),
-          'Correo: ' + s.correo,
-          'Teléfono: ' + (s.telefono || '—'),
-          '',
-          s.mensaje || '(sin mensaje)',
-          '',
-          'Gestiónala en el panel: Solicitudes.',
-        ].join('\n'),
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!resp.ok) await registrarError('contacto-correo', 'HTTP ' + resp.status, await resp.text());
-  } catch (err) {
-    await registrarError('contacto-correo', err);
-  }
+  const r = await enviarCorreo({
+    para: process.env.AVISO_SOLICITUDES_A,
+    responderA: s.correo,
+    asunto: 'Nueva solicitud de EcoSim: ' + s.nombre + (s.clinica ? ' (' + s.clinica + ')' : ''),
+    texto: [
+      'Nombre: ' + s.nombre,
+      'Clínica: ' + (s.clinica || '—'),
+      'Correo: ' + s.correo,
+      'Teléfono: ' + (s.telefono || '—'),
+      '',
+      s.mensaje || '(sin mensaje)',
+      '',
+      'Gestiónala en el panel: Solicitudes.',
+    ].join('\n'),
+  });
+  if (r.motivo) await registrarError('contacto-correo', r.motivo);
 }

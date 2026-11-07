@@ -12,10 +12,11 @@
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { IDIOMAS, NOMBRES_IDIOMA } from './config';
-import { guardarIdioma } from './cliente';
+import { guardarIdioma, useCambiarIdioma } from './cliente';
 
 export default function SelectorIdioma({ idioma, etiqueta, titulo, alCambiar, className = '' }) {
   const router = useRouter();
+  const cambiarEnNavegador = useCambiarIdioma();
   const [pendiente, iniciar] = useTransition();
   const [guardando, setGuardando] = useState(false);
   const [abierto, setAbierto] = useState(false);
@@ -58,6 +59,9 @@ export default function SelectorIdioma({ idioma, etiqueta, titulo, alCambiar, cl
       if (!ok) return;
     }
     guardarIdioma(nuevo);
+    // Vista del estudiante (servida desde la caché): el idioma se cambia
+    // aquí mismo, sin pedir nada al servidor.
+    if (cambiarEnNavegador) { cambiarEnNavegador(nuevo); return; }
     // Página pública abierta con el idioma en la dirección (/pt/guia): se
     // va a la misma página en el idioma nuevo. Si no (/guia, /c/…), basta
     // con volver a pintarla: el servidor lee la cookie recién guardada.
