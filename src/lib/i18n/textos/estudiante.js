@@ -20,7 +20,6 @@ export const ESTUDIANTE = {
       volver: '← Volver a los casos',
       cargando: 'Cargando caso…',
     },
-    rotar: { titulo: 'Gira tu teléfono', sub: 'Pon la pantalla en horizontal para ver la ecografía.' },
     precarga: {
       titulo: 'Preparando las ecografías…',
       sub: 'Se cargan una sola vez para que luego respondan al instante.',
@@ -78,7 +77,6 @@ export const ESTUDIANTE = {
       volver: '← Voltar aos casos',
       cargando: 'Carregando caso…',
     },
-    rotar: { titulo: 'Gire o seu celular', sub: 'Coloque a tela na horizontal para ver a ultrassonografia.' },
     precarga: {
       titulo: 'Preparando as ultrassonografias…',
       sub: 'Elas são carregadas uma única vez para depois responderem na hora.',
@@ -136,7 +134,6 @@ export const ESTUDIANTE = {
       volver: '← Back to cases',
       cargando: 'Loading case…',
     },
-    rotar: { titulo: 'Turn your phone', sub: 'Hold the screen horizontally to view the ultrasound.' },
     precarga: {
       titulo: 'Preparing the ultrasound videos…',
       sub: 'They load only once, so they respond instantly afterwards.',
