@@ -468,19 +468,6 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId, slug, 
 
   return (
     <div className="estudiante">
-      {/* Aviso de girar el teléfono (solo se ve en móvil en vertical, por CSS) */}
-      <div className="rotar-overlay">
-        <svg className="rotar-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <g className="rotar-fono">
-            <rect x="37" y="16" width="26" height="52" rx="6" fill="none" stroke="#3fc6cf" strokeWidth="3" />
-            <line x1="46" y1="22" x2="54" y2="22" stroke="#3fc6cf" strokeWidth="3" strokeLinecap="round" />
-            <circle cx="50" cy="62" r="2.4" fill="#3fc6cf" />
-          </g>
-        </svg>
-        <div className="rotar-titulo">{t('rotar.titulo')}</div>
-        <div className="rotar-sub">{t('rotar.sub')}</div>
-      </div>
-
       {/* Pantalla de carga (precarga de videos al entrar) */}
       {precarga.cargando && (
         <div className="carga-overlay">
@@ -647,13 +634,8 @@ async function alternarPantallaCompleta() {
   if (!document.fullscreenElement) {
     try {
       await document.documentElement.requestFullscreen();
-      // En el móvil, ya que estamos a pantalla completa, dejamos fija la
-      // orientación horizontal. En ordenador y en iPhone esto no existe:
-      // se ignora sin más.
-      await screen.orientation?.lock?.('landscape');
     } catch {}
   } else {
-    try { screen.orientation?.unlock?.(); } catch {}
     document.exitFullscreen?.();
   }
 }
