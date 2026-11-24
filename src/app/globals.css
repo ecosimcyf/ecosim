@@ -401,6 +401,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   background: rgba(5, 7, 12, .9); backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border-soft);
   display: flex; align-items: center; justify-content: space-between; padding: 14px 22px;
+  /* Con viewport-fit=cover el iPhone pinta la página DEBAJO de la barra de
+     estado (hora, batería): la barra fija debe dejarle ese espacio arriba. */
+  padding-top: max(14px, env(safe-area-inset-top));
 }
 .admin-title { color: var(--accent); font-size: 18px; letter-spacing: 1px; font-weight: 600; margin: 0; }
 
@@ -529,6 +532,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   /* Logo | navegación (centrada en la página) | acciones */
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px;
   padding: 16px 28px;
+  /* Espacio para la barra de estado del iPhone (ver .admin-bar). */
+  padding-top: max(16px, env(safe-area-inset-top));
 }
 .landing-marca { color: var(--l-primary-dark); font-size: 17px; font-weight: 800; letter-spacing: 2.5px; text-decoration: none; }
 .landing-marca { justify-self: start; }
@@ -881,7 +886,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 @media (max-width: 480px) {
   .landing-hero { padding: 56px 20px 40px; }
   .landing-hero h1 { font-size: 32px; }
-  .landing-bar { padding: 13px 18px; }
+  .landing-bar { padding: 13px 18px; padding-top: max(13px, env(safe-area-inset-top)); }
   .landing-login { padding: 8px 10px; font-size: 12px; }
   .landing-nav-acciones { gap: 6px; }
   .landing-cta-nav { padding: 9px 11px; font-size: 12px; }
@@ -1223,7 +1228,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 /* En el celular, con el selector de idioma, la barra del panel puede no
    caber en una línea (en portugués: «Administração», «Alterar senha»). */
 @media (max-width: 560px) {
-  .admin-bar { flex-wrap: wrap; gap: 10px; padding: 12px 16px; }
+  .admin-bar { flex-wrap: wrap; gap: 10px; padding: 12px 16px; padding-top: max(12px, env(safe-area-inset-top)); }
   .admin-bar-acciones { flex-wrap: wrap; gap: 8px; }
 }
 
