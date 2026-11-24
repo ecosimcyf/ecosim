@@ -19,7 +19,9 @@ export async function generateMetadata({ params }) {
   return metadatosBase(await idiomaDeParams(params));
 }
 
-export const viewport = viewportBase;
+// Páginas públicas claras: la barra de estado del teléfono, del mismo
+// color que la cabecera (no la oscura del simulador).
+export const viewport = { ...viewportBase, themeColor: '#f5fbfc' };
 
 export default async function LayoutPublico({ children, params }) {
   const idioma = await idiomaDeParams(params);
