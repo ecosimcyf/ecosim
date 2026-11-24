@@ -1,6 +1,6 @@
 // Textos de los exámenes complementarios (laboratorio, radiografías y
 // signos vitales). Los usan la vista del estudiante y el editor del panel.
-// Los nombres de las plantillas de laboratorio están en src/lib/examenes.js.
+// Los nombres de las plantillas de laboratorio están en src/lib/examenes-plantillas.js.
 
 export const EXAMENES_TXT = {
   es: {

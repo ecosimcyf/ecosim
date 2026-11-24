@@ -5,6 +5,7 @@ export const ESTUDIANTE = {
   es: {
     idioma: 'Idioma',
     noDisponible: 'Este enlace no está disponible. Contacta a tu asesor.',
+    sinConexion: 'No se pudo conectar con EcoSim. Revisa tu conexión a internet y prueba de nuevo.',
     manifiesto: 'Simulador de ecografía veterinaria',
     especie: { perro: 'Perro', gato: 'Gato' },
     menu: {
@@ -31,6 +32,8 @@ export const ESTUDIANTE = {
       seguir: '▶ Seguir',
       congelar: '❚❚ Congelar',
       atajos: 'Espacio = congelar · F1 = ayuda',
+      cargando: 'Cargando video…',
+      error: 'No se pudo cargar el video. Toca para reintentar.',
     },
     tabs: {
       casos: '← Casos',
@@ -43,6 +46,7 @@ export const ESTUDIANTE = {
       salirPantalla: 'Salir de pantalla completa',
     },
     hint: 'Mantén presionado un punto del maniquí',
+
     ayuda: {
       titulo: 'Atajos de teclado',
       espacio: 'Espacio',
@@ -53,6 +57,7 @@ export const ESTUDIANTE = {
       cerrar: 'Cerrar (F1)',
     },
     mq: {
+      punto: 'Punto {n}',
       ventral: ({ especie }) => 'Maniquí de ' + (especie === 'gato' ? 'gato' : 'perro') + ' en vista ventral',
       izq: ({ especie }) => (especie === 'gato' ? 'Gato' : 'Perro') + ' — lado izquierdo',
       der: ({ especie }) => (especie === 'gato' ? 'Gato' : 'Perro') + ' — lado derecho',
@@ -62,6 +67,7 @@ export const ESTUDIANTE = {
   pt: {
     idioma: 'Idioma',
     noDisponible: 'Este link não está disponível. Fale com o seu consultor.',
+    sinConexion: 'Não foi possível conectar ao EcoSim. Verifique a sua conexão com a internet e tente de novo.',
     manifiesto: 'Simulador de ultrassonografia veterinária',
     especie: { perro: 'Cão', gato: 'Gato' },
     menu: {
@@ -88,6 +94,8 @@ export const ESTUDIANTE = {
       seguir: '▶ Continuar',
       congelar: '❚❚ Congelar',
       atajos: 'Espaço = congelar · F1 = ajuda',
+      cargando: 'Carregando vídeo…',
+      error: 'Não foi possível carregar o vídeo. Toque para tentar novamente.',
     },
     tabs: {
       casos: '← Casos',
@@ -100,6 +108,7 @@ export const ESTUDIANTE = {
       salirPantalla: 'Sair da tela cheia',
     },
     hint: 'Mantenha um ponto do manequim pressionado',
+
     ayuda: {
       titulo: 'Atalhos de teclado',
       espacio: 'Espaço',
@@ -110,6 +119,7 @@ export const ESTUDIANTE = {
       cerrar: 'Fechar (F1)',
     },
     mq: {
+      punto: 'Ponto {n}',
       ventral: ({ especie }) => 'Manequim de ' + (especie === 'gato' ? 'gato' : 'cão') + ' em vista ventral',
       izq: ({ especie }) => (especie === 'gato' ? 'Gato' : 'Cão') + ' — lado esquerdo',
       der: ({ especie }) => (especie === 'gato' ? 'Gato' : 'Cão') + ' — lado direito',
@@ -119,6 +129,7 @@ export const ESTUDIANTE = {
   en: {
     idioma: 'Language',
     noDisponible: 'This link isn’t available. Please contact your advisor.',
+    sinConexion: 'Couldn’t connect to EcoSim. Check your internet connection and try again.',
     manifiesto: 'Veterinary ultrasound simulator',
     especie: { perro: 'Dog', gato: 'Cat' },
     menu: {
@@ -145,6 +156,8 @@ export const ESTUDIANTE = {
       seguir: '▶ Resume',
       congelar: '❚❚ Freeze',
       atajos: 'Space = freeze · F1 = help',
+      cargando: 'Loading video…',
+      error: 'The video couldn’t be loaded. Tap to try again.',
     },
     tabs: {
       casos: '← Cases',
@@ -157,6 +170,7 @@ export const ESTUDIANTE = {
       salirPantalla: 'Exit full screen',
     },
     hint: 'Press and hold a point on the mannequin',
+
     ayuda: {
       titulo: 'Keyboard shortcuts',
       espacio: 'Space',
@@ -167,6 +181,7 @@ export const ESTUDIANTE = {
       cerrar: 'Close (F1)',
     },
     mq: {
+      punto: 'Point {n}',
       ventral: ({ especie }) => (especie === 'gato' ? 'Cat' : 'Dog') + ' mannequin, ventral view',
       izq: ({ especie }) => (especie === 'gato' ? 'Cat' : 'Dog') + ' — left side',
       der: ({ especie }) => (especie === 'gato' ? 'Cat' : 'Dog') + ' — right side',

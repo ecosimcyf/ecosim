@@ -7,7 +7,7 @@ administra casos, puntos y videos desde un panel protegido por contraseña, y
 puede activar varios casos a la vez — el menú del estudiante se actualiza
 solo cada 15 segundos en todas las pantallas.
 
-- **Framework:** Next.js (App Router, JavaScript)
+- **Framework:** Next.js 15 (App Router, JavaScript)
 - **Datos, autenticación y videos:** Supabase (Postgres + Auth + Storage)
 - **Alojamiento:** Vercel
 
@@ -15,7 +15,9 @@ solo cada 15 segundos en todas las pantallas.
 
 ## Antes de empezar
 
-Necesitas tener instalado **Node.js 18 o superior**. Compruébalo con:
+Necesitas **Node.js 20 o superior** (los scripts usan `node --env-file`, que
+pide 20.6+; el CI usa Node 22 y el desarrollo se hace con Node 24).
+Compruébalo con:
 
 ```bash
 node --version
@@ -59,12 +61,40 @@ npm install
    pero sí gasta tu cupo de correos de confirmación y deja cuentas
    huérfanas que hay que borrar a mano.
 
+> **¿Ya tienes una base creada con una versión anterior?** No vuelvas a
+> ejecutar `schema.sql`: ejecuta, **en este orden y una sola vez cada una**,
+> las migraciones de [`supabase/`](supabase/) que te falten
+> (todas son seguras de re-ejecutar):
+>
+> 1. `migracion-2026-10-28-revision.sql`
+> 2. `migracion-2026-10-30-examenes.sql`
+> 3. `migracion-2026-10-30-idiomas.sql`
+> 4. `migracion-2026-11-04-revision.sql`
+> 5. `migracion-2026-11-24-arreglos.sql` — **solo después** de desplegar
+>    esta versión en Vercel (límites e intentos atómicos, reservas de cupo
+>    atómicas, permisos). También cierra las funciones públicas viejas que la
+>    versión anterior todavía usa (incluye lo de
+>    `migracion-2026-11-04-cerrar-funciones-viejas.sql`, que ya no hace falta
+>    ejecutar aparte). Mientras no se ejecute, esta versión funciona igual con
+>    el comportamiento anterior.
+>
+> Los archivos `*-deshacer.sql` revierten la migración con ese nombre.
+
 ---
 
 ## Paso 3 — Configurar las variables de entorno
 
 1. Copia el archivo `.env.local.example` y renombra la copia como `.env.local`.
 2. Rellena los valores de Supabase del paso anterior.
+
+| Variable | ¿Obligatoria? | Para qué |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Sí | Dirección del proyecto de Supabase. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Sí | Clave pública (anon). |
+| `SUPABASE_SERVICE_ROLE_KEY` | Sí | Clave secreta; solo se usa en el servidor. |
+| `CRON_SECRET` | Sí en producción | Protege la tarea diaria `/api/cron/limpieza` (Vercel Cron, ver `vercel.json`). Cadena larga y aleatoria, la misma en Vercel. Sin ella la tarea no hace nada. |
+| `RESEND_API_KEY`, `AVISO_SOLICITUDES_A` (y opcional `AVISO_SOLICITUDES_DE`) | No | Aviso por correo (Resend) cuando alguien llena el formulario de contacto. Sin ellas las solicitudes solo se ven en el panel. |
+| `NEXT_PUBLIC_SITE_URL` | No | Dominio público (vista previa al compartir, sitemap). En Vercel se toma solo del dominio de producción. |
 
 > ⚠️ El archivo `.env.local` NUNCA se sube a internet (ya está protegido por
 > `.gitignore`). Guárdalo solo en tu ordenador.
@@ -98,7 +128,8 @@ npm run dev
 ```
 
 Abre en el navegador:
-- **Landing pública:** http://localhost:3000
+- **Landing pública:** http://localhost:3000 (se muestra en el idioma del
+  navegador; también existen `/es`, `/pt` y `/en`) y su guía en `/guia`.
 - **Vista de una cuenta (lo que ve el estudiante):** http://localhost:3000/c/demo
   (`supabase/schema.sql` ya trae de ejemplo la cuenta `demo`)
 - **Panel de administración:** http://localhost:3000/admin
@@ -106,7 +137,7 @@ Abre en el navegador:
 
 Flujo típico para probar:
 1. Entra al panel, crea un caso, añade algún punto al maniquí y súbele un
-   video `.mp4`.
+   video (si el navegador no lo reproduce, el panel lo convierte a H.264).
 2. Activa ese caso (el interruptor en "Casos").
 3. Abre `http://localhost:3000/c/demo` en otra pestaña: elige el caso en el
    menú y verás el maniquí. Mantén presionado un punto para reproducir su
@@ -124,9 +155,29 @@ Flujo típico para probar:
    (la carpeta `web/` solo existe en el PC de desarrollo, junto a la app de
    escritorio).
 4. En **Environment Variables** de Vercel, añade las mismas variables que
-   tienes en tu `.env.local` (las opcionales también, si las usas).
+   tienes en tu `.env.local` (`CRON_SECRET` incluida; las opcionales también,
+   si las usas).
 5. Pulsa **Deploy**. Vercel te dará una URL pública: esa es la que reparten
    los estudiantes.
+6. Después de cada despliegue, la prueba de humo (ver «Scripts»):
+   `npm run humo -- https://<tu-dominio> <slug-de-una-cuenta>`.
+
+---
+
+## Scripts (`npm run ...`)
+
+| Comando | Qué hace |
+|---|---|
+| `dev` / `build` / `start` | Servidor de desarrollo, compilar y servir lo compilado. |
+| `test` | Pruebas automáticas (`tests/*.test.mjs`, con el probador de Node; sin red). |
+| `respaldo` | Copia la base (JSON) y los archivos de Storage a `respaldos/`. Solo lee. Ver `docs/respaldo-y-restauracion.md`. |
+| `restaurar` | Restaura un respaldo; por defecto es una simulación. Exige `--proyecto <ref>` (ver la guía de respaldos). |
+| `prueba-carga` | Simula cientos de estudiantes abriendo una cuenta. Pega contra la base REAL: úsala con moderación. |
+| `humo -- <url> [slug]` | Comprueba en segundos que las páginas clave responden bien tras un despliegue. |
+
+`postinstall` copia el núcleo de ffmpeg.wasm desde `node_modules` a
+`public/ffmpeg/` (esa carpeta no se versiona). La ruta `/api/salud` responde
+200 si la web y la base contestan (para un monitor de disponibilidad).
 
 ---
 
@@ -134,28 +185,35 @@ Flujo típico para probar:
 
 ```
 web/
-├─ supabase/schema.sql             La base de datos (ejecútalo una vez en Supabase)
-├─ scripts/crear-super-admin.mjs   Crea el primer super_admin (ver Paso 4)
-├─ middleware.js                   Bloquea /admin si no has iniciado sesión
+├─ supabase/schema.sql             La base de datos completa (proyecto nuevo)
+├─ supabase/migracion-*.sql        Cambios para bases ya existentes (ver Paso 2)
+├─ scripts/                        crear-super-admin, respaldo, restaurar, prueba-carga, humo
+├─ tests/                          Pruebas automáticas (npm test)
+├─ docs/                           Checklist de producción y guía de respaldos
+├─ vercel.json                     Tarea diaria de limpieza (cron)
 └─ src/
+   ├─ middleware.js                Reescribe "/", "/guia"... al idioma del visitante
+   │                               y bloquea /admin si no has iniciado sesión
    ├─ app/
-   │  ├─ page.js                   Landing pública ("/")
-   │  ├─ c/[slug]/page.js          Resuelve el slug a su cuenta
-   │  ├─ c/[slug]/VistaPrincipal.jsx  Vista del estudiante (maniquí, video, sondeo)
-   │  ├─ admin/
-   │  │  ├─ login/page.js          Pantalla de inicio de sesión
-   │  │  ├─ cambiar-clave/page.js  Cambiar la propia contraseña
-   │  │  ├─ page.js                Panel (carga de datos)
-   │  │  └─ AdminPanel.jsx         Panel interactivo (cuentas, casos, puntos, videos)
-   │  └─ actions/
-   │     ├─ auth.js                Login / logout / cambiar contraseña
-   │     ├─ admin.js               Guardar/leer cuentas, casos, puntos y videos
-   │     └─ contacto.js            Formulario de contacto de la landing
+   │  ├─ (publico)/[idioma]/       Landing, guía, términos y privacidad: ESTÁTICAS
+   │  │                            por idioma (/es, /pt, /en), servidas por el CDN
+   │  ├─ (estudiante)/c/[slug]/    Vista del estudiante (maniquí, video, exámenes),
+   │  │                            desde la caché del CDN (ISR de 60 s)
+   │  ├─ (app)/admin/              Panel: login, cambiar contraseña, cuentas, casos,
+   │  │                            puntos, videos y exámenes (AdminPanel.jsx)
+   │  ├─ actions/                  Server Actions: auth, admin y contacto
+   │  ├─ api/salud, api/cron/limpieza   Salud para el monitor y limpieza diaria
+   │  ├─ landing/                  Piezas de las páginas públicas (cabecera, pie, formulario...)
+   │  ├─ base.js                   Lo que comparten los dos layouts raíz
+   │  └─ sitemap.js, robots.js, global-not-found.js
    └─ lib/
-      ├─ maniquies.js         El dibujo del perro y el gato (SVG)
-      ├─ datos.js             Qué datos recibe el estudiante
-      ├─ ratelimit.js         Límite de intentos de login y de contacto
-      └─ supabase/            Conexiones a Supabase (navegador / servidor / admin)
+      ├─ i18n/                     Idiomas es/pt/en y textos/ (un archivo por zona)
+      ├─ supabase/                 Conexiones a Supabase (navegador / servidor / admin)
+      ├─ maniquies.js              El dibujo del perro y el gato (SVG)
+      ├─ datos.js                  Qué datos recibe el estudiante
+      ├─ limites.js, ratelimit.js  Límites de intentos (login, contacto, cupos), en la base
+      ├─ convertir-video.js        Conversión a H.264 con ffmpeg.wasm (en el navegador)
+      └─ limpieza.js, correo.js, validar.js ...
 ```
 
 ### Ideas clave
@@ -164,11 +222,23 @@ web/
   vista `puntos_publicos`, que no incluye el nombre.
 - **Todas las escrituras pasan por el servidor** (Server Actions) detrás del
   check de sesión. El navegador del estudiante no puede modificar nada.
-- **Los videos deben ser `.mp4` (H.264).** No se convierte ningún formato: si
-  el archivo no es `.mp4`, se rechaza al elegirlo.
+- **Videos:** el panel acepta varios formatos. Si el navegador no puede
+  reproducir el archivo (p. ej. MPEG-4 Parte 2 de algunos ecógrafos), se
+  convierte a MP4/H.264 con ffmpeg.wasm **en el propio navegador** antes de
+  subirlo. Máximo **30 segundos** y **50 MB** por video; en Storage solo
+  entra MP4.
+- **Límites de intentos y cupos** (login, contacto, reservas de subida) se
+  guardan en la base (tablas `intentos` y `subidas_pendientes`), así valen
+  igual con varios servidores. La tarea diaria de limpieza borra lo vencido.
+- **Páginas públicas estáticas:** el middleware las reescribe por dentro a
+  `/es`, `/pt` o `/en` según la cookie `idioma` o el idioma del navegador;
+  los enlaces de esas páginas llevan ya el prefijo de idioma (lo que ven los
+  buscadores, con `hreflang`).
 - **Qué casos están activos se refleja cada 15 segundos** en el menú del
   estudiante, por sondeo (no por Supabase Realtime: "casos" y "caso_videos"
   ya no tienen lectura directa para el rol anónimo — ver `supabase/schema.sql`
   — así que Realtime, que necesitaba esa misma lectura amplia, no puede
   avisar de cambios en esa tabla). Los videos de un caso solo se descargan
   cuando el estudiante lo abre desde el menú, nunca todos por adelantado.
+- **Errores:** los del servidor no se guardan en la base: se consultan en el
+  registro (Logs) de Vercel.

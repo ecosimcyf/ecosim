@@ -3,7 +3,9 @@
 // Acción pública del formulario de contacto de la landing ("/").
 //
 // Cualquiera puede llamarla (no hay sesión de por medio), así que usa el
-// mismo limitador por IP que el login (src/lib/ratelimit.js). A diferencia
+// mismo limitador que el login (src/lib/ratelimit.js), por correo y por IP
+// (ver src/lib/limites.js: tras una charla, muchos asistentes lo llenan
+// a la vez desde el mismo Wi-Fi). A diferencia
 // del login —que solo penaliza los intentos FALLIDOS y limpia el contador
 // al entrar bien—, aquí contamos TODO envío, válido o no: el límite no
 // protege una contraseña, protege al formulario en sí de que alguien lo
@@ -13,14 +15,17 @@
 // Ley 1581 de 2012 (habeas data): sin la casilla de autorización marcada
 // no se guarda nada, y se anota cuándo se autorizó (autorizo_datos_en).
 // ============================================================
-import { headers } from 'next/headers';
+import { after } from 'next/server';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
-import { estaBloqueado, registrarIntento } from '@/lib/ratelimit';
+import { consumirIntento, ipVisitante } from '@/lib/ratelimit';
+import { LIMITES, LIMITE_CORREO_DIA, claveLimite, sinSaltos } from '@/lib/limites';
+import { registrarError } from '@/lib/errores';
+import { enviarCorreo } from '@/lib/correo';
 import { crearT } from '@/lib/i18n/config';
 import { idiomaVisitante } from '@/lib/i18n/servidor';
 import { LANDING } from '@/lib/i18n/textos/landing';
 
-const LIMITES = { nombre: 100, clinica: 150, correo: 200, telefono: 40, mensaje: 2000 };
+const LARGOS = { nombre: 100, clinica: 150, correo: 200, telefono: 40, mensaje: 2000 };
 
 export async function enviarSolicitudContacto(_prevState, formData) {
   const campo = (k) => String(formData.get(k) || '').trim();
@@ -37,20 +42,24 @@ export async function enviarSolicitudContacto(_prevState, formData) {
   // viene con algo, se finge éxito y no se guarda nada.
   if (campo('sitio_web')) return { ok: true };
 
-  // Identificar el origen para el límite de intentos.
-  const hdrs = await headers();
-  const ip = (hdrs.get('x-forwarded-for') || '').split(',')[0].trim() || 'desconocido';
-
-  // Prefijo propio ('contacto:'): un ataque contra este formulario no
+  // Prefijo propio ('contacto'): un ataque contra este formulario no
   // agota los intentos del login para la misma IP.
-  if (estaBloqueado('contacto:' + ip)) {
+  const claveIp = claveLimite('contacto-ip', await ipVisitante());
+  // Por correo solo si viene uno (si no, todos los envíos sin correo
+  // compartirían el mismo contador).
+  const claveCorreo = correo ? claveLimite('contacto', correo) : null;
+  // Comprobar y registrar es un solo paso atómico (ver ratelimit.js). Aquí
+  // sí hay respaldo en memoria si la base falla: mejor un formulario con
+  // límite imperfecto que uno que no deja escribir.
+  const porIp = await consumirIntento(claveIp, LIMITES.contactoIp);
+  const porCorreo = claveCorreo ? await consumirIntento(claveCorreo, LIMITES.contactoCorreo) : 'ok';
+  if (porIp === 'bloqueado' || porCorreo === 'bloqueado') {
     return { error: t('form.errores.intentos') };
   }
-  registrarIntento('contacto:' + ip);
 
   if (!nombre || !correo) return { error: t('form.errores.faltan') };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { error: t('form.errores.correo') };
-  for (const [k, max] of Object.entries(LIMITES)) {
+  for (const [k, max] of Object.entries(LARGOS)) {
     if (campo(k).length > max) return { error: t('form.errores.largo', { campo: t('form.campos.' + k), max }) };
   }
   if (!autoriza) {
@@ -68,47 +77,41 @@ export async function enviarSolicitudContacto(_prevState, formData) {
     ({ error } = await supabase.from('solicitudes_contacto').insert(fila));
   }
   if (error) {
-    console.error('[contacto] no se pudo guardar la solicitud:', error);
+    await registrarError('contacto', error, 'no se pudo guardar la solicitud');
     return { error: t('form.errores.envio') };
   }
 
-  await avisarPorCorreo(fila);
+  // El aviso por correo se manda DESPUÉS de responder (after): el visitante
+  // no espera a Resend (hasta 8 s). Hay un tope global de avisos al día: si
+  // alguien inunda el formulario, las solicitudes se guardan igual pero ya
+  // no se envía correo.
+  if (await consumirIntento('contacto-correo-dia', LIMITE_CORREO_DIA) === 'ok') {
+    after(() => avisarPorCorreo(fila));
+  }
   return { ok: true };
 }
 
 // Aviso por correo al asesor de que llegó una solicitud nueva (si no, solo
 // se ve al entrar al panel). Es OPCIONAL: solo se envía si están
 // configuradas RESEND_API_KEY y AVISO_SOLICITUDES_A (ver
-// .env.local.example). Si falla, la solicitud ya quedó guardada: no se le
-// muestra ningún error al visitante.
+// .env.local.example y src/lib/correo.js). Si falla, la solicitud ya quedó
+// guardada: no se le muestra ningún error al visitante.
 async function avisarPorCorreo(s) {
-  const clave = process.env.RESEND_API_KEY;
-  const para = process.env.AVISO_SOLICITUDES_A;
-  if (!clave || !para) return;
-  try {
-    const resp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + clave, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: process.env.AVISO_SOLICITUDES_DE || 'EcoSim <onboarding@resend.dev>',
-        to: para.split(',').map((x) => x.trim()).filter(Boolean),
-        reply_to: s.correo,
-        subject: 'Nueva solicitud de EcoSim: ' + s.nombre + (s.clinica ? ' (' + s.clinica + ')' : ''),
-        text: [
-          'Nombre: ' + s.nombre,
-          'Clínica: ' + (s.clinica || '—'),
-          'Correo: ' + s.correo,
-          'Teléfono: ' + (s.telefono || '—'),
-          '',
-          s.mensaje || '(sin mensaje)',
-          '',
-          'Gestiónala en el panel: Solicitudes.',
-        ].join('\n'),
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!resp.ok) console.error('[contacto] el aviso por correo falló:', resp.status, await resp.text());
-  } catch (err) {
-    console.error('[contacto] el aviso por correo falló:', err);
-  }
+  const r = await enviarCorreo({
+    para: process.env.AVISO_SOLICITUDES_A,
+    responderA: sinSaltos(s.correo),
+    // sinSaltos: sin saltos de línea en el asunto (inyección de cabeceras de correo).
+    asunto: 'Nueva solicitud de EcoSim: ' + sinSaltos(s.nombre) + (s.clinica ? ' (' + sinSaltos(s.clinica) + ')' : ''),
+    texto: [
+      'Nombre: ' + s.nombre,
+      'Clínica: ' + (s.clinica || '—'),
+      'Correo: ' + s.correo,
+      'Teléfono: ' + (s.telefono || '—'),
+      '',
+      s.mensaje || '(sin mensaje)',
+      '',
+      'Gestiónala en el panel: Solicitudes.',
+    ].join('\n'),
+  });
+  if (r.motivo) await registrarError('contacto-correo', r.motivo);
 }

@@ -2,10 +2,10 @@
 // ============================================================
 // Acciones de login / logout del administrador, con Supabase Auth.
 // ============================================================
-import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { crearClienteServidorAuth } from '@/lib/supabase/server';
-import { estaBloqueado, registrarIntento, limpiarIntentos } from '@/lib/ratelimit';
+import { crearClienteServidor, crearClienteServidorAuth } from '@/lib/supabase/server';
+import { consumirIntento, limpiarIntentos, ipVisitante } from '@/lib/ratelimit';
+import { LIMITES, claveLimite } from '@/lib/limites';
 import { crearT } from '@/lib/i18n/config';
 import { idiomaVisitante } from '@/lib/i18n/servidor';
 import { idiomaPanel } from '@/lib/i18n/panel-servidor';
@@ -16,28 +16,31 @@ export async function login(_prevState, formData) {
   const password = String(formData.get('password') || '');
   const t = crearT(PANEL, await idiomaVisitante());
 
-  // Identificar el origen para el límite de intentos.
-  const hdrs = await headers();
-  const ip = (hdrs.get('x-forwarded-for') || '').split(',')[0].trim() || 'desconocido';
+  // Límite de intentos (ver src/lib/limites.js): por IP + correo, para que
+  // los errores de un profesor no bloqueen a los demás del mismo Wi-Fi, y
+  // uno más alto por IP sola. Prefijos propios: un ataque contra el login
+  // no agota los intentos del formulario de contacto, ni al revés.
+  // El intento se REGISTRA ANTES de probar la contraseña (consumirIntento es
+  // atómico): si se comprobara primero y se registrara después, muchas
+  // peticiones simultáneas pasarían todas la comprobación. Al acertar se
+  // limpia el contador del correo. Si la base falla, el login se niega
+  // (falla cerrado) en vez de quedar sin límite.
+  const ip = await ipVisitante();
+  const claveCorreo = claveLimite('login', ip, correo);
+  const claveIp = claveLimite('login-ip', ip);
+  const porCorreo = await consumirIntento(claveCorreo, LIMITES.loginCorreo, { falloCerrado: true });
+  const porIp = await consumirIntento(claveIp, LIMITES.loginIp, { falloCerrado: true });
+  if (porCorreo === 'error' || porIp === 'error') return { error: t('err.red') };
+  if (porCorreo === 'bloqueado' || porIp === 'bloqueado') return { error: t('err.intentos') };
 
-  // Prefijo propio: el formulario de contacto de la landing usa el mismo
-  // limitador (src/lib/ratelimit.js) pero con su propio prefijo
-  // ('contacto:'), así que un ataque contra uno de los dos formularios no
-  // agota de paso los intentos del otro para la misma IP.
-  if (estaBloqueado('login:' + ip)) {
-    return { error: t('err.intentos') };
-  }
-
-  const { error } = await crearClienteServidorAuth().auth.signInWithPassword({
+  const supabase = crearClienteServidorAuth();
+  const { error } = await supabase.auth.signInWithPassword({
     email: correo,
     password,
   });
-  if (error) {
-    registrarIntento('login:' + ip);
-    return { error: t('err.credenciales') };
-  }
+  if (error) return { error: t('err.credenciales') };
 
-  limpiarIntentos('login:' + ip);
+  await limpiarIntentos(claveCorreo);
   redirect('/admin');
 }
 
@@ -70,17 +73,20 @@ export async function cambiarContrasena(_prevState, formData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user?.email) return { error: t('err.sesion') };
 
-  const hdrs = await headers();
-  const ip = (hdrs.get('x-forwarded-for') || '').split(',')[0].trim() || 'desconocido';
-  if (estaBloqueado('clave:' + ip)) {
-    return { error: t('err.intentos') };
-  }
-  const { error: errActual } = await supabase.auth.signInWithPassword({ email: user.email, password: actual });
+  // Por usuario (no por IP): la contraseña que se protege es la suya.
+  const claveUsuario = claveLimite('clave', user.id);
+  // Se registra el intento ANTES de comprobar la contraseña actual (atómico)
+  // y se limpia al acertar.
+  const estado = await consumirIntento(claveUsuario, LIMITES.clave, { falloCerrado: true });
+  if (estado === 'error') return { error: t('err.red') };
+  if (estado === 'bloqueado') return { error: t('err.intentos') };
+  // Se comprueba con un cliente APARTE, sin cookies: iniciar sesión con el
+  // cliente de la sesión reemplazaría la sesión actual del navegador.
+  const { error: errActual } = await crearClienteServidor().auth.signInWithPassword({ email: user.email, password: actual });
   if (errActual) {
-    registrarIntento('clave:' + ip);
     return { error: t('err.actualMal') };
   }
-  limpiarIntentos('clave:' + ip);
+  await limpiarIntentos(claveUsuario);
 
   const { error } = await supabase.auth.updateUser({ password: nueva });
   if (error) {
@@ -90,5 +96,8 @@ export async function cambiarContrasena(_prevState, formData) {
     if (/weak|short|characters/i.test(m)) return { error: t('err.claveDebil') };
     return { error: t('err.claveFallo') };
   }
+  // Cierra las sesiones abiertas en OTROS dispositivos: si alguien más
+  // conocía la contraseña vieja, se queda fuera.
+  await supabase.auth.signOut({ scope: 'others' }).catch(() => {});
   return { ok: true };
 }
