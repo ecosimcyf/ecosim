@@ -21,12 +21,73 @@ import { BotonesExamenes, VentanaExamen, EXAMENES } from './Examenes';
 import { unir } from '@/lib/i18n/config';
 import { useIdioma, useT } from '@/lib/i18n/cliente';
 import SelectorIdioma from '@/lib/i18n/SelectorIdioma';
+import { SONDEO_BASE_MS, esperaInicial, siguienteIntervalo } from '@/lib/sondeo';
 import { ESTUDIANTE } from '@/lib/i18n/textos/estudiante';
 import { EXAMENES_TXT } from '@/lib/i18n/textos/examenes';
 
 const TEXTOS = unir(ESTUDIANTE, EXAMENES_TXT);
 const GRACIA_TACTIL_MS = 1500; // mismo valor que la app de escritorio
 const VISTAS = ['ventral', 'izq', 'der'];
+// Precarga: una descarga se abandona si pasa este tiempo SIN recibir datos
+// (no importa cuánto dure en total), y como mucho hay 4 a la vez para no
+// ahogar una conexión móvil.
+const PRECARGA_INACTIVIDAD_MS = 20000;
+const PRECARGA_SIMULTANEAS = 4;
+// Un video que se queda sin datos tanto tiempo se da por caído (se ofrece
+// reintentar).
+const VIDEO_ATASCADO_MS = 10000;
+
+// Al abrir un diálogo el foco entra en él, y al cerrarlo vuelve a donde
+// estaba (lector de pantalla y teclado).
+function useFocoDialogo() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const previo = document.activeElement;
+    ref.current?.focus();
+    return () => { try { previo?.focus?.(); } catch {} };
+  }, []);
+  return ref;
+}
+
+// Descripción del caso (la usan el menú y la vista dentro del caso).
+function DialogoDescripcion({ vista, t, onCerrar, onContinuar }) {
+  const ref = useFocoDialogo();
+  return (
+    <div className="overlay" onClick={onCerrar}>
+      <div className="desc-box" ref={ref} tabIndex={-1} role="dialog" aria-modal="true"
+        aria-labelledby="desc-nombre" onClick={(e) => e.stopPropagation()}>
+        <div className="desc-box-eyebrow">{t('desc.eyebrow')}</div>
+        <div className="desc-box-nombre" id="desc-nombre">{vista.caso.nombre}</div>
+        <div className="desc-box-divider" />
+        <div className="desc-box-texto">{vista.caso.descripcion}</div>
+        <button type="button" className="btn btn-primary" onClick={onContinuar}>
+          {vista.entrarAlCerrar ? t('desc.continuar') : t('desc.cerrar')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DialogoAyuda({ t, onCerrar }) {
+  const ref = useFocoDialogo();
+  return (
+    <div className="overlay" onClick={onCerrar}>
+      <div className="ayuda-box" ref={ref} tabIndex={-1} role="dialog" aria-modal="true"
+        aria-labelledby="ayuda-titulo" onClick={(e) => e.stopPropagation()}>
+        <div className="titulo" id="ayuda-titulo">{t('ayuda.titulo')}</div>
+        <table>
+          <tbody>
+            <tr><td>{t('ayuda.espacio')}</td><td>{t('ayuda.congelar')}</td></tr>
+            <tr><td>Esc</td><td>{t('ayuda.reposo')}</td></tr>
+            <tr><td>F11</td><td>{t('ayuda.pantalla')}</td></tr>
+            <tr><td>F1</td><td>{t('ayuda.ayuda')}</td></tr>
+          </tbody>
+        </table>
+        <button type="button" className="btn small" onClick={onCerrar}>{t('ayuda.cerrar')}</button>
+      </div>
+    </div>
+  );
+}
 
 // Posición del token: usa x/y guardados (en %) o una repartida por defecto.
 function posToken(p, i) {
@@ -63,14 +124,37 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   const [examenAbierto, setExamenAbierto] = useState(null);
   // El video del punto tocado se está descargando (modo "bajo demanda").
   const [videoCargando, setVideoCargando] = useState(false);
+  // El video falló o se atascó: se muestra "toca para reintentar".
+  const [videoError, setVideoError] = useState(false);
+  // Punto del maniquí que tiene la sonda ahora (para aria-pressed).
+  const [puntoActivo, setPuntoActivo] = useState(null);
 
   const videoRef = useRef(null);
   const graciaRef = useRef(null);
+  const atascoRef = useRef(null); // temporizador de "el video no avanza"
+  const abortarPrecargaRef = useRef(null); // corta las descargas pendientes
+  // Punteros (dedos o ratón) que ahora mismo sostienen la sonda: con
+  // multitoque se suelta solo cuando se levantan TODOS. Con el teclado no
+  // existe "mantener": Enter/Espacio dejan la sonda puesta (tecladoRef).
+  const punterosRef = useRef(new Set());
+  const tecladoRef = useRef(false);
   const blobsRef = useRef({}); // punto_id -> blob URL (video ya descargado)
   const casoSeleccionadoRef = useRef(null); // espejo de casoSeleccionado para el sondeo
   const cargaIdRef = useRef(0); // descarta respuestas de un caso que ya no es el elegido
 
-  const irAReposo = useCallback(() => setVideoUrl(null), []);
+  const irAReposo = useCallback(() => {
+    tecladoRef.current = false;
+    setPuntoActivo(null);
+    setVideoUrl(null);
+  }, []);
+  // Suelta la sonda del todo (cambio de vista, volver al menú): los
+  // punteros que la sostenían ya no existirán (el punto desaparece de la
+  // pantalla y nunca llegará su "pointerup").
+  const soltarTodo = useCallback(() => {
+    punterosRef.current.clear();
+    if (graciaRef.current) { clearTimeout(graciaRef.current); graciaRef.current = null; }
+    irAReposo();
+  }, [irAReposo]);
 
   useEffect(() => {
     casoSeleccionadoRef.current = casoSeleccionado;
@@ -99,7 +183,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       setCasoSeleccionado(null);
       return;
     }
-    setVideoUrl(null);
+    soltarTodo();
     setVista('ventral');
     setExamenAbierto(null);
     setDatos(d);
@@ -109,21 +193,20 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       const src = MANIQUIES.src(d.especie, v);
       if (src) { const img = new Image(); img.src = src; }
     });
-    // Y las imágenes de los exámenes (radiografías, reportes), para que la
-    // ventana abra sin esperas. Los PDF se abren aparte, no se precargan.
-    (d.examenes?.archivos || []).forEach((a) => {
-      if (a.mime !== 'application/pdf') { const img = new Image(); img.src = a.url; }
-    });
-  }, [cuentaId]);
+    // Las imágenes de los exámenes (radiografías, reportes) NO se precargan
+    // aquí: se piden al abrir su ventana, para no gastar datos móviles en
+    // algo que quizá nadie abra.
+  }, [cuentaId, soltarTodo]);
 
   const volverAlMenu = useCallback(() => {
     cargaIdRef.current++;
     setErrorCarga(false);
     setCasoSeleccionado(null);
     setDatos(null);
-    setVideoUrl(null);
+    soltarTodo();
     setExamenAbierto(null);
-  }, []);
+    setAyuda(false);
+  }, [soltarTodo]);
 
   // -------- Descripción del caso: "Ver descripción" desde el menú (se
   // queda en el menú al cerrar) o al tocar la tarjeta para entrar (al
@@ -135,7 +218,12 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   function verDescripcion(c) {
     setVistaDescripcion({ caso: c, entrarAlCerrar: false });
   }
+  // Escape o un clic fuera CIERRAN sin entrar al caso: solo el botón
+  // «Continuar» entra.
   function cerrarDescripcion() {
+    setVistaDescripcion(null);
+  }
+  function continuarDescripcion() {
     const v = vistaDescripcion;
     setVistaDescripcion(null);
     if (v?.entrarAlCerrar) abrirCaso(v.caso.id);
@@ -166,34 +254,52 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   // Con la pestaña oculta (otra app, pantalla apagada) NO se consulta: en
   // un salón de 40 estudiantes eso son muchas consultas que nadie ve. Al
   // volver a la pestaña se consulta en el acto y se reanuda el sondeo.
+  // Devuelve true si la consulta funcionó (el sondeo usa eso para espaciarse
+  // cuando la red falla; ver src/lib/sondeo.js).
   const recargarLista = useCallback(async () => {
     const lista = await listarCasosActivos(crearClienteNavegador(), cuentaId);
     // null = la consulta falló (red caída): se conserva lo que había y se
     // reintenta en el siguiente sondeo. NUNCA se interpreta como "el
     // profesor desactivó todo", o un corte de Wi-Fi sacaría a toda la
     // clase de su caso.
-    if (!lista) return;
+    if (!lista) return false;
     setCasosActivos(lista);
     const abiertoId = casoSeleccionadoRef.current;
     if (abiertoId && !lista.some((c) => c.id === abiertoId)) {
       setAvisoCasoDesactivado(true);
       setCasoSeleccionado(null);
       setDatos(null);
-      setVideoUrl(null);
+      soltarTodo();
+      setAyuda(false);
     }
-  }, [cuentaId]);
+    return true;
+  }, [cuentaId, soltarTodo]);
 
+  // Sondeo cada 15 s (el primero con un desfase aleatorio de 0–5 s; tras un
+  // fallo el intervalo se duplica hasta 60 s). Con la pestaña oculta no se
+  // consulta; al volver se consulta en el acto y se reanuda.
   useEffect(() => {
-    let sondeo = null;
-    const arrancar = () => { if (!sondeo) sondeo = setInterval(recargarLista, 15000); };
-    const parar = () => { clearInterval(sondeo); sondeo = null; };
+    let temporizador = null;
+    let intervalo = SONDEO_BASE_MS;
+    let vivo = true;
+    let enCurso = false;
+    const programar = (ms) => { clearTimeout(temporizador); temporizador = setTimeout(ciclo, ms); };
+    async function ciclo() {
+      if (!vivo || document.hidden || enCurso) return;
+      enCurso = true;
+      let ok = false;
+      try { ok = await recargarLista(); } finally { enCurso = false; }
+      if (!vivo || document.hidden) return;
+      intervalo = siguienteIntervalo(intervalo, ok);
+      programar(intervalo);
+    }
     const alCambiarVisibilidad = () => {
-      if (document.hidden) parar();
-      else { recargarLista(); arrancar(); }
+      clearTimeout(temporizador); temporizador = null;
+      if (!document.hidden) { intervalo = SONDEO_BASE_MS; ciclo(); }
     };
-    if (!document.hidden) arrancar();
+    if (!document.hidden) programar(esperaInicial(Math.random()));
     document.addEventListener('visibilitychange', alCambiarVisibilidad);
-    return () => { parar(); document.removeEventListener('visibilitychange', alCambiarVisibilidad); };
+    return () => { vivo = false; clearTimeout(temporizador); document.removeEventListener('visibilitychange', alCambiarVisibilidad); };
   }, [recargarLista]);
 
   // -------- Precarga de todos los videos del caso elegido --------
@@ -209,7 +315,8 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     }
 
     let vigente = true;
-    const controladores = [];
+    let omitido = false; // el estudiante tocó «Empezar sin esperar»
+    const controladores = new Set();
     // Varios puntos pueden compartir el mismo archivo: se descarga una sola
     // vez por URL y el blob se reparte entre todos sus puntos.
     const urls = [...new Set(datos.puntos.filter((p) => p.videoUrl).map((p) => p.videoUrl))];
@@ -221,49 +328,76 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     const progreso = urls.map(() => 0); // 0..1 por video
     let pctMostrado = 0;
     const actualizar = () => {
-      if (!vigente) return;
+      if (!vigente || omitido) return;
       const pct = Math.min(99, Math.round((progreso.reduce((s, x) => s + x, 0) / urls.length) * 100));
       if (pct > pctMostrado) { pctMostrado = pct; setPrecarga({ cargando: true, pct }); }
     };
 
-    (async () => {
-      await Promise.all(urls.map(async (url, i) => {
-        const ctrl = new AbortController();
-        controladores.push(ctrl);
-        // Un video que no termina en 60 s se abandona (se usará la URL
-        // directa al tocar el punto): la pantalla de carga nunca se queda
-        // pegada por una conexión colgada.
-        const limite = setTimeout(() => ctrl.abort(), 60000);
-        try {
-          const resp = await fetch(url, { signal: ctrl.signal });
-          if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
-          const total = Number(resp.headers.get('content-length')) || 0;
-          const reader = resp.body.getReader();
-          const trozos = [];
-          let hechos = 0;
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            trozos.push(value);
-            hechos += value.length;
-            if (total) { progreso[i] = Math.min(1, hechos / total); actualizar(); }
-          }
-          if (!vigente) return;
-          const blob = URL.createObjectURL(new Blob(trozos, { type: 'video/mp4' }));
-          datos.puntos.filter((p) => p.videoUrl === url).forEach((p) => { blobsRef.current[p.id] = blob; });
-        } catch {
-          // Si un video falla al precargar, se usará su URL directa como respaldo.
-        } finally {
-          clearTimeout(limite);
-          progreso[i] = 1;
-          actualizar();
+    async function descargar(i) {
+      const url = urls[i];
+      const ctrl = new AbortController();
+      controladores.add(ctrl);
+      // Una descarga que lleva PRECARGA_INACTIVIDAD_MS sin recibir nada se
+      // abandona (se usará la URL directa al tocar el punto): la pantalla
+      // de carga nunca se queda pegada por una conexión colgada, pero un
+      // video grande que sí avanza puede tardar lo que necesite. El plazo
+      // se reinicia con cada trozo recibido.
+      let limite = null;
+      const vigilar = () => { clearTimeout(limite); limite = setTimeout(() => ctrl.abort(), PRECARGA_INACTIVIDAD_MS); };
+      try {
+        vigilar();
+        const resp = await fetch(url, { signal: ctrl.signal });
+        if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
+        const total = Number(resp.headers.get('content-length')) || 0;
+        const tipo = resp.headers.get('content-type') || '';
+        const reader = resp.body.getReader();
+        const trozos = [];
+        let hechos = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          vigilar();
+          trozos.push(value);
+          hechos += value.length;
+          if (total) { progreso[i] = Math.min(1, hechos / total); actualizar(); }
         }
-      }));
+        if (!vigente || omitido) return;
+        // El tipo real de la respuesta (algunos navegadores lo necesitan
+        // para reproducir el blob); mp4 si el servidor no dijo video/*.
+        const blob = URL.createObjectURL(new Blob(trozos, { type: tipo.startsWith('video/') ? tipo : 'video/mp4' }));
+        datos.puntos.filter((p) => p.videoUrl === url).forEach((p) => { blobsRef.current[p.id] = blob; });
+      } catch {
+        // Si un video falla al precargar, se usará su URL directa como respaldo.
+      } finally {
+        clearTimeout(limite);
+        controladores.delete(ctrl);
+        progreso[i] = 1;
+        actualizar();
+      }
+    }
+
+    // Cola con como mucho PRECARGA_SIMULTANEAS descargas a la vez.
+    let siguiente = 0;
+    const trabajador = async () => {
+      while (vigente && !omitido) {
+        const i = siguiente++;
+        if (i >= urls.length) return;
+        await descargar(i);
+      }
+    };
+    abortarPrecargaRef.current = () => {
+      omitido = true;
+      controladores.forEach((c) => { try { c.abort(); } catch {} });
+    };
+
+    (async () => {
+      await Promise.all(Array.from({ length: Math.min(PRECARGA_SIMULTANEAS, urls.length) }, trabajador));
       if (vigente) setPrecarga({ cargando: false, pct: 100 });
     })();
 
     return () => {
       vigente = false;
+      abortarPrecargaRef.current = null;
       controladores.forEach((c) => { try { c.abort(); } catch {} });
       new Set(Object.values(blobsRef.current)).forEach((u) => URL.revokeObjectURL(u));
       blobsRef.current = {};
@@ -276,6 +410,8 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     if (!v) return;
     setCongelado(false);
     setVideoCargando(false);
+    setVideoError(false);
+    limpiarAtasco();
     if (videoUrl) {
       v.muted = true;
       if (v.getAttribute('src') !== videoUrl) v.src = videoUrl;
@@ -287,12 +423,22 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
     }
   }, [videoUrl]);
 
+  // Al salir del caso se suelta el <video> (si no, el navegador puede
+  // seguir con el archivo en memoria o descargándolo).
+  useEffect(() => {
+    const v = videoRef.current;
+    return () => {
+      if (!v) return;
+      try { v.pause(); v.removeAttribute('src'); v.load(); } catch {}
+    };
+  }, [datos]);
+  useEffect(() => limpiarAtasco, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // -------- Congelar / descongelar (tecla Espacio o botón en pantalla) --------
   // Mientras está congelado, soltar el punto NO vuelve al reposo: así en el
   // móvil (sin teclado) se puede congelar con el botón y estudiar la imagen
   // con el dedo fuera del maniquí.
   const congeladoRef = useRef(false);
-  const presionadoRef = useRef(false); // ¿hay un dedo/clic sobre un punto ahora?
   useEffect(() => { congeladoRef.current = congelado; }, [congelado]);
   const alternarCongelado = useCallback(() => {
     const v = videoRef.current;
@@ -310,7 +456,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       v.play().catch(() => {});
       // Si ya no hay un dedo sobre el punto, al descongelar se vuelve al
       // reposo con el mismo margen de siempre.
-      if (!presionadoRef.current) {
+      if (punterosRef.current.size === 0 && !tecladoRef.current) {
         graciaRef.current = setTimeout(() => { graciaRef.current = null; setVideoUrl(null); }, GRACIA_TACTIL_MS);
       }
     }
@@ -319,37 +465,94 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   // -------- Atajos de teclado --------
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'F1') { e.preventDefault(); setAyuda((a) => !a); return; }
+      // F1 sin caso abierto no deja la ayuda "pendiente" para cuando se entre.
+      if (e.key === 'F1') { e.preventDefault(); if (datos) setAyuda((a) => !a); return; }
       if (e.key === 'F11') { e.preventDefault(); alternarPantallaCompleta(); return; }
       if (e.key === 'Escape') {
         if (examenAbierto) { setExamenAbierto(null); return; }
-        if (vistaDescripcion) { cerrarDescripcion(); return; }
+        if (vistaDescripcion) { setVistaDescripcion(null); return; }
         if (ayuda) setAyuda(false); else irAReposo();
         return;
       }
       if (e.code === 'Space' && videoUrl && !examenAbierto) {
+        // Con el foco en un punto del maniquí, Espacio lo activa a ÉL (ver
+        // alternarConTeclado), no congela.
+        if (e.target?.closest?.('[data-punto]')) return;
         e.preventDefault();
-        alternarCongelado();
+        // Mantener la tecla pulsada repite el evento: no debe congelar y descongelar.
+        if (!e.repeat) alternarCongelado();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [ayuda, videoUrl, irAReposo, vistaDescripcion, alternarCongelado, examenAbierto]);
+  }, [ayuda, videoUrl, irAReposo, vistaDescripcion, alternarCongelado, examenAbierto, datos]);
 
   // -------- Presionar / soltar un punto --------
+  const urlDelPunto = (p) => blobsRef.current[p.id] || p.videoUrl || null; // el precargado, o la URL directa
   const presionar = (p, e) => {
+    // Con el ratón solo cuenta el botón principal (no el derecho ni el central).
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-    presionadoRef.current = true;
+    punterosRef.current.add(e.pointerId);
+    tecladoRef.current = false;
     if (graciaRef.current) { clearTimeout(graciaRef.current); graciaRef.current = null; }
-    // Usa el video ya precargado (blob); si no, la URL directa como respaldo.
-    setVideoUrl(blobsRef.current[p.id] || p.videoUrl || null);
+    setPuntoActivo(p.id);
+    setVideoUrl(urlDelPunto(p));
   };
-  const soltar = () => {
-    presionadoRef.current = false;
+  const soltar = (e) => {
+    if (!punterosRef.current.delete(e.pointerId)) return; // no lo sostenía
+    if (punterosRef.current.size > 0) return; // queda otro dedo puesto
     if (graciaRef.current) clearTimeout(graciaRef.current);
     if (congeladoRef.current) { graciaRef.current = null; return; }
     graciaRef.current = setTimeout(() => { graciaRef.current = null; irAReposo(); }, GRACIA_TACTIL_MS);
   };
+  // Con teclado no hay "mantener": Enter o Espacio ponen la sonda en el
+  // punto y la dejan; otra vez, la quitan.
+  const alternarConTeclado = (p) => {
+    if (graciaRef.current) { clearTimeout(graciaRef.current); graciaRef.current = null; }
+    const url = urlDelPunto(p);
+    if (!url || (tecladoRef.current && puntoActivo === p.id)) { irAReposo(); return; }
+    punterosRef.current.clear();
+    tecladoRef.current = true;
+    setPuntoActivo(p.id);
+    setVideoUrl(url);
+  };
+
+  // -------- Video: fallos y atascos --------
+  function limpiarAtasco() {
+    if (atascoRef.current) { clearTimeout(atascoRef.current); atascoRef.current = null; }
+  }
+  // Se esperan datos: si en VIDEO_ATASCADO_MS no llegan, se ofrece reintentar.
+  function armarAtasco() {
+    const v = videoRef.current;
+    if (!v || !v.getAttribute('src')) return;
+    limpiarAtasco();
+    atascoRef.current = setTimeout(() => {
+      atascoRef.current = null;
+      const vv = videoRef.current;
+      if (vv && vv.getAttribute('src') && vv.readyState < 3) { setVideoCargando(false); setVideoError(true); }
+    }, VIDEO_ATASCADO_MS);
+  }
+  function alFallarVideo() {
+    if (!videoRef.current?.getAttribute('src')) return; // el vaciado de reposo no es un fallo
+    limpiarAtasco();
+    setVideoCargando(false);
+    setVideoError(true);
+  }
+  function alHaberVideo() {
+    limpiarAtasco();
+    setVideoCargando(false);
+    setVideoError(false);
+  }
+  function reintentarVideo() {
+    const v = videoRef.current;
+    if (!v) return;
+    setVideoError(false);
+    setVideoCargando(true);
+    armarAtasco();
+    v.load();
+    v.play().catch(() => {});
+  }
 
   // -------- Menú: todavía no se ha elegido ningún caso --------
   if (!casoSeleccionado) {
@@ -398,17 +601,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
         )}
 
         {vistaDescripcion && (
-          <div className="overlay" onClick={cerrarDescripcion}>
-            <div className="desc-box" onClick={(e) => e.stopPropagation()}>
-              <div className="desc-box-eyebrow">{t('desc.eyebrow')}</div>
-              <div className="desc-box-nombre">{vistaDescripcion.caso.nombre}</div>
-              <div className="desc-box-divider" />
-              <div className="desc-box-texto">{vistaDescripcion.caso.descripcion}</div>
-              <button className="btn btn-primary" onClick={cerrarDescripcion}>
-                {vistaDescripcion.entrarAlCerrar ? t('desc.continuar') : t('desc.cerrar')}
-              </button>
-            </div>
-          </div>
+          <DialogoDescripcion vista={vistaDescripcion} t={t} onCerrar={cerrarDescripcion} onContinuar={continuarDescripcion} />
         )}
       </div>
     );
@@ -429,7 +622,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
           </>
         ) : (
           <>
-            <div className="txt">{t('carga.cargando')}</div>
+            <div className="txt" role="status">{t('carga.cargando')}</div>
             <div className="espera-acciones">
               <button className="btn small" onClick={volverAlMenu}>{t('carga.volver')}</button>
             </div>
@@ -450,11 +643,18 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       {precarga.cargando && (
         <div className="carga-overlay">
           <div className="carga-box">
-            <div className="carga-titulo">{t('precarga.titulo')}</div>
-            <div className="carga-barra"><div className="carga-relleno" style={{ width: precarga.pct + '%' }} /></div>
-            <div className="carga-pct">{precarga.pct}%</div>
+            <div className="carga-titulo" role="status">{t('precarga.titulo')}</div>
+            <div className="carga-barra" role="progressbar" aria-label={t('precarga.titulo')}
+              aria-valuemin={0} aria-valuemax={100} aria-valuenow={precarga.pct}>
+              <div className="carga-relleno" style={{ width: precarga.pct + '%' }} />
+            </div>
+            <div className="carga-pct" aria-hidden="true">{precarga.pct}%</div>
             <div className="carga-sub">{t('precarga.sub')}</div>
-            <button className="btn small carga-saltar" onClick={() => setPrecarga({ cargando: false, pct: 100 })}>
+            <button className="btn small carga-saltar" onClick={() => {
+              // Corta las descargas pendientes: lo que falte se pedirá al tocar cada punto.
+              abortarPrecargaRef.current?.();
+              setPrecarga({ cargando: false, pct: 100 });
+            }}>
               {t('precarga.saltar')}
             </button>
           </div>
@@ -469,11 +669,16 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
           loop
           playsInline
           style={{ display: videoUrl ? 'block' : 'none' }}
-          onWaiting={() => setVideoCargando(true)}
-          onPlaying={() => setVideoCargando(false)}
-          onCanPlay={() => setVideoCargando(false)}
+          onWaiting={() => { setVideoCargando(true); armarAtasco(); }}
+          onStalled={armarAtasco}
+          onPlaying={alHaberVideo}
+          onCanPlay={alHaberVideo}
+          onError={alFallarVideo}
         />
-        {videoUrl && videoCargando && <div className="video-cargando">{t('visor.cargando')}</div>}
+        {videoUrl && videoCargando && !videoError && <div className="video-cargando" role="status">{t('visor.cargando')}</div>}
+        {videoUrl && videoError && (
+          <button type="button" className="video-error" role="alert" onClick={reintentarVideo}>{t('visor.error')}</button>
+        )}
         {!videoUrl && (
           <div className="idle-screen">
             <div className="idle-mark">ECOSIM</div>
@@ -510,7 +715,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
             <button
               key={v}
               className={'tab' + (v === vista ? ' act' : '')}
-              onClick={() => setVista(v)}
+              onClick={() => { soltarTodo(); setVista(v); }}
             >
               {t('tabs.' + v)}
             </button>
@@ -551,9 +756,20 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
                 key={p.id}
                 className={'mq-token ' + clase}
                 style={{ left: pos.x + '%', top: pos.y + '%' }}
+                data-punto
+                role="button"
+                tabIndex={0}
+                aria-pressed={puntoActivo === p.id}
+                aria-label={t('mq.punto', { n: i + 1 })}
                 onPointerDown={(e) => presionar(p, e)}
                 onPointerUp={soltar}
                 onPointerCancel={soltar}
+                onContextMenu={(e) => e.preventDefault()}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  e.preventDefault();
+                  if (!e.repeat) alternarConTeclado(p);
+                }}
               >
                 {i + 1}
               </div>
@@ -564,22 +780,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
       </div>
 
       {/* Ayuda (F1) */}
-      {ayuda && (
-        <div className="overlay" onClick={() => setAyuda(false)}>
-          <div className="ayuda-box" onClick={(e) => e.stopPropagation()}>
-            <div className="titulo">{t('ayuda.titulo')}</div>
-            <table>
-              <tbody>
-                <tr><td>{t('ayuda.espacio')}</td><td>{t('ayuda.congelar')}</td></tr>
-                <tr><td>Esc</td><td>{t('ayuda.reposo')}</td></tr>
-                <tr><td>F11</td><td>{t('ayuda.pantalla')}</td></tr>
-                <tr><td>F1</td><td>{t('ayuda.ayuda')}</td></tr>
-              </tbody>
-            </table>
-            <button className="btn small" onClick={() => setAyuda(false)}>{t('ayuda.cerrar')}</button>
-          </div>
-        </div>
-      )}
+      {ayuda && <DialogoAyuda t={t} onCerrar={() => setAyuda(false)} />}
 
       {/* Exámenes complementarios (botones arriba a la derecha del visor) */}
       {examenAbierto && (
@@ -592,17 +793,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
 
       {/* Descripción del caso, pedida desde dentro (botón "Descripción" de arriba) */}
       {vistaDescripcion && (
-        <div className="overlay" onClick={cerrarDescripcion}>
-          <div className="desc-box" onClick={(e) => e.stopPropagation()}>
-            <div className="desc-box-eyebrow">{t('desc.eyebrow')}</div>
-            <div className="desc-box-nombre">{vistaDescripcion.caso.nombre}</div>
-            <div className="desc-box-divider" />
-            <div className="desc-box-texto">{vistaDescripcion.caso.descripcion}</div>
-            <button className="btn btn-primary" onClick={cerrarDescripcion}>
-              {vistaDescripcion.entrarAlCerrar ? t('desc.continuar') : t('desc.cerrar')}
-            </button>
-          </div>
-        </div>
+        <DialogoDescripcion vista={vistaDescripcion} t={t} onCerrar={cerrarDescripcion} onContinuar={continuarDescripcion} />
       )}
     </div>
   );

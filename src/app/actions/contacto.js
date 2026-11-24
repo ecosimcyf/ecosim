@@ -15,9 +15,10 @@
 // Ley 1581 de 2012 (habeas data): sin la casilla de autorización marcada
 // no se guarda nada, y se anota cuándo se autorizó (autorizo_datos_en).
 // ============================================================
+import { after } from 'next/server';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
-import { estaBloqueado, registrarIntento, ipVisitante } from '@/lib/ratelimit';
-import { LIMITES, claveLimite } from '@/lib/limites';
+import { consumirIntento, ipVisitante } from '@/lib/ratelimit';
+import { LIMITES, LIMITE_CORREO_DIA, claveLimite, sinSaltos } from '@/lib/limites';
 import { registrarError } from '@/lib/errores';
 import { enviarCorreo } from '@/lib/correo';
 import { crearT } from '@/lib/i18n/config';
@@ -47,12 +48,14 @@ export async function enviarSolicitudContacto(_prevState, formData) {
   // Por correo solo si viene uno (si no, todos los envíos sin correo
   // compartirían el mismo contador).
   const claveCorreo = correo ? claveLimite('contacto', correo) : null;
-  if (await estaBloqueado(claveIp, LIMITES.contactoIp)
-    || (claveCorreo && await estaBloqueado(claveCorreo, LIMITES.contactoCorreo))) {
+  // Comprobar y registrar es un solo paso atómico (ver ratelimit.js). Aquí
+  // sí hay respaldo en memoria si la base falla: mejor un formulario con
+  // límite imperfecto que uno que no deja escribir.
+  const porIp = await consumirIntento(claveIp, LIMITES.contactoIp);
+  const porCorreo = claveCorreo ? await consumirIntento(claveCorreo, LIMITES.contactoCorreo) : 'ok';
+  if (porIp === 'bloqueado' || porCorreo === 'bloqueado') {
     return { error: t('form.errores.intentos') };
   }
-  await registrarIntento(claveIp, LIMITES.contactoIp);
-  if (claveCorreo) await registrarIntento(claveCorreo, LIMITES.contactoCorreo);
 
   if (!nombre || !correo) return { error: t('form.errores.faltan') };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) return { error: t('form.errores.correo') };
@@ -78,7 +81,13 @@ export async function enviarSolicitudContacto(_prevState, formData) {
     return { error: t('form.errores.envio') };
   }
 
-  await avisarPorCorreo(fila);
+  // El aviso por correo se manda DESPUÉS de responder (after): el visitante
+  // no espera a Resend (hasta 8 s). Hay un tope global de avisos al día: si
+  // alguien inunda el formulario, las solicitudes se guardan igual pero ya
+  // no se envía correo.
+  if (await consumirIntento('contacto-correo-dia', LIMITE_CORREO_DIA) === 'ok') {
+    after(() => avisarPorCorreo(fila));
+  }
   return { ok: true };
 }
 
@@ -90,8 +99,9 @@ export async function enviarSolicitudContacto(_prevState, formData) {
 async function avisarPorCorreo(s) {
   const r = await enviarCorreo({
     para: process.env.AVISO_SOLICITUDES_A,
-    responderA: s.correo,
-    asunto: 'Nueva solicitud de EcoSim: ' + s.nombre + (s.clinica ? ' (' + s.clinica + ')' : ''),
+    responderA: sinSaltos(s.correo),
+    // sinSaltos: sin saltos de línea en el asunto (inyección de cabeceras de correo).
+    asunto: 'Nueva solicitud de EcoSim: ' + sinSaltos(s.nombre) + (s.clinica ? ' (' + sinSaltos(s.clinica) + ')' : ''),
     texto: [
       'Nombre: ' + s.nombre,
       'Clínica: ' + (s.clinica || '—'),

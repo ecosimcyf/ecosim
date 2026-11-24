@@ -21,14 +21,15 @@ import BotonWhatsApp, { IconoWhatsApp } from '@/app/landing/BotonWhatsApp';
 import { jakarta } from '@/app/landing/fuente';
 import { whatsappUrl, WHATSAPP_VISIBLE, CORREO, DEMO_PUBLICA, DEMO_VIDEO } from '@/app/landing/contacto';
 import { crearT } from '@/lib/i18n/config';
-import { idiomaDeParams, alternativas } from '@/lib/i18n/publico';
+import { metadatosPagina } from '@/app/base';
+import { idiomaDeParams } from '@/lib/i18n/publico';
 import { idiomaONoEncontrado } from '@/lib/i18n/publico-servidor';
 import { LANDING } from '@/lib/i18n/textos/landing';
 
 export async function generateMetadata({ params }) {
   const idioma = await idiomaDeParams(params);
   const t = crearT(LANDING, idioma);
-  return { title: t('meta.titulo'), description: t('meta.descripcion'), alternates: alternativas('', idioma) };
+  return metadatosPagina({ idioma, ruta: '', titulo: t('meta.titulo'), descripcion: t('meta.descripcion') });
 }
 
 // Íconos de las tarjetas, en el mismo orden que sus textos.
@@ -176,7 +177,7 @@ export default async function Home({ params }) {
             </li>
           ))}
         </ol>
-        <p className="landing-paso-guia"><a href="/guia">{t('pasos.verGuia')} →</a></p>
+        <p className="landing-paso-guia"><a href={'/' + idioma + '/guia'}>{t('pasos.verGuia')} →</a></p>
       </section>
 
       <section className="landing-section" data-reveal>
@@ -248,7 +249,7 @@ export default async function Home({ params }) {
               <summary>{q.p}</summary>
               <p>
                 {q.r}
-                {q.privacidad && <> <a href="/privacidad">{t('faq.verPrivacidad')}</a>.</>}
+                {q.privacidad && <> <a href={'/' + idioma + '/privacidad'}>{t('faq.verPrivacidad')}</a>.</>}
               </p>
             </details>
           ))}
@@ -270,7 +271,7 @@ export default async function Home({ params }) {
           </span>
           <span className="landing-contacto-o">{t('contacto.o')}</span>
         </div>
-        <FormularioContacto textos={textosFormulario} />
+        <FormularioContacto textos={textosFormulario} idioma={idioma} />
       </section>
 
       <LandingFooter idioma={idioma} />

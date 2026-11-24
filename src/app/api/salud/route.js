@@ -25,8 +25,11 @@ export async function GET() {
   } catch {
     ok = false;
   }
+  // La respuesta buena se guarda 30 s en la caché del CDN: un monitor (o
+  // alguien que recargue sin parar) no consulta la base en cada visita.
+  // Un fallo nunca se guarda: se vuelve a comprobar de inmediato.
   return Response.json(
     { ok, baseDeDatos: ok ? 'ok' : 'sin respuesta', ms: Date.now() - inicio },
-    { status: ok ? 200 : 503, headers: { 'Cache-Control': 'no-store' } },
+    { status: ok ? 200 : 503, headers: { 'Cache-Control': ok ? 'public, s-maxage=30' : 'no-store' } },
   );
 }

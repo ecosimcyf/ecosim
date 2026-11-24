@@ -1,7 +1,7 @@
 // ============================================================
 // Tarea diaria automática (Vercel Cron, ver vercel.json): borra archivos
-// huérfanos, reservas de subida vencidas, contadores de intentos viejos y
-// errores de más de 30 días (ver src/lib/limpieza.js).
+// huérfanos, reservas de subida vencidas y contadores de intentos viejos
+// (ver src/lib/limpieza.js).
 //
 // Protegida con CRON_SECRET: Vercel la manda sola en la cabecera
 // Authorization cuando la variable está configurada en el proyecto. Sin

@@ -1,7 +1,8 @@
 # Checklist de producción — EcoSim web
 
-- **Auditoría:** 2026-11-05.
-- **Arreglos:** el mismo día, en la rama `mejoras-revision-nov2026`, la de noviembre, **todavía sin mezclar a `main`**. Todo lo marcado ✅ aquí está en esa rama y llega a producción cuando se mezcle.
+- **Auditoría:** 2026-11-05. **Puesta al día:** 2026-11-24.
+- **Rama:** `actualizacion-2026-11`, **todavía sin mezclar a `main`**. Todo lo marcado ✅ aquí está en esa rama y llega a producción cuando se mezcle.
+- **No incluido en esta versión:** el código de acceso de los estudiantes, la verificación en dos pasos (2FA) y el registro de errores en la base (pestaña «Errores» y aviso por correo). Los errores del servidor van al registro (Logs) de Vercel. El aviso por correo de las solicitudes de contacto (Resend) sí sigue.
 - **Objetivo:** que la web aguante clases, conferencias y picos de tráfico sin fallar delante de la gente.
 
 **Leyenda:** ✅ cumple · ⚠️ a medias · ❌ falta · ❓ depende de un panel externo (Vercel/Supabase) · 👤 lo tienes que hacer tú
@@ -13,14 +14,13 @@
 | # | Qué | Por qué |
 |---|-----|---------|
 | 1 | 👤 **Revisar los planes de Vercel y Supabase** (pospuesto a pedido). | Vercel Hobby no permite uso comercial. Supabase Free da ~5 GB de transferencia al mes y se pausa tras ~1 semana sin uso. Cuenta: una conferencia de 300 personas con un caso de 34 MB son ~10 GB. |
-| 2 | 👤 **Mezclar la rama de noviembre a `main`** y después ejecutar `migracion-2026-11-04-cerrar-funciones-viejas.sql`. | Sin ese SQL, el código de acceso se puede saltar. |
-| 3 | 👤 **Crear un monitor de disponibilidad** (UptimeRobot o Better Stack, gratis) que consulte `https://<dominio>/api/salud` cada 1–5 min y te avise. | La ruta ya existe: responde 200 si la web y la base contestan, 503 si no. |
-| 4 | 👤 **Activar la verificación en dos pasos** en tu cuenta de super_admin: panel → «Contraseña y seguridad». | El panel te lo recuerda con un aviso amarillo mientras no la actives. |
+| 2 | 👤 **Ejecutar las migraciones SQL** en Supabase → SQL Editor, `migracion-2026-11-24-arreglos.sql` (límites e intentos atómicos, reservas de cupo atómicas, permisos y cierre de las funciones públicas viejas) **después** de que Vercel publique esta rama en producción. Ya incluye `migracion-2026-11-04-cerrar-funciones-viejas.sql`. | Si se ejecuta ANTES de desplegar, la versión anterior (que usa las funciones viejas) deja de funcionar para los estudiantes. Sin ejecutarla, esta versión funciona con el comportamiento anterior (límites y cupos no atómicos). |
+| 3 | 👤 **Poner `CRON_SECRET`** en Vercel → Settings → Environment Variables (cadena larga y aleatoria) y volver a desplegar. | Sin ella, la limpieza diaria (`/api/cron/limpieza`) no hace nada: se acumulan archivos huérfanos, reservas vencidas y contadores. |
+| 4 | 👤 **Crear un monitor de disponibilidad** (UptimeRobot o Better Stack, gratis) que consulte `https://<dominio>/api/salud` cada 1–5 min y te avise. | La ruta ya existe: responde 200 si la web y la base contestan, 503 si no. |
 | 5 | 👤 **Hacer un respaldo cada semana:** `npm run respaldo`. Copiar la carpeta `respaldos/` a un disco externo o a tu Drive. | Ver `docs/respaldo-y-restauracion.md`. |
 | 6 | 👤 **Dominio propio** (p. ej. `ecosim.co`) en Vercel, y `NEXT_PUBLIC_SITE_URL` apuntando a él. | Hoy es `ecosim-eta.vercel.app`. |
-| 7 | 👤 **Probar una vez el login con 2FA** en la vista previa de Vercel: activarla, cerrar sesión, entrar y escribir el código. | Activarla, confirmarla y quitarla sí se probó; el paso del código al iniciar sesión necesita tu contraseña. |
-| 8 | 👤 **Imagen de vista previa de 1200×630 px** para cuando se comparte el enlace. | La actual es de 800×455. |
-| 9 | 👤 **Activar el aviso de errores por correo:** crear una cuenta gratis en resend.com y poner en Vercel `RESEND_API_KEY` y `AVISO_ERRORES_A` (tu correo). | Sin esas dos variables no se envía nada. Ver `src/lib/aviso-errores.js`. |
+| 7 | 👤 **Imagen de vista previa de 1200×630 px** para cuando se comparte el enlace. | La actual es de 800×455. |
+| 8 | 👤 (Opcional) **Activar el aviso por correo de solicitudes de contacto:** cuenta gratis en resend.com y, en Vercel, `RESEND_API_KEY` y `AVISO_SOLICITUDES_A` (tu correo). | Sin esas variables no se envía nada; las solicitudes se siguen viendo en el panel. |
 
 ---
 
@@ -33,7 +33,7 @@
 | Videos (Supabase Storage) | ✅ Caché de 1 año + CDN `HIT` | Sin cambios. |
 | Imágenes de maniquíes | `max-age=0` | ✅ Una semana de caché. |
 | `/c/noexiste` | 200 | ✅ 404. |
-| Funciones públicas viejas | Abiertas | Se cierran con el SQL del pendiente #2. |
+| Funciones públicas viejas | Abiertas | Se cierran con el segundo SQL del pendiente #2. |
 
 ---
 
@@ -46,7 +46,7 @@
 | ❓👤 | Alertas de gasto y uso en ambos paneles | Para que un pico no termine en factura sorpresa ni en corte. |
 | ❌👤 | Dominio propio | Pendiente #6. |
 | ✅ | HTTPS y HSTS | Los pone Vercel. |
-| ✅ | Tarea diaria de limpieza protegida | `/api/cron/limpieza` con `CRON_SECRET`. |
+| ⚠️👤 | Tarea diaria de limpieza protegida | `/api/cron/limpieza` con `CRON_SECRET` (pendiente #3). |
 
 ## 2. Seguridad
 
@@ -57,13 +57,12 @@
 | ✅ | Un cliente no puede tocar datos de otro | |
 | ✅ | Base de datos cerrada por defecto (RLS) | |
 | ⚠️👤 | Funciones viejas cerradas | Pendiente #2. |
-| ✅ | **Límites de intentos aptos para IP compartida** | Ver `src/lib/limites.js`:<br>• Login: 5 fallos por IP + correo y 50 por IP.<br>• Contacto: 3 por correo cada hora y 20 por IP.<br>• Código del estudiante: 150 fallos por IP + cuenta.<br>• Cambio de contraseña: por usuario. |
-| ✅ | **Códigos de acceso nuevos de 6+ caracteres** | Los de 4–5 que ya existían siguen valiendo. Adivinar uno nuevo al ritmo permitido tomaría más de 100 años. |
-| ✅ | **Verificación en dos pasos (2FA)** | TOTP de Supabase:<br>• Opcional por admin, desde «Contraseña y seguridad».<br>• Con ella activa, el middleware y cada acción exigen el código.<br>• «Restablecer contraseña» del super_admin también la quita, por si el cliente pierde el teléfono.<br>• Aviso al super_admin mientras no la active. |
+| ✅ | **Límites de intentos aptos para IP compartida, guardados en la base** | Ver `src/lib/limites.js` (tabla `intentos`, compartida por todos los servidores):<br>• Login: 5 fallos por IP + correo y 50 por IP.<br>• Contacto: 3 por correo cada hora y 20 por IP.<br>• Cambio de contraseña: por usuario.<br>• Cupos de subida de videos (tabla `subidas_pendientes`). Se vuelven atómicos con el pendiente #2. |
+| ➖ | Código de acceso de los estudiantes, 2FA | **No incluidos en esta versión.** Cualquiera con el enlace de la cuenta ve sus casos; el panel se protege con correo y contraseña. |
 | ✅ | Registro público de usuarios desactivado | |
 | ✅ | **CSP completa APLICADA** | Antes estaba solo en modo aviso. Probada sin violaciones en la landing, la guía, el estudiante (precarga y video) y el panel (subida con conversión ffmpeg de un video MPEG-4 Parte 2). |
 | ✅ | **Dependencias sin vulnerabilidades** | `npm audit`: 0. `postcss` actualizado sin el salto a Next 16. `@supabase/ssr` 0.5 → 0.12.7. ffmpeg.wasm al día. |
-| ⚠️ | Videos protegidos por el código | Bucket público: la URL de un video, una vez copiada, funciona sin código. Es aceptable para material docente; si un cliente lo exige, se pueden usar URL firmadas que caducan. |
+| ⚠️ | Videos con URL pública | Bucket público: la URL de un video, una vez copiada, funciona para cualquiera. Es aceptable para material docente; si un cliente lo exige, se pueden usar URL firmadas que caducan. |
 
 ## 3. Rendimiento y escala
 
@@ -73,7 +72,7 @@
 | ✅ | **Landing, guía y legales estáticas por idioma** | `/es`, `/pt`, `/en` se generan al compilar; el middleware sirve la del visitante sin cambiar la dirección. Incluye `hreflang` y un sitemap por idioma. |
 | ✅ | Caché de imágenes fijas y de ffmpeg | |
 | ✅ | Página del estudiante ligera, precarga con tope, sondeo pausado con la pestaña oculta | |
-| ✅ | **Página del estudiante en la caché del CDN** | `c/[slug]/page.js` con ISR de 60 s y layout propio sin cookies (`src/app/(estudiante)/`). El idioma y el código los decide el navegador (`EntradaEstudiante.jsx`) y, hasta saberlos, solo se ve el logo, así que no hay parpadeos. Los cambios en la cuenta (desactivarla, renombrarla, cambiar su idioma) tardan hasta 1 minuto en verse para quien entra de nuevo. Los cambios en los casos y en el código se ven al momento. Una cuenta inexistente también queda 1 minuto en caché como 404 (es muy poco espacio). |
+| ✅ | **Página del estudiante en la caché del CDN** | `c/[slug]/page.js` con ISR de 60 s y layout propio sin cookies (`src/app/(estudiante)/`). El idioma lo decide el navegador (`EntradaEstudiante.jsx`) y, hasta saberlo, solo se ve el logo, así que no hay parpadeos. Los cambios en la cuenta (desactivarla, renombrarla, cambiar su idioma) tardan hasta 1 minuto en verse para quien entra de nuevo. Los cambios en los casos se ven al momento. Una cuenta inexistente también queda 1 minuto en caché como 404 (es muy poco espacio). |
 | ⚠️ | Wi-Fi saturado del salón | 40 × 35 MB = 1,4 GB por el mismo punto de acceso. En eventos grandes, usar un caso de demostración ligero. |
 
 ## 4. Fiabilidad durante la clase
@@ -90,10 +89,10 @@
 
 | Estado | Punto | Notas |
 |---|---|---|
-| ✅ | Errores del servidor guardados | Pestaña «Errores» del super_admin. |
-| ✅ | **Errores del navegador guardados** | Llegan a la misma pestaña con origen `navegador:*`, la ruta y el navegador.<br>• Se filtra el ruido (extensiones, «Script error.»).<br>• Límite de 30 por IP cada 10 minutos y 5 por página. |
-| ✅ | **Aviso de errores por correo** | Un resumen como mucho cada 30 minutos, compartido entre servidores. Los errores del navegador solo avisan si son 3 o más en 10 minutos. Si la base no responde, avisa igual. Probado en modo «solo registro». Falta activarlo (pendiente #9). |
-| ✅ | **Ruta de salud** `/api/salud` | Falta conectarle el monitor (pendiente #3). |
+| ✅ | Errores del servidor en el registro de Vercel | Vercel → proyecto → Logs. |
+| ➖ | Registro de errores en la base (pestaña «Errores») y aviso por correo | **No incluidos en esta versión.** |
+| ✅ | Aviso por correo de solicitudes de contacto | Con Resend; opcional (pendiente #8). |
+| ✅ | **Ruta de salud** `/api/salud` | Falta conectarle el monitor (pendiente #4). |
 | ✅ | **Prueba de humo tras cada despliegue** | `npm run humo -- https://<dominio> cyf`: 15 comprobaciones en segundos. |
 | ✅ | Analítica y métricas de velocidad | Vercel. |
 
@@ -110,10 +109,9 @@
 | Estado | Punto | Notas |
 |---|---|---|
 | ✅ | Compila sin errores | |
-| ✅ | **16 pruebas automáticas** | Antes eran 7. Ahora cubren también límites, filtro de errores, idiomas, 2FA y el correo de aviso. Una de las nuevas encontró un fallo real en el filtro de errores, ya corregido. |
+| ✅ | **Pruebas automáticas** (`npm test`) | Antes eran 7. Cubren también límites, idiomas (mismas claves es/pt/en) y el correo de aviso de solicitudes. |
 | ✅ | **CI en cada PR y en cada push a `main`** | Corre pruebas, `npm audit` y build. |
-| ✅ | Panel probado con sesión iniciada | Puntos, casos, código, exámenes, **subida de video con conversión**, 2FA y cupo, con la cuenta `prueba2` (ya borrada desde entonces). |
-| ⚠️👤 | Login con 2FA de punta a punta | Pendiente #7. |
+| ✅ | Panel probado con sesión iniciada | Puntos, casos, exámenes, **subida de video con conversión** y cupo, con la cuenta `prueba2` (ya borrada desde entonces). |
 | ✅ | Vista previa por rama y vuelta atrás en un clic | Vercel. |
 
 ## 8. Accesibilidad, móvil e idiomas
@@ -135,7 +133,7 @@
 | Estado | Punto | Notas |
 |---|---|---|
 | ✅ | `robots.txt` (ahora también excluye `/api/`), sitemap con los 3 idiomas, `hreflang`, Open Graph | |
-| ⚠️👤 | Imagen de vista previa 1200×630 | Pendiente #8. |
+| ⚠️👤 | Imagen de vista previa 1200×630 | Pendiente #7. |
 
 ---
 
@@ -145,7 +143,6 @@
 - [ ] El monitor de `/api/salud` en verde y Supabase sin pausar, con cupo de transferencia este mes.
 - [ ] Abrir el enlace del caso **en el Wi-Fi del lugar** el día antes.
 - [ ] Caso de demostración ligero (pocos videos) si hay más de ~100 personas.
-- [ ] Código de acceso escrito grande en la pantalla (o quitarlo ese día).
 - [ ] QR del enlace en la diapositiva.
 - [ ] App de escritorio en el portátil del ponente como plan B sin internet.
 - [ ] No publicar cambios a `main` el mismo día del evento.

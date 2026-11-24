@@ -63,10 +63,14 @@ const nextConfig = {
         source,
         headers: [{ key: 'Cache-Control', value: 'public, max-age=604800, stale-while-revalidate=2592000' }],
       })),
-      // Núcleo de ffmpeg.wasm (31 MB, versión fija de package.json): un mes.
+      // Núcleo de ffmpeg.wasm (31 MB). La URL no lleva versión: si se
+      // actualiza @ffmpeg/core, un wasm viejo en caché no debe durar
+      // semanas (JS y wasm de versiones distintas no se entienden). Un día;
+      // pasado ese tiempo se sigue usando la copia mientras se revisa si
+      // cambió (con ETag no se vuelve a bajar si es el mismo).
       {
         source: '/ffmpeg/:archivo+',
-        headers: [{ key: 'Cache-Control', value: 'public, max-age=2592000, stale-while-revalidate=2592000' }],
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=86400' }],
       },
       {
         source: '/:path*',

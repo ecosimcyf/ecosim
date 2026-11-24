@@ -1,12 +1,15 @@
 'use client';
 // Los textos llegan ya traducidos (prop "textos"); los errores los
 // traduce la acción del servidor.
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { login } from '@/app/actions/auth';
 
 export default function LoginForm({ textos: t }) {
   const [state, formAction, pending] = useActionState(login, {});
+  // El correo es controlado: React 19 vacía el formulario tras cada acción y,
+  // si el login falla, no debe perderse lo que se escribió.
+  const [correo, setCorreo] = useState('');
   const cuentaEliminada = useSearchParams().get('cuenta_eliminada') === '1';
   return (
     <form className="login-box" action={formAction}>
@@ -14,7 +17,7 @@ export default function LoginForm({ textos: t }) {
       {cuentaEliminada && (
         <div className="msg msg-ok">{t.borrada}</div>
       )}
-      <input name="correo" type="email" placeholder={t.correo} autoComplete="username" required autoFocus />
+      <input name="correo" type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} placeholder={t.correo} autoComplete="username" required autoFocus />
       <input name="password" type="password" placeholder={t.clave} autoComplete="current-password" required />
       <button className="btn btn-primary" disabled={pending}>
         {pending ? t.entrando : t.entrar}

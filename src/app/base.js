@@ -9,7 +9,8 @@
 // ============================================================
 import { Fira_Code } from 'next/font/google';
 import { SITIO_URL } from '@/lib/sitio';
-import { crearT, LOCALE_OG } from '@/lib/i18n/config';
+import { crearT, IDIOMAS, LOCALE_OG } from '@/lib/i18n/config';
+import { alternativas } from '@/lib/i18n/publico';
 import { LANDING } from '@/lib/i18n/textos/landing';
 
 // Monoespaciada propia (self-hosted, sin pedirla a Google en runtime) en
@@ -47,6 +48,31 @@ export function metadatosBase(idioma) {
       title: 'EcoSim',
       statusBarStyle: 'black-translucent',
     },
+  };
+}
+
+// Metadatos de UNA página pública (landing, guía, términos, privacidad): su
+// propio título, descripción y dirección al compartir el enlace. Hay que
+// repetir type/locale/imagen aquí porque Next.js reemplaza el bloque
+// openGraph completo del layout (no lo mezcla campo a campo).
+export function metadatosPagina({ idioma, ruta, titulo, descripcion }) {
+  const t = crearT(LANDING, idioma);
+  const imagenes = [{ url: '/landing/demo-maniqui.png', width: 800, height: 455, alt: t('meta.altMuestra') }];
+  return {
+    title: titulo,
+    description: descripcion,
+    alternates: alternativas(ruta, idioma),
+    openGraph: {
+      type: 'website',
+      locale: LOCALE_OG[idioma],
+      alternateLocale: IDIOMAS.filter((i) => i !== idioma).map((i) => LOCALE_OG[i]),
+      siteName: 'EcoSim',
+      title: titulo,
+      description: descripcion,
+      url: '/' + idioma + ruta,
+      images: imagenes,
+    },
+    twitter: { card: 'summary_large_image', title: titulo, description: descripcion, images: imagenes.map((i) => i.url) },
   };
 }
 

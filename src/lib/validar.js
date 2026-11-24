@@ -25,3 +25,19 @@ export function extensionDeSubida(cuentaId, path, extensiones) {
   const m = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.([a-z0-9]+)$/.exec(path.slice(cuentaId.length + 1));
   return m && extensiones.includes(m[1]) ? m[1] : null;
 }
+
+// Nombres que se ponen cuando el usuario deja el nombre vacío, en el idioma
+// de la cuenta (cuentas.idioma: es/pt/en).
+const NOMBRES_DEFECTO = {
+  casoNuevo: { es: 'Caso nuevo', pt: 'Novo caso', en: 'New case' },
+  caso: { es: 'Caso', pt: 'Caso', en: 'Case' },
+  puntoNuevo: { es: 'Punto nuevo', pt: 'Novo ponto', en: 'New point' },
+  punto: { es: 'Punto', pt: 'Ponto', en: 'Point' },
+};
+
+// clave: 'casoNuevo' | 'caso' | 'puntoNuevo' | 'punto'. Un idioma
+// desconocido (o una clave desconocida) cae en español.
+export function nombrePorDefecto(clave, idioma) {
+  const m = NOMBRES_DEFECTO[clave] || NOMBRES_DEFECTO.caso;
+  return Object.hasOwn(m, idioma) ? m[idioma] : m.es;
+}

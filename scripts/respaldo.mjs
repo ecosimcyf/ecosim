@@ -11,8 +11,15 @@
 // Qué deja en la carpeta destino (por defecto web/respaldos/, que git ignora):
 //   base/AAAA-MM-DD_HH-MM/<tabla>.json   una foto de cada tabla en ese momento
 //   base/AAAA-MM-DD_HH-MM/usuarios.json  admins (id, correo; SIN contraseñas)
+//   base/AAAA-MM-DD_HH-MM/origen.json    de qué proyecto de Supabase es (lo
+//                                        revisa restaurar.mjs) y cuándo se hizo
 //   archivos/videos/...                  copia espejo de los buckets: solo se
 //   archivos/examenes/...                descarga lo nuevo o lo que cambió
+//
+// Si CUALQUIER tabla o archivo falla (salvo una tabla que aún no existe porque
+// su migración no se ha ejecutado), el script sigue con las demás pero al
+// final termina con error (exit 1): un respaldo incompleto no debe pasar
+// por bueno.
 //
 // Solo LEE de Supabase (nunca escribe ni borra nada allí). Usa la clave
 // service_role de .env.local: el respaldo contiene datos de todos los
@@ -25,10 +32,15 @@ import { mkdir, writeFile, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// [tabla, columnas de la clave primaria]: se pagina con .order() por ellas;
+// sin un orden estable, Postgres puede repetir u omitir filas entre páginas.
 const TABLAS = [
-  'cuentas', 'perfiles', 'casos', 'puntos', 'caso_videos', 'caso_archivos',
-  'config', 'solicitudes_contacto',
+  ['cuentas', ['id']], ['perfiles', ['id']], ['casos', ['id']], ['puntos', ['id']],
+  ['caso_videos', ['caso_id', 'punto_id']], ['caso_archivos', ['id']],
+  ['config', ['id']], ['solicitudes_contacto', ['id']],
 ];
+// Códigos de "la tabla no existe" (migración sin ejecutar): no es un fallo.
+const TABLA_INEXISTENTE = ['42P01', 'PGRST205'];
 const BUCKETS = ['videos', 'examenes'];
 const POR_PAGINA = 1000;
 
@@ -50,13 +62,23 @@ const ahora = new Date();
 const sello = ahora.toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
 const mb = (b) => (b / 1024 / 1024).toFixed(1) + ' MB';
 
-async function respaldarTabla(dir, tabla) {
+let fallosBase = 0; // tablas que no se pudieron respaldar
+
+async function respaldarTabla(dir, tabla, orden) {
   const filas = [];
   for (let desde = 0; ; desde += POR_PAGINA) {
-    const { data, error } = await supabase.from(tabla).select('*').range(desde, desde + POR_PAGINA - 1);
+    let q = supabase.from(tabla).select('*');
+    for (const col of orden) q = q.order(col);
+    const { data, error } = await q.range(desde, desde + POR_PAGINA - 1);
     if (error) {
-      // Tabla de una migración que aún no se ejecutó: se anota y se sigue.
-      console.warn(`  ! ${tabla}: ${error.message}`);
+      if (TABLA_INEXISTENTE.includes(error.code)) {
+        // Tabla de una migración que aún no se ejecutó: se anota y se sigue.
+        console.warn(`  ! ${tabla}: no existe (migración sin ejecutar), se omite`);
+      } else {
+        // Cualquier otro error es un respaldo incompleto: se marca el fallo.
+        fallosBase++;
+        console.error(`  X ${tabla}: ${error.message}`);
+      }
       return 0;
     }
     filas.push(...data);
@@ -121,19 +143,24 @@ async function main() {
   const dirBase = join(DESTINO, 'base', sello);
   await mkdir(dirBase, { recursive: true });
 
+  // De qué proyecto es este respaldo: restaurar.mjs lo exige para no mezclar
+  // datos de un proyecto con otro.
+  await writeFile(join(dirBase, 'origen.json'), JSON.stringify({ url, fecha: ahora.toISOString() }, null, 1));
+
   console.log('Base de datos:');
-  for (const t of TABLAS) console.log(`  ${t}: ${await respaldarTabla(dirBase, t)} filas`);
+  for (const [t, orden] of TABLAS) console.log(`  ${t}: ${await respaldarTabla(dirBase, t, orden)} filas`);
   console.log(`  usuarios (admins): ${await respaldarUsuarios(dirBase)}`);
   await writeFile(join(dirBase, 'LEEME.txt'),
     `Respaldo de EcoSim del ${ahora.toLocaleString('es-CO')}.\nRestaurar: ver docs/respaldo-y-restauracion.md en el repositorio.\n`);
 
-  let fallos = 0;
+  let fallos = fallosBase;
   if (SIN_ARCHIVOS) console.log('Archivos: omitidos (--sin-archivos).');
   else {
     console.log('Archivos de Storage:');
     for (const b of BUCKETS) fallos += await respaldarBucket(b);
   }
-  console.log(fallos ? `Terminado con ${fallos} archivo(s) sin copiar: vuelve a ejecutarlo.` : 'Respaldo terminado.');
+  if (fallosBase) console.error(`${fallosBase} tabla(s) de la base NO se respaldaron: este respaldo está incompleto.`);
+  console.log(fallos ? `Terminado con ${fallos} fallo(s) (tablas o archivos sin copiar): vuelve a ejecutarlo.` : 'Respaldo terminado.');
   process.exit(fallos ? 1 : 0);
 }
 

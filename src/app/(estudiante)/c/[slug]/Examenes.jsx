@@ -5,7 +5,9 @@
 // vitales). Los datos llegan ya cargados con el caso (cargarDatosDeCaso).
 // ============================================================
 import { useState, useEffect, useRef } from 'react';
-import { CAMPOS_VITALES, estadoValor, textoReferencia, aNumero } from '@/lib/examenes';
+// Del archivo "lectura" (no de examenes.js): así no se descargan al teléfono
+// del estudiante las plantillas de laboratorio del panel.
+import { CAMPOS_VITALES, estadoValor, textoReferencia, aNumero, presionMedia } from '@/lib/examenes-lectura';
 import { useIdioma, useT } from '@/lib/i18n/cliente';
 import { EXAMENES_TXT } from '@/lib/i18n/textos/examenes';
 
@@ -79,7 +81,12 @@ export function VentanaExamen({ tipo, examenes, casoNombre, onCerrar }) {
   const t = useT(EXAMENES_TXT);
   const def = EXAMENES.find((e) => e.id === tipo);
   const cerrarRef = useRef(null);
-  useEffect(() => { cerrarRef.current?.focus(); }, []);
+  // Foco al abrir en el botón de cerrar; al cerrar, de vuelta a donde estaba.
+  useEffect(() => {
+    const previo = document.activeElement;
+    cerrarRef.current?.focus();
+    return () => { try { previo?.focus?.(); } catch {} };
+  }, []);
   if (!def) return null;
   const { Icono } = def;
   return (
@@ -193,21 +200,59 @@ function VisorImagenes({ imagenes, inicial = 0 }) {
   const [invertir, setInvertir] = useState(false);
   const punteros = useRef(new Map());
   const gesto = useRef(null);
+  const escenaRef = useRef(null);
+  const imgRef = useRef(null);
+  // Espejos de zoom/pan para los manejadores nativos (la rueda), que no ven
+  // el estado más reciente de React.
+  const zoomRef = useRef(1);
+  const panRef = useRef({ x: 0, y: 0 });
+  zoomRef.current = zoom;
+  panRef.current = pan;
 
   const img = imagenes[Math.min(idx, imagenes.length - 1)];
 
-  function reiniciar() { setZoom(1); setPan({ x: 0, y: 0 }); }
+  // El desplazamiento máximo es el que deja el borde de la imagen ampliada
+  // justo en el borde de la escena: la imagen nunca se pierde de vista. Si en
+  // un eje la imagen cabe entera, ahí no se desplaza.
+  function fijarPan(p, z) {
+    const e = escenaRef.current;
+    const im = imgRef.current;
+    if (!e || !im) return p;
+    const mx = Math.max(0, (im.offsetWidth * z - e.clientWidth) / 2);
+    const my = Math.max(0, (im.offsetHeight * z - e.clientHeight) / 2);
+    return { x: limitar(-mx, mx, p.x), y: limitar(-my, my, p.y) };
+  }
+
+  function reiniciar() { zoomRef.current = 1; setZoom(1); setPan({ x: 0, y: 0 }); }
   function ajustes() { setBrillo(100); setContraste(100); setInvertir(false); }
   useEffect(() => { reiniciar(); }, [idx]);
 
   function zoomA(z) {
     const nuevo = limitar(1, ZOOM_MAX, z);
+    zoomRef.current = nuevo;
     setZoom(nuevo);
-    if (nuevo === 1) setPan({ x: 0, y: 0 });
+    setPan((p) => (nuevo === 1 ? { x: 0, y: 0 } : fijarPan(p, nuevo)));
   }
+
+  // Rueda del ratón / pellizco del trackpad (que llega como ctrl+rueda):
+  // zoom en la imagen. Tiene que ser un oyente NATIVO no pasivo: el de React
+  // es pasivo y no deja impedir que el navegador amplíe toda la página.
+  const hayImagen = !!img;
+  useEffect(() => {
+    const el = escenaRef.current;
+    if (!el) return undefined;
+    const alRodar = (e) => {
+      e.preventDefault();
+      const factor = e.ctrlKey ? Math.exp(-e.deltaY * 0.01) : (e.deltaY < 0 ? 1.15 : 1 / 1.15);
+      zoomA(zoomRef.current * factor);
+    };
+    el.addEventListener('wheel', alRodar, { passive: false });
+    return () => el.removeEventListener('wheel', alRodar);
+  }, [hayImagen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Arrastrar con un dedo/ratón mueve la imagen; con dos dedos, zoom.
   function abajo(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
     punteros.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     iniciarGesto();
@@ -215,9 +260,9 @@ function VisorImagenes({ imagenes, inicial = 0 }) {
   function iniciarGesto() {
     const ps = [...punteros.current.values()];
     if (ps.length >= 2) {
-      gesto.current = { tipo: 'pinza', dist: Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y), zoom };
+      gesto.current = { tipo: 'pinza', dist: Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y), zoom: zoomRef.current };
     } else if (ps.length === 1) {
-      gesto.current = { tipo: 'mover', x: ps[0].x, y: ps[0].y, pan };
+      gesto.current = { tipo: 'mover', x: ps[0].x, y: ps[0].y, pan: panRef.current };
     } else {
       gesto.current = null;
     }
@@ -231,16 +276,13 @@ function VisorImagenes({ imagenes, inicial = 0 }) {
     if (g.tipo === 'pinza' && ps.length >= 2) {
       const d = Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y);
       if (g.dist > 0) zoomA(g.zoom * (d / g.dist));
-    } else if (g.tipo === 'mover' && zoom > 1) {
-      setPan({ x: g.pan.x + (ps[0].x - g.x), y: g.pan.y + (ps[0].y - g.y) });
+    } else if (g.tipo === 'mover' && zoomRef.current > 1) {
+      setPan(fijarPan({ x: g.pan.x + (ps[0].x - g.x), y: g.pan.y + (ps[0].y - g.y) }, zoomRef.current));
     }
   }
   function arriba(e) {
     punteros.current.delete(e.pointerId);
     iniciarGesto();
-  }
-  function rueda(e) {
-    zoomA(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
   }
 
   if (!img) return <p className="muted">{t('ex.sinImagenes')}</p>;
@@ -248,14 +290,15 @@ function VisorImagenes({ imagenes, inicial = 0 }) {
   return (
     <div className="visor-img">
       <div
+        ref={escenaRef}
         className="visor-img-escena"
         onPointerDown={abajo} onPointerMove={mover} onPointerUp={arriba} onPointerCancel={arriba}
-        onWheel={rueda}
         onDoubleClick={() => (zoom > 1 ? reiniciar() : zoomA(2.5))}
         style={{ cursor: zoom > 1 ? 'grab' : 'zoom-in' }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          ref={imgRef}
           src={img.url} alt={img.titulo || t('ex.altImagen')} draggable={false}
           style={{
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -305,45 +348,61 @@ function VisorImagenes({ imagenes, inicial = 0 }) {
 }
 
 // ---------- monitor de signos vitales ----------
-const PRINCIPALES = ['fc', 'spo2', 'pa', 'fr', 'temp'];
+// Como un monitor real: cada onda va en su propia fila con SU número al
+// frente (FC con el ECG, SpO₂ con la pletismografía), y debajo, en una
+// franja, la presión, la FR y la temperatura. Cada fila es un grid
+// (traza | número): así el número queda siempre a la altura de su onda.
+// Ambas ondas comparten el reloj (el mismo "origen"), así que laten juntas.
 
 function MonitorVitales({ vitales }) {
   const t = useT(EXAMENES_TXT);
   const v = vitales || {};
-  const pas = aNumero(v.pas);
-  const pad = aNumero(v.pad);
-  const pam = pas != null && pad != null ? Math.round((pas + 2 * pad) / 3) : null;
+  const pam = presionMedia(v.pas, v.pad);
+  const hayPa = !!(v.pas || v.pad);
   const secundarios = CAMPOS_VITALES.filter((c) => !['fc', 'spo2', 'pas', 'pad', 'fr', 'temp', 'notas'].includes(c.id) && v[c.id]);
+  const fc = aNumero(v.fc);
+  // Un solo reloj para las dos ondas (se fija al abrir el monitor).
+  const origen = useRef(null);
+  if (origen.current == null) origen.current = typeof performance !== 'undefined' ? performance.now() : 0;
 
-  const numero = (id, clase) => {
-    if (id === 'pa') {
-      if (!v.pas && !v.pad) return null;
-      return (
-        <div key="pa" className={'mon-num ' + clase}>
-          <div className="mon-num-etq">{t('ex.pa')} <span>mmHg</span></div>
-          <div className="mon-num-valor mon-pa">{(v.pas || '—') + '/' + (v.pad || '—')}</div>
-          {pam != null && <div className="mon-num-sub">({pam})</div>}
-        </div>
-      );
-    }
-    if (!v[id]) return null;
-    return (
-      <div key={id} className={'mon-num ' + clase}>
-        <div className="mon-num-etq">{t('vit.' + id + '.corta')} <span>{t('vit.' + id + '.unidad')}</span></div>
-        <div className="mon-num-valor">{v[id]}</div>
+  const canal = (id, clase, tipo) => (
+    <div className={'mon-canal ' + clase}>
+      <div className="mon-traza">
+        <OndaCanal tipo={tipo} fc={fc} origen={origen} etiqueta={t('ex.trazo') + ' — ' + t('vit.' + id + '.corta')} />
       </div>
-    );
-  };
+      <div className="mon-num">
+        <div className="mon-num-etq">{t('vit.' + id + '.corta')} <span>{t('vit.' + id + '.unidad')}</span></div>
+        <div className="mon-num-valor">{v[id] || '—'}</div>
+      </div>
+    </div>
+  );
+  const dato = (id, clase) => (
+    <div key={id} className={'mon-dato ' + clase}>
+      <div className="mon-num-etq">{t('vit.' + id + '.corta')} <span>{t('vit.' + id + '.unidad')}</span></div>
+      <div className="mon-num-valor">{v[id]}</div>
+    </div>
+  );
 
   return (
     <div className="monitor">
       <div className="monitor-pantalla">
-        <div className="monitor-ondas">
-          <Ondas fc={aNumero(v.fc)} conPleth={!!v.spo2} />
-        </div>
-        <div className="monitor-numeros">
-          {PRINCIPALES.map((id) => numero(id, 'mon-' + id))}
-        </div>
+        {canal('fc', 'mon-fc', 'ecg')}
+        {v.spo2 && canal('spo2', 'mon-spo2', 'pleth')}
+        {(hayPa || v.fr || v.temp) && (
+          <div className="mon-franja">
+            {hayPa && (
+              <div className="mon-dato mon-pa">
+                <div className="mon-num-etq">{t('ex.pa')} <span>mmHg</span></div>
+                <div className="mon-num-valor">
+                  {(v.pas || '—') + '/' + (v.pad || '—')}
+                  {pam != null && <span className="mon-num-sub"> ({pam})</span>}
+                </div>
+              </div>
+            )}
+            {v.fr && dato('fr', 'mon-fr')}
+            {v.temp && dato('temp', 'mon-temp')}
+          </div>
+        )}
       </div>
       {(secundarios.length > 0 || v.notas) && (
         <div className="monitor-extra">
@@ -377,29 +436,34 @@ function pleth(t, periodo) {
 }
 
 // Barrido como en un monitor real: la línea avanza de izquierda a derecha
-// y borra lo viejo justo delante. Con FC vacía queda una línea plana.
-function Ondas({ fc, conPleth }) {
-  const t = useT(EXAMENES_TXT);
+// y borra lo viejo justo delante. Un canvas por onda; la posición del trazo
+// y el instante de la onda salen del reloj compartido ("origen"), por eso el
+// ECG y la pletismografía van sincronizados. Con FC vacía queda una línea
+// plana. El color del trazo es el `color` CSS de la fila (mon-fc, mon-spo2).
+function OndaCanal({ tipo, fc, origen, etiqueta }) {
   const ref = useRef(null);
   useEffect(() => {
     const canvas = ref.current;
-    if (!canvas) return;
+    if (!canvas) return undefined;
     const ctx = canvas.getContext('2d');
     const reducido = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const periodo = fc && fc > 0 ? 60 / limitar(10, 400, fc) : null;
     const esc = periodo ? Math.min(1, periodo / 0.6) : 1;
     const VEL = 140; // px por segundo
-    let ancho = 0, alto = 0, x = 0, t = 0, ultimo = null, previo = null, raf = 0;
+    const esEcg = tipo === 'ecg';
+    let ancho = 0, alto = 0, ultimoK = 0, previo = null, raf = 0, color = '#37d39a';
 
-    const canales = () => {
-      const filas = conPleth ? 2 : 1;
-      const h = alto / filas;
-      const lista = [{ base: h * 0.62, amp: h * 0.42, color: '#37d39a', valor: (tt) => (periodo ? ecg(tt % periodo, esc) : 0) }];
-      if (conPleth) {
-        lista.push({ base: h + h * 0.78, amp: h * 0.5, color: '#3fc6cf', valor: (tt) => (periodo ? pleth(tt, periodo) : 0.3) });
-      }
-      return lista;
+    const valor = (tt) => {
+      if (!periodo) return esEcg ? 0 : 0.3; // sin FC: línea plana
+      return esEcg ? ecg(tt % periodo, esc) : pleth(tt, periodo);
     };
+    // Línea base y amplitud según el alto de la fila.
+    const yDe = (tt) => {
+      const base = alto * (esEcg ? 0.68 : 0.84);
+      const amp = alto * (esEcg ? 0.5 : 0.64);
+      return base - valor(tt) * amp;
+    };
+    const ahoraK = () => Math.floor(((performance.now() - origen.current) / 1000) * VEL);
 
     function medir() {
       const r = canvas.getBoundingClientRect();
@@ -409,39 +473,39 @@ function Ondas({ fc, conPleth }) {
       canvas.height = Math.max(1, Math.round(alto * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, ancho, alto);
-      x = 0; previo = null;
+      color = getComputedStyle(canvas).color || color;
+      previo = null;
+      ultimoK = ahoraK();
       if (reducido) dibujarEstatico();
     }
 
     function dibujarEstatico() {
-      for (const c of canales()) {
-        ctx.strokeStyle = c.color; ctx.lineWidth = 2; ctx.beginPath();
-        for (let px = 0; px <= ancho; px += 1) {
-          const y = c.base - c.valor(px / VEL) * c.amp;
-          if (px === 0) ctx.moveTo(px, y); else ctx.lineTo(px, y);
-        }
-        ctx.stroke();
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+      for (let px = 0; px <= ancho; px += 1) {
+        const y = yDe(px / VEL);
+        if (px === 0) ctx.moveTo(px, y); else ctx.lineTo(px, y);
       }
+      ctx.stroke();
     }
 
-    function paso(ahora) {
-      const dt = ultimo == null ? 0 : Math.min(0.1, (ahora - ultimo) / 1000);
-      ultimo = ahora;
-      const pasos = Math.max(1, Math.round(dt * VEL));
-      const lista = canales();
-      for (let i = 0; i < pasos; i++) {
-        t += 1 / VEL;
-        x += 1;
-        if (x > ancho) { x = 0; previo = null; }
+    function paso() {
+      const anchoPx = Math.max(1, Math.floor(ancho));
+      const k = ahoraK();
+      // Pestaña dormida: no se recupera todo el tiempo perdido de golpe.
+      if (k - ultimoK > VEL * 0.25) ultimoK = k - Math.round(VEL * 0.25);
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      while (ultimoK < k) {
+        ultimoK += 1;
+        const x = ultimoK % anchoPx;
+        if (x === 0) previo = null;
         ctx.clearRect(x, 0, 14, alto);
-        const ys = lista.map((c) => c.base - c.valor(t) * c.amp);
-        if (previo) {
-          lista.forEach((c, k) => {
-            ctx.strokeStyle = c.color; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.moveTo(x - 1, previo[k]); ctx.lineTo(x, ys[k]); ctx.stroke();
-          });
+        // Cerca del borde derecho, lo de delante sigue al otro lado.
+        if (x + 14 > anchoPx) ctx.clearRect(0, 0, x + 14 - anchoPx, alto);
+        const y = yDe(ultimoK / VEL);
+        if (previo != null) {
+          ctx.beginPath(); ctx.moveTo(x - 1, previo); ctx.lineTo(x, y); ctx.stroke();
         }
-        previo = ys;
+        previo = y;
       }
       raf = requestAnimationFrame(paso);
     }
@@ -451,7 +515,7 @@ function Ondas({ fc, conPleth }) {
     ro.observe(canvas);
     if (!reducido) raf = requestAnimationFrame(paso);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
-  }, [fc, conPleth]);
+  }, [fc, tipo, origen]);
 
-  return <canvas ref={ref} className="monitor-canvas" aria-label={t('ex.trazo')} role="img" />;
+  return <canvas ref={ref} className="monitor-canvas" aria-label={etiqueta} role="img" />;
 }

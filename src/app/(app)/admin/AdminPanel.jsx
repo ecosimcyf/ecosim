@@ -16,7 +16,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
-import { puedeReproducir, convertirAH264, duracionDe } from '@/lib/convertir-video';
+import { puedeReproducir, convertirAH264, duracionDe, cancelarConversion, ERR_CANCELADA, ERR_FALLO } from '@/lib/convertir-video';
 import EditorExamenes from './EditorExamenes';
 import { IDIOMAS, LOCALE, NOMBRES_IDIOMA } from '@/lib/i18n/config';
 import { useIdioma, useT } from '@/lib/i18n/cliente';
@@ -34,6 +34,9 @@ import {
 const DURACION_MAX_SEG = 30;
 // Debe coincidir con file_size_limit del bucket (supabase/schema.sql).
 const MAX_MB_VIDEO = 50;
+// Tope del archivo de ENTRADA que se acepta convertir en el navegador:
+// ffmpeg.wasm carga todo en memoria y un archivo enorme congela la pestaña.
+const MAX_MB_ENTRADA = 300;
 
 const VISTAS = ['ventral', 'izq', 'der'];
 
@@ -134,6 +137,71 @@ function EnlaceEstudiantes({ slug }) {
   );
 }
 
+// Accesibilidad de los modales: foco inicial dentro, Escape cierra, Tab no
+// se escapa del modal y al cerrar el foco vuelve a donde estaba.
+function useModal(onCerrar) {
+  const ref = useRef(null);
+  const cerrarRef = useRef(onCerrar);
+  cerrarRef.current = onCerrar;
+  useEffect(() => {
+    const previo = document.activeElement;
+    const enfocables = () => Array.from(ref.current?.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') || [])
+      .filter((el) => !el.disabled);
+    enfocables()[0]?.focus();
+    const tecla = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); cerrarRef.current(); return; }
+      if (e.key !== 'Tab') return;
+      const lista = enfocables();
+      if (!lista.length) return;
+      const primero = lista[0];
+      const ultimo = lista[lista.length - 1];
+      if (e.shiftKey && document.activeElement === primero) { e.preventDefault(); ultimo.focus(); }
+      else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primero.focus(); }
+      else if (!ref.current?.contains(document.activeElement)) { e.preventDefault(); primero.focus(); }
+    };
+    document.addEventListener('keydown', tecla);
+    return () => {
+      document.removeEventListener('keydown', tecla);
+      try { previo?.focus?.(); } catch {}
+    };
+  }, []);
+  return ref;
+}
+
+// Ventana con la contraseña temporal (se muestra una sola vez).
+function ModalClave({ clave, onCerrar }) {
+  const t = useT(PANEL);
+  const ref = useModal(onCerrar);
+  return (
+    <div className="overlay">
+      <div className="modal-box" role="dialog" aria-modal="true" aria-labelledby="titulo-clave" ref={ref}>
+        <h4 id="titulo-clave">{clave.titulo}</h4>
+        <p>{t('claveModal.para', { correos: clave.correos.join(', ') })}</p>
+        <Copiable valor={clave.clave} />
+        {clave.slug && <EnlaceEstudiantes slug={clave.slug} />}
+        <p>
+          {t('claveModal.antes')}<strong>{t('claveModal.fuerte')}</strong>{t('claveModal.despues')}
+        </p>
+        <div className="modal-acciones">
+          <button className="btn btn-primary" onClick={onCerrar}>{t('claveModal.ok')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Vista previa del video asignado a un punto.
+function VistaPrevia({ url, onCerrar }) {
+  const t = useT(PANEL);
+  const ref = useModal(onCerrar);
+  return (
+    <div className="overlay" role="dialog" aria-modal="true" aria-label={t('videos.ver')} ref={ref} onClick={onCerrar}>
+      <video src={url} controls autoPlay muted onClick={(e) => e.stopPropagation()} />
+      <button className="btn small" onClick={onCerrar}>{t('comun.cerrar')}</button>
+    </div>
+  );
+}
+
 export default function AdminPanel({ inicial }) {
   const t = useT(PANEL);
   const idioma = useIdioma();
@@ -189,6 +257,25 @@ export default function AdminPanel({ inicial }) {
   const canvasPuntosRef = useRef(null);
   const dragRef = useRef(null);
 
+  // Cuenta activa "ahora" (ref para leerla al terminar una acción async).
+  const cuentaActivaRef = useRef(datos.cuentaId);
+  cuentaActivaRef.current = datos.cuentaId;
+
+  // El idioma de la cuenta viene del servidor: tras cambiarlo en la barra la
+  // página se vuelve a pintar con props nuevas y hay que reflejarlas aquí.
+  useEffect(() => {
+    if (inicial.rol !== 'cliente') return;
+    setDatos((d) => (d.cuentaIdioma === inicial.cuentaIdioma ? d : { ...d, cuentaIdioma: inicial.cuentaIdioma }));
+  }, [inicial.rol, inicial.cuentaIdioma]);
+
+  // Mientras se convierte o sube un video no se debe cerrar la pestaña.
+  useEffect(() => {
+    if (!subiendo) return;
+    const aviso = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', aviso);
+    return () => window.removeEventListener('beforeunload', aviso);
+  }, [subiendo]);
+
   // Fusiona el resultado de una Server Action sobre el estado actual, sin
   // perder los campos que esa acción no devuelve (rol, cuentaId, cuentas…).
   function fusionar(resultado) {
@@ -200,15 +287,19 @@ export default function AdminPanel({ inicial }) {
   // Acciones en curso: mientras haya alguna se ve «Guardando…» arriba (borrar
   // un caso con videos puede tardar varios segundos y no debe parecer colgado).
   const [enCurso, setEnCurso] = useState(0);
-  async function ejecutar(accion, { fusionarResultado = true } = {}) {
+  // Si la respuesta llega de una cuenta que ya no es la activa (el super_admin
+  // cambió de cuenta mientras tanto) se descarta, salvo que la acción sea
+  // justamente la que cambia de cuenta (cambiaCuenta).
+  async function ejecutar(accion, { fusionarResultado = true, cambiaCuenta = false } = {}) {
     setEnCurso((n) => n + 1);
+    const cuentaInicio = cuentaActivaRef.current;
     try {
-      return await ejecutarSinIndicador(accion, fusionarResultado);
+      return await ejecutarSinIndicador(accion, fusionarResultado, cambiaCuenta ? null : cuentaInicio);
     } finally {
       setEnCurso((n) => n - 1);
     }
   }
-  async function ejecutarSinIndicador(accion, fusionarResultado) {
+  async function ejecutarSinIndicador(accion, fusionarResultado, cuentaInicio) {
     try {
       const r = await accion();
       if (r?.error) {
@@ -216,6 +307,9 @@ export default function AdminPanel({ inicial }) {
         alert(t(r.error, r.vars));
         if (r.codigo === 'sin-sesion') window.location.href = '/admin/login';
         return null;
+      }
+      if (fusionarResultado && cuentaInicio != null && cuentaActivaRef.current !== cuentaInicio) {
+        return null; // respuesta de otra cuenta: no se mezcla con la actual
       }
       if (fusionarResultado && r) fusionar(r);
       return r || {};
@@ -257,25 +351,29 @@ export default function AdminPanel({ inicial }) {
   async function elegirCuenta(cuentaId) {
     if (!cuentaId) return;
     setCambiandoCuenta(true);
-    const r = await ejecutar(() => elegirCuentaAdmin(cuentaId));
+    const r = await ejecutar(() => elegirCuentaAdmin(cuentaId), { cambiaCuenta: true });
     if (r) { setPuntoSel(null); setCasoEnEdicion(null); setCasoExamenes(null); }
     setCambiandoCuenta(false);
   }
 
   async function crearCuentaNueva() {
     const n = nuevaCuenta;
-    if (!n.slug.trim() || !n.nombre.trim() || !n.correo.trim()) {
+    const cupoOk = (v) => String(v).trim() !== '' && Number.isFinite(Number(v)) && Number(v) >= 0;
+    if (!n.slug.trim() || !n.nombre.trim() || !n.correo.trim() || !cupoOk(n.cupoCasos) || !cupoOk(n.cupoStorage)) {
       alert(t('cuentas.completar'));
       return;
     }
     setCreandoCuenta(true);
+    // fusionarResultado:false: la contraseña temporal NO debe quedar en el
+    // estado "datos"; solo se fusiona la lista de cuentas.
     const r = await ejecutar(() => crearCuenta({
       slug: n.slug, nombre: n.nombre, correo: n.correo,
-      cupoCasosPropios: n.cupoCasos || 0, cupoStorageMb: n.cupoStorage || 0,
+      cupoCasosPropios: Number(n.cupoCasos), cupoStorageMb: Number(n.cupoStorage),
       ...(datos.idiomasDisponibles ? { idioma: n.idioma } : {}),
-    }));
+    }), { fusionarResultado: false });
     setCreandoCuenta(false);
     if (!r) return;
+    if (r.cuentas) fusionar({ cuentas: r.cuentas });
     // La clave temporal se muestra UNA sola vez: no se guarda en ningún lado.
     setClaveNueva({ titulo: t('cuentas.creada'), correos: [r.correo], clave: r.claveTemporal, slug: r.slug });
     setNuevaCuenta(cuentaVacia);
@@ -320,7 +418,7 @@ export default function AdminPanel({ inicial }) {
   async function borrarCuentaPropia() {
     if (confirmBorrarCuenta.trim() !== (datos.cuentaNombre || '')) return;
     setBorrandoCuenta(true);
-    const r = await ejecutar(() => eliminarCuenta(datos.cuentaId), { fusionarResultado: false });
+    const r = await ejecutar(() => eliminarCuenta(datos.cuentaId, confirmBorrarCuenta.trim()), { fusionarResultado: false });
     if (r?.cuentaEliminada) { window.location.href = '/admin/login?cuenta_eliminada=1'; return; }
     setBorrandoCuenta(false);
   }
@@ -331,7 +429,7 @@ export default function AdminPanel({ inicial }) {
     const escrito = prompt(t('cuentas.promptBorrar', { nombre: cuentaElegida.nombre }));
     if (escrito === null) return;
     if (escrito.trim() !== cuentaElegida.nombre) { alert(t('cuentas.noCoincide')); return; }
-    await ejecutar(() => eliminarCuenta(cuentaElegida.id));
+    await ejecutar(() => eliminarCuenta(cuentaElegida.id), { cambiaCuenta: true });
   }
 
   // ---------------- Solicitudes de contacto (solo super_admin) ----------------
@@ -469,6 +567,12 @@ export default function AdminPanel({ inicial }) {
     if (!casoEnEdicion || !casoPuntoSel) return;
     const casoId = casoEnEdicion;
     const puntoId = casoPuntoSel;
+    const cuentaId = datos.cuentaId;
+    // Archivos enormes se rechazan antes de cargarlos en memoria.
+    if (file.size > MAX_MB_ENTRADA * 1024 * 1024) {
+      alert(t('videos.entradaGrande', { mb: Math.round(file.size / 1048576), max: MAX_MB_ENTRADA }));
+      return;
+    }
     setSubiendo(true);
     setConvProgreso(null);
     try {
@@ -492,13 +596,19 @@ export default function AdminPanel({ inicial }) {
         const blob = await convertirAH264(file, (p) => setConvProgreso(p));
         aSubir = new File([blob], 'video.mp4', { type: 'video/mp4' });
         setConvProgreso(null);
+        // El resultado también debe respetar el tope de duración.
+        const durSalida = await duracionDe(aSubir);
+        if (durSalida != null && durSalida > DURACION_MAX_SEG + 0.5) {
+          alert(t('videos.duracion', { seg: Math.round(durSalida), max: DURACION_MAX_SEG }));
+          return;
+        }
       }
       if (aSubir.size > MAX_MB_VIDEO * 1024 * 1024) {
         alert(t('videos.pesa', { mb: Math.round(aSubir.size / 1048576), max: MAX_MB_VIDEO }));
         return;
       }
 
-      const subida = await ejecutar(() => crearUrlSubidaVideo(datos.cuentaId, aSubir.size), { fusionarResultado: false });
+      const subida = await ejecutar(() => crearUrlSubidaVideo(cuentaId, aSubir.size), { fusionarResultado: false });
       if (!subida) return;
       const { error } = await crearClienteNavegador().storage.from('videos')
         // Cada path es un UUID nuevo que nunca se reescribe (un reemplazo
@@ -506,9 +616,11 @@ export default function AdminPanel({ inicial }) {
         // cachear casi para siempre en vez de 1 hora.
         .uploadToSignedUrl(subida.path, subida.token, aSubir, { cacheControl: '31536000', contentType: 'video/mp4' });
       if (error) throw error;
-      await ejecutar(() => guardarVideoCaso(datos.cuentaId, casoId, puntoId, subida.path));
+      await ejecutar(() => guardarVideoCaso(cuentaId, casoId, puntoId, subida.path));
     } catch (err) {
-      alert(t('videos.procesar', { error: err?.message || err }));
+      if (err?.message === ERR_CANCELADA) alert(t('videos.cancelado'));
+      else if (err?.message === ERR_FALLO) alert(t('videos.convFallo'));
+      else alert(t('videos.procesar', { error: err?.message || err }));
     } finally {
       setSubiendo(false);
       setConvProgreso(null);
@@ -586,7 +698,7 @@ export default function AdminPanel({ inicial }) {
             <select
               id="selector-cuenta"
               value={datos.cuentaId || ''}
-              disabled={cambiandoCuenta}
+              disabled={cambiandoCuenta || subiendo || enCurso > 0}
               onChange={(e) => elegirCuenta(e.target.value)}
             >
               <option value="">{t('cuentas.elige')}</option>
@@ -685,12 +797,12 @@ export default function AdminPanel({ inicial }) {
             <input
               value={nuevaCuenta.cupoCasos}
               onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, cupoCasos: e.target.value })}
-              placeholder={t('cuentas.phCupoCasos')} aria-label={t('cuentas.phCupoCasos')} type="number" min="0" step="1"
+              placeholder={t('cuentas.phCupoCasos')} aria-label={t('cuentas.phCupoCasos')} type="number" min="0" step="1" required
             />
             <input
               value={nuevaCuenta.cupoStorage}
               onChange={(e) => setNuevaCuenta({ ...nuevaCuenta, cupoStorage: e.target.value })}
-              placeholder={t('cuentas.phCupoStorage')} aria-label={t('cuentas.phCupoStorage')} type="number" min="0" step="1"
+              placeholder={t('cuentas.phCupoStorage')} aria-label={t('cuentas.phCupoStorage')} type="number" min="0" step="1" required
             />
           </div>
           <div className="row">
@@ -863,7 +975,7 @@ export default function AdminPanel({ inicial }) {
         <h3>{t('casos.titulo')}</h3>
         {(datos.casos || []).length ? (datos.casos).map((c) => (
           <div className="item" key={c.id}>
-            <input className="nombre-caso" defaultValue={c.nombre} maxLength={120} aria-label={t('casos.nombreCaso')}
+            <input className="nombre-caso" key={c.id + ':' + c.nombre} defaultValue={c.nombre} maxLength={120} aria-label={t('casos.nombreCaso')}
               onBlur={(e) => renombrar(c, e.target.value)} />
             <select value={c.especie} onChange={(e) => cambiarEspecie(c, e.target.value, e.target)} title={t('comun.especieTitle')}>
               <option value="perro">{t('especie.perro')}</option>
@@ -880,9 +992,10 @@ export default function AdminPanel({ inicial }) {
                 {t('casos.examenes', { n: resumenExamenesCaso(c.id) })}
               </button>
             )}
-            <button className="btn small danger" onClick={() => borrarCaso(c.id)}>{t('comun.borrar')}</button>
+            <button className="btn small danger" disabled={subiendo} onClick={() => borrarCaso(c.id)}>{t('comun.borrar')}</button>
             <textarea
               className="descripcion-caso"
+              key={c.id + ':d:' + (c.descripcion || '')}
               defaultValue={c.descripcion || ''}
               onBlur={(e) => describir(c, e.target.value)}
               placeholder={t('casos.phDescripcion')} aria-label={t('casos.phDescripcion')}
@@ -909,7 +1022,7 @@ export default function AdminPanel({ inicial }) {
         <section className="card">
           <div className="editor-head">
             <h3>{t('videos.titulo')} <span className="accent">{caso.nombre}</span></h3>
-            <button className="btn small" onClick={() => setCasoEnEdicion(null)}>{t('comun.cerrar')}</button>
+            <button className="btn small" disabled={subiendo} onClick={() => setCasoEnEdicion(null)}>{t('comun.cerrar')}</button>
           </div>
           <p className="muted">{t('videos.intro')}</p>
 
@@ -961,6 +1074,11 @@ export default function AdminPanel({ inicial }) {
                   </div>
                   {subiendo && convProgreso !== null && (
                     <div className="pop-nota">{t('videos.notaConv')}</div>
+                  )}
+                  {subiendo && convProgreso !== null && (
+                    <button className="btn small danger" style={{ marginBottom: 6 }} onClick={cancelarConversion}>
+                      {t('videos.cancelar')}
+                    </button>
                   )}
                   {!subiendo && (
                     <div className="pop-nota">{t('videos.notaMax', { seg: DURACION_MAX_SEG, mb: MAX_MB_VIDEO })}</div>
@@ -1024,30 +1142,10 @@ export default function AdminPanel({ inicial }) {
       </>}
 
       {/* -------- Contraseña temporal (se muestra una sola vez) -------- */}
-      {claveNueva && (
-        <div className="overlay">
-          <div className="modal-box" role="dialog" aria-modal="true" aria-labelledby="titulo-clave">
-            <h4 id="titulo-clave">{claveNueva.titulo}</h4>
-            <p>{t('claveModal.para', { correos: claveNueva.correos.join(', ') })}</p>
-            <Copiable valor={claveNueva.clave} />
-            {claveNueva.slug && <EnlaceEstudiantes slug={claveNueva.slug} />}
-            <p>
-              {t('claveModal.antes')}<strong>{t('claveModal.fuerte')}</strong>{t('claveModal.despues')}
-            </p>
-            <div className="modal-acciones">
-              <button className="btn btn-primary" onClick={() => setClaveNueva(null)}>{t('claveModal.ok')}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {claveNueva && <ModalClave clave={claveNueva} onCerrar={() => setClaveNueva(null)} />}
 
       {/* -------- Vista previa de video -------- */}
-      {previewUrl && (
-        <div className="overlay" onClick={() => setPreviewUrl(null)}>
-          <video src={previewUrl} controls autoPlay muted onClick={(e) => e.stopPropagation()} />
-          <button className="btn small" onClick={() => setPreviewUrl(null)}>{t('comun.cerrar')}</button>
-        </div>
-      )}
+      {previewUrl && <VistaPrevia url={previewUrl} onCerrar={() => setPreviewUrl(null)} />}
     </div>
   );
 }

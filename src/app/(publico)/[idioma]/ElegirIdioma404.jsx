@@ -10,6 +10,9 @@ export default function ElegirIdioma404() {
     const idioma = idiomaValido(cookie) || idiomaDeNavegador(navigator.languages?.join(',') || navigator.language) || IDIOMA_DEFECTO;
     document.querySelectorAll('[data-idioma-404]').forEach((el) => { el.hidden = el.dataset.idioma404 !== idioma; });
     document.documentElement.lang = LOCALE[idioma];
+    // El <title> estático está en español (ver not-found.js): se pone el del idioma elegido.
+    const titulo = document.querySelector('[data-idioma-404="' + idioma + '"]')?.dataset.titulo;
+    if (titulo) document.title = titulo;
   }, []);
   return null;
 }

@@ -63,9 +63,11 @@ export default function EntradaEstudiante({ slug, cuentaInicial }) {
       setCuenta(c);
     }
     const lista = await listarCasosActivos(supabase, c.id);
-    // null = la consulta falló: el menú arranca vacío y el sondeo de
-    // VistaPrincipal lo vuelve a intentar a los pocos segundos.
-    setCasos(Array.isArray(lista) ? lista : []);
+    // null = la consulta falló (red caída): se avisa de que no hay conexión
+    // y se ofrece reintentar. Mostrar el menú vacío diría "Esperando al
+    // profesor", que no es verdad.
+    if (!Array.isArray(lista)) { setFase('sinConexion'); return; }
+    setCasos(lista);
     setFase('listo');
   }, [cuenta, slug]);
 

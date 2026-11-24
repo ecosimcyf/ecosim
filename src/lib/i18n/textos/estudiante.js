@@ -33,6 +33,7 @@ export const ESTUDIANTE = {
       congelar: '❚❚ Congelar',
       atajos: 'Espacio = congelar · F1 = ayuda',
       cargando: 'Cargando video…',
+      error: 'No se pudo cargar el video. Toca para reintentar.',
     },
     tabs: {
       casos: '← Casos',
@@ -44,7 +45,8 @@ export const ESTUDIANTE = {
       pantallaCompleta: 'Pantalla completa',
       salirPantalla: 'Salir de pantalla completa',
     },
-    hint: 'Mantén presionado un punto del maniquí',
+    hint: 'Mantén presionado un punto del maniquí',
+
     ayuda: {
       titulo: 'Atajos de teclado',
       espacio: 'Espacio',
@@ -55,6 +57,7 @@ export const ESTUDIANTE = {
       cerrar: 'Cerrar (F1)',
     },
     mq: {
+      punto: 'Punto {n}',
       ventral: ({ especie }) => 'Maniquí de ' + (especie === 'gato' ? 'gato' : 'perro') + ' en vista ventral',
       izq: ({ especie }) => (especie === 'gato' ? 'Gato' : 'Perro') + ' — lado izquierdo',
       der: ({ especie }) => (especie === 'gato' ? 'Gato' : 'Perro') + ' — lado derecho',
@@ -92,6 +95,7 @@ export const ESTUDIANTE = {
       congelar: '❚❚ Congelar',
       atajos: 'Espaço = congelar · F1 = ajuda',
       cargando: 'Carregando vídeo…',
+      error: 'Não foi possível carregar o vídeo. Toque para tentar novamente.',
     },
     tabs: {
       casos: '← Casos',
@@ -103,7 +107,8 @@ export const ESTUDIANTE = {
       pantallaCompleta: 'Tela cheia',
       salirPantalla: 'Sair da tela cheia',
     },
-    hint: 'Mantenha um ponto do manequim pressionado',
+    hint: 'Mantenha um ponto do manequim pressionado',
+
     ayuda: {
       titulo: 'Atalhos de teclado',
       espacio: 'Espaço',
@@ -114,6 +119,7 @@ export const ESTUDIANTE = {
       cerrar: 'Fechar (F1)',
     },
     mq: {
+      punto: 'Ponto {n}',
       ventral: ({ especie }) => 'Manequim de ' + (especie === 'gato' ? 'gato' : 'cão') + ' em vista ventral',
       izq: ({ especie }) => (especie === 'gato' ? 'Gato' : 'Cão') + ' — lado esquerdo',
       der: ({ especie }) => (especie === 'gato' ? 'Gato' : 'Cão') + ' — lado direito',
@@ -151,6 +157,7 @@ export const ESTUDIANTE = {
       congelar: '❚❚ Freeze',
       atajos: 'Space = freeze · F1 = help',
       cargando: 'Loading video…',
+      error: 'The video couldn’t be loaded. Tap to try again.',
     },
     tabs: {
       casos: '← Cases',
@@ -162,7 +169,8 @@ export const ESTUDIANTE = {
       pantallaCompleta: 'Full screen',
       salirPantalla: 'Exit full screen',
     },
-    hint: 'Press and hold a point on the mannequin',
+    hint: 'Press and hold a point on the mannequin',
+
     ayuda: {
       titulo: 'Keyboard shortcuts',
       espacio: 'Space',
@@ -173,6 +181,7 @@ export const ESTUDIANTE = {
       cerrar: 'Close (F1)',
     },
     mq: {
+      punto: 'Point {n}',
       ventral: ({ especie }) => (especie === 'gato' ? 'Cat' : 'Dog') + ' mannequin, ventral view',
       izq: ({ especie }) => (especie === 'gato' ? 'Cat' : 'Dog') + ' — left side',
       der: ({ especie }) => (especie === 'gato' ? 'Cat' : 'Dog') + ' — right side',

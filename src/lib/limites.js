@@ -30,3 +30,41 @@ export const LIMITES = {
 export function claveLimite(...partes) {
   return partes.map((p) => String(p ?? '').trim().toLowerCase()).join(':').slice(0, 200);
 }
+
+// Tope global de avisos por correo de solicitudes de contacto, por día: si
+// alguien llena el formulario con miles de correos distintos, la solicitud
+// se guarda igual pero ya no se manda el aviso (no gastar envíos de Resend).
+export const LIMITE_CORREO_DIA = { max: 50, ventanaSeg: 24 * 60 * MIN };
+
+// Clave de IP para los contadores. Una IPv4 se usa entera. De una IPv6 solo
+// cuenta el prefijo /64: cada conexión doméstica recibe un /64 completo (2^64
+// direcciones), así que con la IP entera un atacante cambiaría de dirección
+// en cada intento y nunca llegaría al límite.
+export function claveIp(ip) {
+  const v = String(ip ?? '').trim().toLowerCase().split('%')[0];
+  if (!v) return 'desconocido';
+  if (!v.includes(':')) return v;
+  const mapeada = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v); // IPv4 dentro de IPv6
+  if (mapeada) return mapeada[1];
+  let grupos;
+  if (v.includes('::')) {
+    const [izq, der] = v.split('::');
+    const a = izq ? izq.split(':') : [];
+    const b = der ? der.split(':') : [];
+    if (a.length + b.length > 7) return v;
+    grupos = [...a, ...Array(8 - a.length - b.length).fill('0'), ...b];
+  } else {
+    grupos = v.split(':');
+  }
+  if (grupos.length !== 8) return v;
+  const hex = grupos.slice(0, 4).map((g) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16).toString(16) : null));
+  if (hex.includes(null)) return v;
+  return hex.join(':') + '::/64';
+}
+
+// Quita saltos de línea (\r, \n) de un texto que va a una cabecera de
+// correo (el asunto): con ellos, quien llena el formulario podría inyectar
+// cabeceras extra (Bcc: …) o romper el mensaje.
+export function sinSaltos(valor) {
+  return String(valor ?? '').replace(/[\r\n\u2028\u2029]+/g, ' ').trim();
+}

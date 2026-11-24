@@ -1,7 +1,7 @@
 // Pruebas automáticas (npm test). Usan solo el probador que trae Node
 // (node:test), sin dependencias extra. Cubren las reglas de seguridad que
-// no se ven a simple vista: nombres de archivo subidos, slugs, el código
-// de acceso de los estudiantes y cómo se carga un caso.
+// no se ven a simple vista: nombres de archivo subidos, slugs y cómo se
+// carga un caso.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizarSlug, slugValido, extensionDeSubida } from '../src/lib/validar.js';

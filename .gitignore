@@ -25,3 +25,12 @@ npm-debug.log*
 
 # Respaldos locales (npm run respaldo): datos de TODOS los clientes, nunca a git
 /respaldos
+
+# Variables de entorno de cualquier tipo (solo se versiona el ejemplo)
+.env
+.env.*
+!.env.local.example
+
+# Vercel CLI (enlace local al proyecto) y configuración local de Claude Code
+.vercel
+.claude/

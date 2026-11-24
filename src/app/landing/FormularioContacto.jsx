@@ -2,11 +2,19 @@
 // Los textos llegan ya traducidos desde la landing (prop "textos"): así el
 // navegador no descarga los de los tres idiomas. Los errores los traduce
 // la propia acción del servidor.
-import { useActionState } from 'react';
+//
+// Los campos son controlados (estado propio): React 19 vacía los <form
+// action> al terminar la acción, y si el servidor responde con un error
+// (correo inválido, demasiados intentos…) la persona perdería lo escrito.
+import { useActionState, useState } from 'react';
 import { enviarSolicitudContacto } from '@/app/actions/contacto';
 
-export default function FormularioContacto({ textos: t }) {
+const VACIO = { nombre: '', clinica: '', correo: '', telefono: '', mensaje: '', autorizo: false };
+
+export default function FormularioContacto({ textos: t, idioma }) {
   const [state, formAction, pending] = useActionState(enviarSolicitudContacto, {});
+  const [v, setV] = useState(VACIO);
+  const poner = (campo) => (e) => setV((a) => ({ ...a, [campo]: e.target.value }));
 
   if (state?.ok) {
     return (
@@ -20,23 +28,23 @@ export default function FormularioContacto({ textos: t }) {
   return (
     <form className="contacto-form" action={formAction}>
       <div className="campo-flotante">
-        <input id="ctc-nombre" name="nombre" placeholder=" " autoComplete="name" required maxLength={100} />
+        <input id="ctc-nombre" name="nombre" value={v.nombre} onChange={poner('nombre')} placeholder=" " autoComplete="name" required maxLength={100} />
         <label htmlFor="ctc-nombre">{t.nombre}</label>
       </div>
       <div className="campo-flotante">
-        <input id="ctc-clinica" name="clinica" placeholder=" " autoComplete="organization" maxLength={150} />
+        <input id="ctc-clinica" name="clinica" value={v.clinica} onChange={poner('clinica')} placeholder=" " autoComplete="organization" maxLength={150} />
         <label htmlFor="ctc-clinica">{t.clinica}</label>
       </div>
       <div className="campo-flotante">
-        <input id="ctc-correo" name="correo" type="email" placeholder=" " autoComplete="email" required maxLength={200} />
+        <input id="ctc-correo" name="correo" type="email" value={v.correo} onChange={poner('correo')} placeholder=" " autoComplete="email" required maxLength={200} />
         <label htmlFor="ctc-correo">{t.correo}</label>
       </div>
       <div className="campo-flotante">
-        <input id="ctc-telefono" name="telefono" type="tel" placeholder=" " autoComplete="tel" maxLength={40} />
+        <input id="ctc-telefono" name="telefono" type="tel" value={v.telefono} onChange={poner('telefono')} placeholder=" " autoComplete="tel" maxLength={40} />
         <label htmlFor="ctc-telefono">{t.telefono}</label>
       </div>
       <div className="campo-flotante">
-        <textarea id="ctc-mensaje" name="mensaje" placeholder=" " rows={4} maxLength={2000} />
+        <textarea id="ctc-mensaje" name="mensaje" value={v.mensaje} onChange={poner('mensaje')} placeholder=" " rows={4} maxLength={2000} />
         <label htmlFor="ctc-mensaje">{t.mensaje}</label>
       </div>
       {/* Trampa para bots: invisible para personas (y fuera del orden de tabulación). */}
@@ -45,10 +53,11 @@ export default function FormularioContacto({ textos: t }) {
         <input id="ctc-sitio" name="sitio_web" tabIndex={-1} autoComplete="off" />
       </div>
       <label className="contacto-autorizo">
-        <input type="checkbox" name="autorizo" value="si" required />
+        <input type="checkbox" name="autorizo" value="si" required checked={v.autorizo}
+          onChange={(e) => setV((a) => ({ ...a, autorizo: e.target.checked }))} />
         <span>
           {t.autorizoAntes}
-          <a href="/privacidad" target="_blank" rel="noopener">{t.autorizoEnlace}</a>.
+          <a href={'/' + idioma + '/privacidad'} target="_blank" rel="noopener">{t.autorizoEnlace}</a>.
         </span>
       </label>
       <button className="btn btn-primary" disabled={pending}>

@@ -4,7 +4,7 @@
 // ============================================================
 import { redirect } from 'next/navigation';
 import { crearClienteServidor, crearClienteServidorAuth } from '@/lib/supabase/server';
-import { estaBloqueado, registrarIntento, limpiarIntentos, ipVisitante } from '@/lib/ratelimit';
+import { consumirIntento, limpiarIntentos, ipVisitante } from '@/lib/ratelimit';
 import { LIMITES, claveLimite } from '@/lib/limites';
 import { crearT } from '@/lib/i18n/config';
 import { idiomaVisitante } from '@/lib/i18n/servidor';
@@ -20,23 +20,25 @@ export async function login(_prevState, formData) {
   // los errores de un profesor no bloqueen a los demás del mismo Wi-Fi, y
   // uno más alto por IP sola. Prefijos propios: un ataque contra el login
   // no agota los intentos del formulario de contacto, ni al revés.
+  // El intento se REGISTRA ANTES de probar la contraseña (consumirIntento es
+  // atómico): si se comprobara primero y se registrara después, muchas
+  // peticiones simultáneas pasarían todas la comprobación. Al acertar se
+  // limpia el contador del correo. Si la base falla, el login se niega
+  // (falla cerrado) en vez de quedar sin límite.
   const ip = await ipVisitante();
   const claveCorreo = claveLimite('login', ip, correo);
   const claveIp = claveLimite('login-ip', ip);
-  if (await estaBloqueado(claveCorreo, LIMITES.loginCorreo) || await estaBloqueado(claveIp, LIMITES.loginIp)) {
-    return { error: t('err.intentos') };
-  }
+  const porCorreo = await consumirIntento(claveCorreo, LIMITES.loginCorreo, { falloCerrado: true });
+  const porIp = await consumirIntento(claveIp, LIMITES.loginIp, { falloCerrado: true });
+  if (porCorreo === 'error' || porIp === 'error') return { error: t('err.red') };
+  if (porCorreo === 'bloqueado' || porIp === 'bloqueado') return { error: t('err.intentos') };
 
   const supabase = crearClienteServidorAuth();
   const { error } = await supabase.auth.signInWithPassword({
     email: correo,
     password,
   });
-  if (error) {
-    await registrarIntento(claveCorreo, LIMITES.loginCorreo);
-    await registrarIntento(claveIp, LIMITES.loginIp);
-    return { error: t('err.credenciales') };
-  }
+  if (error) return { error: t('err.credenciales') };
 
   await limpiarIntentos(claveCorreo);
   redirect('/admin');
@@ -73,14 +75,15 @@ export async function cambiarContrasena(_prevState, formData) {
 
   // Por usuario (no por IP): la contraseña que se protege es la suya.
   const claveUsuario = claveLimite('clave', user.id);
-  if (await estaBloqueado(claveUsuario, LIMITES.clave)) {
-    return { error: t('err.intentos') };
-  }
+  // Se registra el intento ANTES de comprobar la contraseña actual (atómico)
+  // y se limpia al acertar.
+  const estado = await consumirIntento(claveUsuario, LIMITES.clave, { falloCerrado: true });
+  if (estado === 'error') return { error: t('err.red') };
+  if (estado === 'bloqueado') return { error: t('err.intentos') };
   // Se comprueba con un cliente APARTE, sin cookies: iniciar sesión con el
   // cliente de la sesión reemplazaría la sesión actual del navegador.
   const { error: errActual } = await crearClienteServidor().auth.signInWithPassword({ email: user.email, password: actual });
   if (errActual) {
-    await registrarIntento(claveUsuario, LIMITES.clave);
     return { error: t('err.actualMal') };
   }
   await limpiarIntentos(claveUsuario);

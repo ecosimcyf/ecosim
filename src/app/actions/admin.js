@@ -34,7 +34,7 @@ import { LIMITES, MIME_EXTENSION, limpiarLaboratorio, limpiarVitales } from '@/l
 import { idiomaValido } from '@/lib/i18n/config';
 import { registrarError } from '@/lib/errores';
 import { limpiezaCompleta, faltaMigracion } from '@/lib/limpieza';
-import { normalizarSlug, slugValido, extensionDeSubida } from '@/lib/validar';
+import { normalizarSlug, slugValido, extensionDeSubida, nombrePorDefecto } from '@/lib/validar';
 
 const BUCKET = 'videos';
 const PREFIJO_PUBLICO = '/storage/v1/object/public/' + BUCKET + '/';
@@ -45,6 +45,20 @@ const MAX_BYTES_VIDEO = 50 * 1024 * 1024;
 // imágenes y PDF de hasta 10 MB (ver migracion-2026-10-30-examenes.sql).
 const BUCKET_EXAMENES = 'examenes';
 const MAX_BYTES_EXAMEN = LIMITES.mbArchivo * 1024 * 1024;
+
+// Cuántas subidas sin guardar puede tener una cuenta a la vez (cada una es
+// una URL firmada que ocupa cupo): sin tope, pedir miles de URLs saturaría
+// la tabla de reservas.
+const MAX_SUBIDAS_PENDIENTES = 20;
+// Tope de puntos por cuenta (cada punto es una fila que lee el estudiante).
+const MAX_PUNTOS_POR_CUENTA = 300;
+// PROVISIONAL: aún no hay textos propios para estos dos avisos (tope de
+// puntos y demasiadas subidas pendientes); cuando se añadan claves
+// (err.limitePuntos, err.muchasSubidas) basta con cambiarlas aquí.
+const ERR_LIMITE_PUNTOS = 'err.limitePuntos';
+const ERR_MUCHAS_SUBIDAS = 'err.muchasSubidas';
+// Mínimo que se reserva por subida aunque el navegador declare menos.
+const PISO_RESERVA = 5 * 1024 * 1024;
 
 // ---------- errores ----------
 
@@ -132,6 +146,8 @@ function texto(v, max) { return String(v ?? '').trim().slice(0, max); }
 
 // "clave": err.cupoCasos o err.cupoStorage.
 function cupo(v, clave) {
+  // Number('') y Number(null) dan 0: un campo vacío no debe pasar por "cupo 0".
+  if (v == null || (typeof v === 'string' && v.trim() === '') || typeof v === 'boolean') throw new ErrorAdmin(clave);
   const n = Number(v);
   if (!Number.isInteger(n) || n < 0 || n > 1000000) {
     throw new ErrorAdmin(clave);
@@ -197,13 +213,56 @@ async function archivosExamenes(supabase, filtro, que) {
 }
 
 // Reserva de subida (migración 2026-11-04): mientras el archivo no se
-// guarda en su caso, cuenta en el cupo con el tamaño anunciado. Así pedir
+// guarda en su caso, cuenta en el cupo con el tamaño reservado. Así pedir
 // URLs firmadas sin guardar nunca no sirve para saltarse el cupo. La
 // limpieza diaria borra las reservas vencidas y sus archivos.
 async function reservarSubida(supabase, bucket, path, cuentaId, tamano) {
   const { error } = await supabase.from('subidas_pendientes')
     .insert({ bucket, path, cuenta_id: cuentaId, tamano_bytes: Math.round(tamano) });
   if (error && !faltaMigracion(error)) exigir({ error }, 'reservar la subida');
+}
+
+// Reserva el cupo de una subida de forma ATÓMICA (función SQL reservar_subida,
+// migracion-2026-11-24-arreglos.sql): bajo un candado por cuenta comprueba
+// uso + reservas contra el cupo y el tope de subidas pendientes, y anota la
+// reserva. Antes se comprobaba y se anotaba en pasos separados: pedir varias
+// URLs a la vez pasaba todas las comprobaciones. Se reserva el tamaño
+// declarado con un piso de 5 MB (el navegador puede mentir, pero reservar
+// siempre el máximo del bucket dejaría sin subir videos pequeños a quien
+// está cerca de su cupo). Lo que alguien pueda colar mintiendo queda
+// acotado por el tope de subidas pendientes y lo borra la limpieza diaria;
+// al guardar, la reserva se suelta y cuenta el tamaño REAL.
+// Sin la migración: comportamiento anterior (cupo con el tamaño declarado)
+// más el tope de pendientes con consultas normales.
+async function reservarCupo(supabase, { rol, cuentaId, bucket, path, maxBytes, declarado }) {
+  let cupoBytes = null; // null = sin cupo (super_admin)
+  if (rol === 'cliente') {
+    const { data: cuenta } = exigir(await supabase.from('cuentas').select('cupo_storage_mb')
+      .eq('id', cuentaId).single(), 'leer el cupo');
+    cupoBytes = cuenta.cupo_storage_mb * 1024 * 1024;
+  }
+  const { data, error } = await supabase.rpc('reservar_subida', {
+    p_cuenta: cuentaId, p_bucket: bucket, p_path: path,
+    p_bytes: Math.min(maxBytes, Math.max(declarado, PISO_RESERVA)),
+    p_cupo_bytes: cupoBytes, p_max_pendientes: MAX_SUBIDAS_PENDIENTES,
+  });
+  if (!error) {
+    if (data === 'cupo') throw new ErrorAdmin('err.limiteStorage');
+    if (data === 'pendientes') throw new ErrorAdmin(ERR_MUCHAS_SUBIDAS);
+    return;
+  }
+  if (!faltaMigracion(error)) exigir({ error }, 'reservar la subida');
+
+  // --- Sin la migración nueva ---
+  if (cupoBytes != null && await usoStorageBytes(supabase, cuentaId) + declarado > cupoBytes) {
+    throw new ErrorAdmin('err.limiteStorage');
+  }
+  const haceUnDia = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { count, error: errCuenta } = await supabase.from('subidas_pendientes')
+    .select('path', { count: 'exact', head: true }).eq('cuenta_id', cuentaId).gt('creada_en', haceUnDia);
+  if (errCuenta && !faltaMigracion(errCuenta)) exigir({ error: errCuenta }, 'contar las subidas pendientes');
+  if ((count || 0) >= MAX_SUBIDAS_PENDIENTES) throw new ErrorAdmin(ERR_MUCHAS_SUBIDAS);
+  await reservarSubida(supabase, bucket, path, cuentaId, declarado);
 }
 
 async function liberarReserva(supabase, bucket, path) {
@@ -255,6 +314,12 @@ async function idiomasDeCuentas(supabase, cuentaId) {
   const r = {};
   (data || []).forEach((c) => { r[c.id] = idiomaValido(c.idioma) || 'es'; });
   return r;
+}
+
+// Idioma de UNA cuenta ('es' si no hay columna o no se encuentra), para los
+// nombres por defecto de casos y puntos.
+async function idiomaDeCuenta(supabase, cuentaId) {
+  return (await idiomasDeCuentas(supabase, cuentaId))?.[cuentaId] || 'es';
 }
 
 // Guarda el idioma de una cuenta (ya validado).
@@ -572,23 +637,33 @@ export async function restablecerClaveCuenta(cuentaId) {
 // lo lleva a /admin/login. No se usa redirect(): llamado desde el panel,
 // Next.js lo entrega como una excepción en el navegador, que se mostraba
 // como error de conexión aunque el borrado hubiera salido bien.
-export async function eliminarCuenta(cuentaId) {
+//
+// "confirmacion": cuando el CLIENTE borra su propia cuenta, debe ser el
+// nombre de la cuenta (el panel se lo hace escribir); se comprueba aquí, en
+// el servidor, para que nadie pueda saltarse el aviso llamando a la acción
+// directamente. El super_admin no la necesita.
+export async function eliminarCuenta(cuentaId, confirmacion) {
   const r = await conErrores(async () => {
     const { rol } = await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
 
-    const { data: cuenta } = exigir(await supabase.from('cuentas').select('id').eq('id', cuentaId).maybeSingle(),
+    const { data: cuenta } = exigir(await supabase.from('cuentas').select('id,nombre').eq('id', cuentaId).maybeSingle(),
       'leer la cuenta');
     if (!cuenta) throw new ErrorAdmin('err.cuentaYaNoExiste');
+    if (rol === 'cliente' && String(confirmacion ?? '').trim() !== String(cuenta.nombre).trim()) {
+      throw new ErrorAdmin('err.noAutorizado');
+    }
 
-    // 1. Videos de Storage de TODOS los casos de esta cuenta.
+    // 1. Se JUNTAN las rutas de Storage de TODOS los casos de la cuenta, pero
+    // todavía no se borra ningún archivo: si borrar las filas falla a medias,
+    // los casos que queden no pueden haber perdido sus videos (primero se
+    // borran las filas y DESPUÉS los archivos, como en eliminarCaso).
     const vids = await todasLasFilas(() => supabase
-      .from('caso_videos').select('video_url, casos!inner(cuenta_id)').eq('casos.cuenta_id', cuentaId),
+      .from('caso_videos').select('video_url, casos!inner(cuenta_id)').eq('casos.cuenta_id', cuentaId)
+      .order('caso_id').order('punto_id'),
     'leer los videos de la cuenta');
-    await borrarVideosStorage(supabase, vids.map((v) => v.video_url));
     const archivos = await archivosExamenes(supabase, (q) => q.eq('casos.cuenta_id', cuentaId),
       'leer los exámenes de la cuenta');
-    await borrarArchivosExamenes(supabase, archivos.map((a) => a.path));
 
     // 2. Casos (cascade borra sus caso_videos y caso_archivos) y puntos.
     exigir(await supabase.from('casos').delete().eq('cuenta_id', cuentaId), 'borrar los casos');
@@ -603,6 +678,10 @@ export async function eliminarCuenta(cuentaId) {
 
     // 4. La cuenta misma.
     exigir(await supabase.from('cuentas').delete().eq('id', cuentaId), 'borrar la cuenta');
+
+    // 5. Ya sin filas: ahora sí, los archivos de Storage.
+    await borrarVideosStorage(supabase, vids.map((v) => v.video_url));
+    await borrarArchivosExamenes(supabase, archivos.map((a) => a.path));
 
     if (rol === 'cliente') return { cerrarSesion: true };
     return {
@@ -676,19 +755,36 @@ export async function crearCaso(cuentaId, nombre, especie) {
     // importar quién los creó. Lo que distingue el rol es solo que este
     // chequeo BLOQUEA al cliente; el super_admin puede seguir precargando
     // casos (que sí cuentan para el total que ve el cliente después).
+    const nombreCaso = texto(nombre, 120) || nombrePorDefecto('casoNuevo', await idiomaDeCuenta(supabase, cuentaId));
+
+    // Contar y crear en UN paso atómico (función SQL crear_caso_con_cupo,
+    // migracion-2026-11-24-arreglos.sql): antes, dos clics a la vez pasaban
+    // los dos la comprobación del cupo. La función aplica el cupo (para el
+    // cliente) y deja activo el primer caso de la cuenta.
+    let cupoCasos = null; // null = sin tope (super_admin)
     if (rol === 'cliente') {
       const { data: cuenta } = exigir(await supabase.from('cuentas').select('cupo_casos_propios')
         .eq('id', cuentaId).single(), 'leer el cupo');
-      if (await contarCasosDeCuenta(supabase, cuentaId) >= cuenta.cupo_casos_propios) {
-        throw new ErrorAdmin('err.limiteCasos');
-      }
+      cupoCasos = cuenta.cupo_casos_propios;
     }
+    const { data: estado, error: errCrear } = await supabase.rpc('crear_caso_con_cupo', {
+      p_cuenta: cuentaId, p_nombre: nombreCaso, p_especie: especieOk(especie), p_cupo: cupoCasos,
+    });
+    if (!errCrear) {
+      if (estado === 'cupo') throw new ErrorAdmin('err.limiteCasos');
+      return leerTodo(supabase, cuentaId);
+    }
+    if (!faltaMigracion(errCrear)) exigir({ error: errCrear }, 'crear el caso');
 
+    // --- Sin la migración nueva: comportamiento anterior ---
+    if (cupoCasos != null && await contarCasosDeCuenta(supabase, cuentaId) >= cupoCasos) {
+      throw new ErrorAdmin('err.limiteCasos');
+    }
     // Si no había ningún caso activo EN ESTA CUENTA, este nace activo.
     const { count: activos } = exigir(await supabase.from('casos').select('id', { count: 'exact', head: true })
       .eq('cuenta_id', cuentaId).eq('activo', true), 'leer los casos');
     exigir(await supabase.from('casos').insert({
-      nombre: texto(nombre, 120) || 'Caso nuevo', especie: especieOk(especie), cuenta_id: cuentaId, activo: !activos,
+      nombre: nombreCaso, especie: especieOk(especie), cuenta_id: cuentaId, activo: !activos,
     }), 'crear el caso');
     return leerTodo(supabase, cuentaId);
   });
@@ -698,7 +794,7 @@ export async function renombrarCaso(cuentaId, casoId, nombre) {
   return conErrores(async () => {
     await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
-    exigir(await supabase.from('casos').update({ nombre: texto(nombre, 120) || 'Caso' })
+    exigir(await supabase.from('casos').update({ nombre: texto(nombre, 120) || nombrePorDefecto('caso', await idiomaDeCuenta(supabase, cuentaId)) })
       .eq('id', casoId).eq('cuenta_id', cuentaId), 'renombrar el caso');
     return leerTodo(supabase, cuentaId);
   });
@@ -727,13 +823,15 @@ export async function cambiarEspecieCaso(cuentaId, casoId, especie) {
       const { data: vids } = exigir(await supabase.from('caso_videos')
         .select('punto_id, video_url, puntos!inner(especie)').eq('caso_id', casoId).neq('puntos.especie', nueva),
       'leer los videos del caso');
+      // Primero las filas, DESPUÉS los archivos: si la base falla, no se
+      // pierde ningún video que el caso todavía referencia.
       if (vids?.length) {
-        await borrarVideosStorage(supabase, vids.map((v) => v.video_url));
         exigir(await supabase.from('caso_videos').delete().eq('caso_id', casoId)
           .in('punto_id', vids.map((v) => v.punto_id)), 'quitar los videos del caso');
       }
       exigir(await supabase.from('casos').update({ especie: nueva }).eq('id', casoId).eq('cuenta_id', cuentaId),
         'cambiar la especie');
+      if (vids?.length) await borrarVideosStorage(supabase, vids.map((v) => v.video_url));
     }
     return leerTodoConUso(supabase, cuentaId);
   });
@@ -762,9 +860,14 @@ export async function addPunto(cuentaId, { especie, vista }) {
   return conErrores(async () => {
     await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
+    // Tope de puntos por cuenta: cada punto lo lee el estudiante en cada caso.
+    const { count: numPuntos } = exigir(await supabase.from('puntos').select('id', { count: 'exact', head: true })
+      .eq('cuenta_id', cuentaId), 'contar los puntos');
+    if ((numPuntos || 0) >= MAX_PUNTOS_POR_CUENTA) throw new ErrorAdmin(ERR_LIMITE_PUNTOS);
+    const nombrePunto = nombrePorDefecto('puntoNuevo', await idiomaDeCuenta(supabase, cuentaId));
     const { data: nuevo } = exigir(await supabase
       .from('puntos')
-      .insert({ cuenta_id: cuentaId, especie: especieOk(especie), vista: vistaOk(vista), nombre: 'Punto nuevo', x: 50, y: 45 })
+      .insert({ cuenta_id: cuentaId, especie: especieOk(especie), vista: vistaOk(vista), nombre: nombrePunto, x: 50, y: 45 })
       .select('id').single(), 'crear el punto');
     return { ...(await leerTodo(supabase, cuentaId)), nuevoPuntoId: nuevo?.id || null };
   });
@@ -776,7 +879,9 @@ export async function actualizarPunto(cuentaId, puntoId, campos) {
     const supabase = crearClienteAdmin();
     const limpio = {};
     const coord = (v) => Math.max(0, Math.min(100, Math.round(v * 10) / 10));
-    if (typeof campos?.nombre === 'string') limpio.nombre = texto(campos.nombre, 80) || 'Punto';
+    if (typeof campos?.nombre === 'string') {
+      limpio.nombre = texto(campos.nombre, 80) || nombrePorDefecto('punto', await idiomaDeCuenta(supabase, cuentaId));
+    }
     if (Number.isFinite(campos?.x)) limpio.x = coord(campos.x);
     if (Number.isFinite(campos?.y)) limpio.y = coord(campos.y);
     if (campos?.vista) limpio.vista = vistaOk(campos.vista);
@@ -819,22 +924,19 @@ export async function crearUrlSubidaVideo(cuentaId, tamanoBytes) {
       throw new ErrorAdmin('err.videoPesa', { vars: { mb: aMb(tamano), max: aMb(MAX_BYTES_VIDEO) } });
     }
 
-    // El cupo de storage solo limita al CLIENTE. Se revisa ANTES de firmar
-    // la URL (con el tamaño que el navegador ya conoce); guardarVideoCaso
-    // lo vuelve a revisar con el tamaño REAL ya subido.
-    if (rol === 'cliente') {
-      const { data: cuenta } = exigir(await supabase.from('cuentas').select('cupo_storage_mb')
-        .eq('id', cuentaId).single(), 'leer el cupo');
-      if (await usoStorageBytes(supabase, cuentaId) + tamano > cuenta.cupo_storage_mb * 1024 * 1024) {
-        throw new ErrorAdmin('err.limiteStorage');
-      }
-    }
-
     // El path empieza con la cuenta dueña: guardarVideoCaso lo exige.
     const path = cuentaId + '/' + randomUUID() + '.mp4';
-    await reservarSubida(supabase, BUCKET, path, cuentaId, tamano);
-    const { data } = exigir(await supabase.storage.from(BUCKET).createSignedUploadUrl(path), 'preparar la subida');
-    return { path: data.path, token: data.token };
+    // El cupo de storage solo limita al CLIENTE. Se reserva ANTES de firmar la
+    // URL y se reserva el MÁXIMO del bucket (el tamaño que declara el
+    // navegador no es de fiar); guardarVideoCaso revisa el tamaño REAL.
+    await reservarCupo(supabase, { rol, cuentaId, bucket: BUCKET, path, maxBytes: MAX_BYTES_VIDEO, declarado: tamano });
+    try {
+      const { data } = exigir(await supabase.storage.from(BUCKET).createSignedUploadUrl(path), 'preparar la subida');
+      return { path: data.path, token: data.token };
+    } catch (err) {
+      await liberarReserva(supabase, BUCKET, path); // sin URL no hay subida: que no quede ocupando cupo
+      throw err;
+    }
   });
 }
 
@@ -970,19 +1072,25 @@ export async function crearUrlSubidaExamen(cuentaId, tamanoBytes, mime) {
   return conErrores(async () => {
     const { rol } = await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
-    const ext = MIME_EXTENSION[mime];
+    // hasOwn: "constructor", "toString"… no son tipos de archivo válidos.
+    const ext = Object.hasOwn(MIME_EXTENSION, mime) ? MIME_EXTENSION[mime] : null;
     if (!ext) throw new ErrorAdmin('err.tipoArchivo');
     const tamano = Number(tamanoBytes);
     if (!Number.isFinite(tamano) || tamano <= 0) throw new ErrorAdmin('err.archivoVacio');
     if (tamano > MAX_BYTES_EXAMEN) {
       throw new ErrorAdmin('err.archivoPesa', { vars: { mb: aMb(tamano), max: LIMITES.mbArchivo } });
     }
-    await revisarCupo(supabase, rol, cuentaId, tamano);
     const path = cuentaId + '/' + randomUUID() + '.' + ext;
-    await reservarSubida(supabase, BUCKET_EXAMENES, path, cuentaId, tamano);
-    const { data } = exigirExamenes(await supabase.storage.from(BUCKET_EXAMENES).createSignedUploadUrl(path),
-      'preparar la subida');
-    return { path: data.path, token: data.token };
+    // Reserva atómica del MÁXIMO del bucket (ver reservarCupo).
+    await reservarCupo(supabase, { rol, cuentaId, bucket: BUCKET_EXAMENES, path, maxBytes: MAX_BYTES_EXAMEN, declarado: tamano });
+    try {
+      const { data } = exigirExamenes(await supabase.storage.from(BUCKET_EXAMENES).createSignedUploadUrl(path),
+        'preparar la subida');
+      return { path: data.path, token: data.token };
+    } catch (err) {
+      await liberarReserva(supabase, BUCKET_EXAMENES, path);
+      throw err;
+    }
   });
 }
 

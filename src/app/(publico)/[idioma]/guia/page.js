@@ -12,7 +12,8 @@ import LandingFooter from '@/app/landing/LandingFooter';
 import { IconoWhatsApp } from '@/app/landing/BotonWhatsApp';
 import { jakarta } from '@/app/landing/fuente';
 import { whatsappUrl } from '@/app/landing/contacto';
-import { idiomaDeParams, alternativas } from '@/lib/i18n/publico';
+import { metadatosPagina } from '@/app/base';
+import { idiomaDeParams } from '@/lib/i18n/publico';
 import { idiomaONoEncontrado } from '@/lib/i18n/publico-servidor';
 import { GUIA } from '@/lib/i18n/textos/guia';
 
@@ -25,7 +26,7 @@ const CAPTURAS = {
 export async function generateMetadata({ params }) {
   const idioma = await idiomaDeParams(params);
   const g = GUIA[idioma] || GUIA.es;
-  return { title: g.meta.titulo, description: g.meta.descripcion, alternates: alternativas('/guia', idioma) };
+  return metadatosPagina({ idioma, ruta: '/guia', titulo: g.meta.titulo, descripcion: g.meta.descripcion });
 }
 
 // **negrita** dentro de un texto.

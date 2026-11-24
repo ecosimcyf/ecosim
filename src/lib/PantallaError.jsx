@@ -8,9 +8,16 @@ import { ERRORES, idiomaDelDocumento } from './i18n/textos/errores';
 
 // estilo: 'oscuro' (simulador y panel) o 'claro' (landing).
 export default function PantallaError({ error, reset, origen, estudiante = false, estilo = 'oscuro' }) {
-  const [idioma, setIdioma] = useState('es');
+  // null hasta leer el idioma de la página: no se pinta texto antes, para
+  // que no se vea un instante en español y luego en el idioma real.
+  const [idioma, setIdioma] = useState(null);
   useEffect(() => { setIdioma(idiomaDelDocumento()); }, []);
   useEffect(() => { console.error('[' + origen + ']', error); }, [error, origen]);
+  if (!idioma) {
+    return estilo === 'claro'
+      ? <main className="error-404" aria-busy="true" />
+      : <div className="espera" aria-busy="true"><div className="marca">ECOSIM</div></div>;
+  }
   const t = ERRORES[idioma];
 
   if (estilo === 'claro') {

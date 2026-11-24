@@ -6,7 +6,9 @@ import { COOKIE_IDIOMA, IDIOMA_DEFECTO, LOCALE, crearT, idiomaValido, idiomaDeNa
 import { ESTUDIANTE } from '@/lib/i18n/textos/estudiante';
 
 export default function NoDisponible() {
-  const [idioma, setIdioma] = useState(IDIOMA_DEFECTO);
+  // null hasta saber el idioma: no se pinta texto antes, para que no se vea
+  // un instante en español y luego en el idioma del visitante.
+  const [idioma, setIdioma] = useState(null);
   useEffect(() => {
     const cookie = document.cookie.split('; ').find((c) => c.startsWith(COOKIE_IDIOMA + '='))?.split('=')[1];
     const elegido = idiomaValido(cookie) || idiomaDeNavegador(navigator.languages?.join(',') || navigator.language) || IDIOMA_DEFECTO;
@@ -14,9 +16,9 @@ export default function NoDisponible() {
     document.documentElement.lang = LOCALE[elegido];
   }, []);
   return (
-    <div className="espera">
+    <div className="espera" aria-busy={!idioma}>
       <div className="marca">ECOSIM</div>
-      <div className="txt">{crearT(ESTUDIANTE, idioma)('noDisponible')}</div>
+      {idioma && <div className="txt" role="status">{crearT(ESTUDIANTE, idioma)('noDisponible')}</div>}
     </div>
   );
 }

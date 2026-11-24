@@ -28,7 +28,7 @@ export default async function NoEncontrado() {
             <span className="error-404-codigo">404</span>
             <h1>{t('error404.h1')}</h1>
             <p>{t('error404.texto')}</p>
-            <a className="btn btn-primary" href="/">{t('error404.volver')}</a>
+            <a className="btn btn-primary" href={'/' + idioma}>{t('error404.volver')}</a>
           </main>
           <LandingFooter idioma={idioma} />
         </div>

@@ -22,20 +22,20 @@ npm run respaldo
 
 ## Restaurar
 
-Primero, siempre, en **simulación** (no cambia nada, solo cuenta lo que haría):
+Primero, siempre, en **simulación** (no cambia nada, solo cuenta lo que haría). Hay que indicar con `--proyecto <ref>` el identificador del proyecto de Supabase al que vas a restaurar (el código de la URL: `https://<ref>.supabase.co`). `restaurar` se niega a seguir si no coincide con el de `NEXT_PUBLIC_SUPABASE_URL`, para no escribir en el proyecto equivocado:
 
 ```bash
-npm run restaurar -- --base respaldos/base/2026-11-05_12-59
+npm run restaurar -- --proyecto <ref> --base respaldos/base/2026-11-05_12-59
 ```
 
 Si lo que muestra es lo esperado, de verdad:
 
 ```bash
-npm run restaurar -- --base respaldos/base/2026-11-05_12-59 --confirmar
+npm run restaurar -- --proyecto <ref> --base respaldos/base/2026-11-05_12-59 --confirmar
 ```
 
 - **Archivos:** sube a Storage los que faltan. Nunca pisa uno que ya exista.
-- **Base:** inserta o actualiza las filas tabla por tabla, en orden (cuentas, puntos, casos, videos, exámenes…). **No borra nada.**
+- **Base:** inserta o actualiza las filas tabla por tabla, en orden (cuentas, puntos, casos, videos, exámenes…). **No borra nada.** Por seguridad, **no restaura** por defecto los campos `codigo_hash` ni `token_acceso` de las cuentas (si un respaldo antiguo los trae, se ignoran).
 - **Administradores:** las contraseñas no se respaldan. Si un usuario de Auth se perdió:
   1. Créalo otra vez con el mismo correo (panel → Cuentas, o `scripts/crear-super-admin.mjs`).
   2. Restablécele la contraseña desde el panel.

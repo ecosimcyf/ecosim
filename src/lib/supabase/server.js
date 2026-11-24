@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { OPCIONES_COOKIE_SESION } from '@/lib/supabase/cookies';
 
 // Se usa para pintar la vista del estudiante ya con datos (más rápido).
 // No usamos el login de Supabase aquí, así que no manejamos cookies.
@@ -31,6 +32,7 @@ export function crearClienteServidorAuth() {
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
+      cookieOptions: OPCIONES_COOKIE_SESION,
       cookies: {
         async getAll() {
           const cookieStore = await cookies();
