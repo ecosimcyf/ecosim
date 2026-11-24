@@ -6,7 +6,7 @@
 // `revalidate` segundos (abajo). Así, aunque cientos de estudiantes escaneen el QR
 // a la vez, la página llega al instante y sin ejecutar código en el
 // servidor. Por eso aquí NO se leen cookies: lo que depende de cada
-// estudiante (su idioma, si ya escribió el código, los casos activos) lo
+// estudiante (su idioma, los casos activos) lo
 // resuelve su navegador en EntradaEstudiante.jsx.
 //
 // Consecuencia: un cambio en la CUENTA (desactivarla, renombrarla, cambiar

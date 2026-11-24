@@ -3,21 +3,18 @@
 // Primer paso de la vista del estudiante, ya en su navegador.
 //
 // La página llega desde la caché del CDN con los datos fijos de la cuenta
-// (nombre, idioma, si pide código). Lo que depende de CADA estudiante se
-// resuelve aquí:
+// (nombre, idioma). Lo que depende de CADA estudiante se resuelve aquí:
 //   · su idioma (el que eligió con el selector, o el de la cuenta);
-//   · si este dispositivo ya escribió el código (cookie de acceso);
 //   · la lista de casos activos (de la base, al momento).
 // Mientras tanto se ve solo el logo, sin textos: así nadie ve un idioma y
-// luego otro, ni el menú un instante antes de la pantalla del código.
+// luego otro.
 //
 // Si la caché no pudo traer la cuenta (Supabase caído justo al generarla),
 // se pide aquí mismo.
 // ============================================================
 import { useCallback, useEffect, useState } from 'react';
 import { crearClienteNavegador } from '@/lib/supabase/client';
-import { resolverCuenta, listarCasosActivos, SIN_ACCESO } from '@/lib/datos';
-import { tokenAccesoNavegador } from '@/lib/acceso';
+import { resolverCuenta, listarCasosActivos } from '@/lib/datos';
 import { IdiomaEnNavegador, useT } from '@/lib/i18n/cliente';
 import { ESTUDIANTE } from '@/lib/i18n/textos/estudiante';
 import VistaPrincipal from './VistaPrincipal';
@@ -50,7 +47,6 @@ export default function EntradaEstudiante({ slug, cuentaInicial }) {
   // 'cargando' | 'listo' | 'sinConexion' | 'noDisponible'
   const [fase, setFase] = useState('cargando');
   const [casos, setCasos] = useState([]);
-  const [sinAcceso, setSinAcceso] = useState(false);
 
   const preparar = useCallback(async () => {
     setFase('cargando');
@@ -66,11 +62,7 @@ export default function EntradaEstudiante({ slug, cuentaInicial }) {
       if (!c || !c.activa) { setFase('noDisponible'); return; }
       setCuenta(c);
     }
-    // Siempre se pregunta a la base (no a la copia en caché de la cuenta):
-    // si el profesor acaba de poner o quitar el código, la base ya lo sabe.
-    // Sin código válido responde SIN_ACCESO y se muestra la pantalla del código.
-    const lista = await listarCasosActivos(supabase, c.id, tokenAccesoNavegador(c.id));
-    setSinAcceso(lista === SIN_ACCESO);
+    const lista = await listarCasosActivos(supabase, c.id);
     // null = la consulta falló: el menú arranca vacío y el sondeo de
     // VistaPrincipal lo vuelve a intentar a los pocos segundos.
     setCasos(Array.isArray(lista) ? lista : []);
@@ -87,7 +79,7 @@ export default function EntradaEstudiante({ slug, cuentaInicial }) {
       {fase === 'listo' && (
         <VistaPrincipal
           casosActivosIniciales={casos}
-          cuentaId={cuenta.id} slug={slug} sinAccesoInicial={sinAcceso}
+          cuentaId={cuenta.id}
         />
       )}
     </IdiomaEnNavegador>

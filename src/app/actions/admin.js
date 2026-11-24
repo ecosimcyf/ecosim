@@ -30,12 +30,10 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { crearClienteServidorAuth } from '@/lib/supabase/server';
-import { faltaSegundoPaso } from '@/lib/mfa';
 import { LIMITES, MIME_EXTENSION, limpiarLaboratorio, limpiarVitales } from '@/lib/examenes';
 import { idiomaValido } from '@/lib/i18n/config';
 import { registrarError } from '@/lib/errores';
 import { limpiezaCompleta, faltaMigracion } from '@/lib/limpieza';
-import { cifrarCodigo, codigoValido, nuevoTokenAcceso } from '@/lib/codigo-acceso';
 import { normalizarSlug, slugValido, extensionDeSubida } from '@/lib/validar';
 
 const BUCKET = 'videos';
@@ -62,7 +60,7 @@ async function conErrores(fn) {
     return await fn();
   } catch (err) {
     // Los avisos de validación (ErrorAdmin sin causa: "nombre vacío", "sin
-    // cupo"…) no son fallas; todo lo demás queda en la pestaña «Errores».
+    // cupo"…) no son fallas; todo lo demás queda en el registro de Vercel.
     if (!(err instanceof ErrorAdmin) || err.causa) await registrarError('admin', err);
     if (err instanceof ErrorAdmin) return { error: err.message, vars: err.vars, codigo: err.codigo };
     return { error: 'err.generico' };
@@ -92,8 +90,6 @@ async function requerirAdmin() {
   const auth = crearClienteServidorAuth();
   const { data: { user } } = await auth.auth.getUser();
   if (!user) throw new ErrorAdmin('err.sesion', { codigo: 'sin-sesion' });
-  // 2FA activada pero sin el código todavía: como si no hubiera sesión.
-  if (await faltaSegundoPaso(auth)) throw new ErrorAdmin('err.sesion', { codigo: 'sin-sesion' });
   const supabase = crearClienteAdmin();
   const { data: perfil, error } = await supabase
     .from('perfiles').select('rol,cuenta_id').eq('id', user.id).maybeSingle();
@@ -376,12 +372,11 @@ async function leerCuenta(supabase, cuentaId) {
     .select('id,slug,nombre,activa,cupo_casos_propios,cupo_storage_mb').eq('id', cuentaId).maybeSingle(),
   'leer la cuenta');
   if (!cuenta) throw new ErrorAdmin('err.cuentaYaNoExiste');
-  const [datos, idiomas, codigo] = await Promise.all([
-    leerTodo(supabase, cuentaId), idiomasDeCuentas(supabase, cuentaId), estadoCodigo(supabase, cuentaId),
+  const [datos, idiomas] = await Promise.all([
+    leerTodo(supabase, cuentaId), idiomasDeCuentas(supabase, cuentaId),
   ]);
   return {
     cuentaId,
-    ...codigo,
     cuentaNombre: cuenta.nombre,
     cuentaSlug: cuenta.slug,
     cuentaIdioma: idiomas?.[cuentaId] || 'es',
@@ -391,18 +386,6 @@ async function leerCuenta(supabase, cuentaId) {
     usoStorageMb: aMb(await usoStorageBytes(supabase, cuentaId)),
     ...datos,
   };
-}
-
-// ¿La cuenta pide código de acceso a sus estudiantes? codigoDisponible es
-// false si la migración 2026-11-04 aún no se ejecutó (el panel oculta la
-// sección).
-async function estadoCodigo(supabase, cuentaId) {
-  const { data, error } = await supabase.from('cuentas').select('token_acceso').eq('id', cuentaId).maybeSingle();
-  if (error) {
-    if (faltaMigracion(error)) return { codigoDisponible: false, requiereCodigo: false };
-    exigir({ error }, 'leer el código de acceso');
-  }
-  return { codigoDisponible: true, requiereCodigo: !!data?.token_acceso };
 }
 
 // Mismo resultado que leerTodo + el uso de storage ya actualizado.
@@ -438,7 +421,6 @@ export async function leerDatosAdmin() {
       cupoCasosPropios: null, cupoStorageMb: null, usoStorageMb: null,
       puntos: [], casos: [], videosPorCaso: {},
       solicitudes: await listarSolicitudesInterno(supabase),
-      errores: await listarErroresInterno(supabase),
     };
   }
   return { rol, cuentas: null, ...(await leerCuenta(supabase, cuentaId)) };
@@ -574,12 +556,6 @@ export async function restablecerClaveCuenta(cuentaId) {
       const r = await supabase.auth.admin.updateUserById(p.id, { password: clave });
       exigir(r, 'cambiar la contraseña');
       correos.push(r.data.user.email);
-      // Si perdió el teléfono de la verificación en dos pasos, también se
-      // la quitamos: con la contraseña temporal debe poder entrar.
-      const { data: factores } = await supabase.auth.admin.mfa.listFactors({ userId: p.id });
-      for (const f of factores?.factors || []) {
-        exigir(await supabase.auth.admin.mfa.deleteFactor({ userId: p.id, id: f.id }), 'quitar la verificación en dos pasos');
-      }
     }
     return { claveTemporal: clave, correos };
   });
@@ -655,57 +631,6 @@ export async function limpiarVideosHuerfanos() {
     await requerirSuperAdmin();
     // Lo mismo que hace la tarea diaria automática (src/lib/limpieza.js).
     return limpiezaCompleta(crearClienteAdmin());
-  });
-}
-
-// ---------- registro de errores (solo super_admin) ----------
-
-// Los 200 más recientes; null si la migración 2026-11-04 aún no se ejecutó.
-async function listarErroresInterno(supabase) {
-  const { data, error } = await supabase.from('errores')
-    .select('id,creado_en,origen,mensaje,detalle').order('creado_en', { ascending: false }).limit(200);
-  if (error) {
-    if (faltaMigracion(error)) return null;
-    exigir({ error }, 'leer los errores');
-  }
-  return data || [];
-}
-
-export async function listarErrores() {
-  return conErrores(async () => {
-    await requerirSuperAdmin();
-    return { errores: await listarErroresInterno(crearClienteAdmin()) };
-  });
-}
-
-export async function borrarErrores() {
-  return conErrores(async () => {
-    await requerirSuperAdmin();
-    const supabase = crearClienteAdmin();
-    exigir(await supabase.from('errores').delete().gte('id', 0), 'borrar los errores');
-    return { errores: [] };
-  });
-}
-
-// ---------- código de acceso de los estudiantes ----------
-
-// Pone, cambia o quita (codigo vacío/null) el código de la cuenta. Cada
-// cambio genera un token nuevo: los estudiantes que ya habían entrado
-// tienen que escribir el código nuevo (cambiarlo deja fuera a quien tenía
-// el anterior). El código se guarda cifrado: si el profesor lo olvida,
-// pone otro.
-export async function cambiarCodigoAcceso(cuentaId, codigo) {
-  return conErrores(async () => {
-    await requerirAccesoCuenta(cuentaId);
-    const supabase = crearClienteAdmin();
-    const quitar = codigo == null || String(codigo).trim() === '';
-    if (!quitar && !codigoValido(codigo)) throw new ErrorAdmin('err.codigoLargo');
-    const { error } = await supabase.from('cuentas').update(quitar
-      ? { codigo_hash: null, token_acceso: null }
-      : { codigo_hash: cifrarCodigo(codigo), token_acceso: nuevoTokenAcceso() }).eq('id', cuentaId);
-    if (faltaMigracion(error)) throw new ErrorAdmin('err.codigoMigracion');
-    exigir({ error }, 'guardar el código de acceso');
-    return { requiereCodigo: !quitar };
   });
 }
 

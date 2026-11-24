@@ -4,7 +4,6 @@
 import '@/app/globals.css';
 import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
-import ReporteErrores from '@/lib/ReporteErrores';
 import { firaCode, metadatosBase, viewportBase } from '@/app/base';
 import { LOCALE } from '@/lib/i18n/config';
 import { idiomaVisitante } from '@/lib/i18n/servidor';
@@ -23,7 +22,6 @@ export default async function RootLayout({ children }) {
     <html lang={LOCALE[idioma]} className={firaCode.variable}>
       <body>
         {children}
-        <ReporteErrores />
         <Analytics />
         <SpeedInsights />
       </body>

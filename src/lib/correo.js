@@ -1,7 +1,6 @@
 // ============================================================
 // Envío de correos con Resend (https://resend.com). SOLO para el servidor.
-// Lo usan el aviso de solicitudes de contacto (actions/contacto.js) y el
-// aviso de errores (lib/aviso-errores.js).
+// Lo usa el aviso de solicitudes de contacto (actions/contacto.js).
 //
 // Es OPCIONAL: sin RESEND_API_KEY no se envía nada (y no falla nada).
 // Remitente: AVISO_REMITENTE (o el antiguo AVISO_SOLICITUDES_DE); si no hay

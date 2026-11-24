@@ -66,10 +66,9 @@ export const GUIA = {
           tip: 'Un caso sin videos ni exámenes no aparece en el menú aunque esté activo.',
         },
         {
-          titulo: 'Comparte el enlace (y, si quieres, un código)',
+          titulo: 'Comparte el enlace',
           texto: [
             'En **Casos activos** está el enlace de tu cuenta, con su botón **Copiar**. Pásalo a tus estudiantes por el chat del grupo o el aula virtual.',
-            'Si quieres que solo entren ellos, pon un **código de acceso** en esa misma tarjeta y díselo en clase. Lo escriben una vez por dispositivo. Si lo cambias, todos tendrán que escribir el nuevo (útil al terminar el semestre).',
           ],
         },
       ],
@@ -83,10 +82,9 @@ export const GUIA = {
         {
           titulo: 'Abre el enlace de tu profesor',
           texto: [
-            'Si te pide un **código de acceso**, escribe el que te dio tu profesor. Solo hace falta una vez en ese dispositivo.',
+            'Ábrelo en el navegador de tu celular, tablet o computador. No necesitas instalar nada ni crear usuario.',
           ],
           tip: 'En el celular puedes usar «Añadir a pantalla de inicio» del navegador: se abre como una app, sin barras.',
-          captura: 'codigo',
         },
         {
           titulo: 'Elige un caso',
@@ -99,7 +97,7 @@ export const GUIA = {
         {
           titulo: 'Explora el paciente',
           texto: [
-            'En el celular, **gira la pantalla** a horizontal. A la derecha está el maniquí: **mantén presionado un punto** y en la pantalla aparece la ecografía de esa zona, como si apoyaras el transductor. Al soltar, la sonda vuelve al reposo.',
+            'En el celular en vertical, la ecografía queda arriba y el maniquí abajo (en horizontal, el maniquí va a la derecha): **mantén presionado un punto** y en la pantalla aparece la ecografía de esa zona, como si apoyaras el transductor. Al soltar, la sonda vuelve al reposo.',
             'Cambia de vista con **Abajo**, **Izq** y **Der** para llegar a todos los puntos.',
           ],
           tip: 'La primera vez que entras a un caso puede salir «Preparando las ecografías…»: se descargan una sola vez y luego responden al instante.',
@@ -143,7 +141,6 @@ export const GUIA = {
       mensaje: 'Hola, tengo una pregunta sobre cómo usar EcoSim.',
     },
     capturas: {
-      codigo: 'Pantalla para escribir el código de acceso de la cuenta',
       menu: 'Menú de casos activos que ve el estudiante',
       caso: 'Vista del estudiante: la ecografía a la izquierda y el maniquí con sus puntos a la derecha',
     },
@@ -214,10 +211,9 @@ export const GUIA = {
           tip: 'Um caso sem vídeos nem exames não aparece no menu, mesmo ativo.',
         },
         {
-          titulo: 'Compartilhe o link (e, se quiser, um código)',
+          titulo: 'Compartilhe o link',
           texto: [
             'Em **Casos ativos** está o link da sua conta, com o botão **Copiar**. Envie-o aos seus alunos pelo grupo da turma ou pelo ambiente virtual.',
-            'Se quiser que só eles entrem, defina um **código de acesso** nesse mesmo cartão e passe-o em aula. Eles o digitam uma vez por dispositivo. Se você trocá-lo, todos terão de digitar o novo (útil ao fim do semestre).',
           ],
         },
       ],
@@ -231,10 +227,9 @@ export const GUIA = {
         {
           titulo: 'Abra o link do seu professor',
           texto: [
-            'Se pedir um **código de acesso**, digite o que seu professor passou. Só é preciso uma vez naquele dispositivo.',
+            'Abra-o no navegador do celular, tablet ou computador. Não é preciso instalar nada nem criar usuário.',
           ],
-          tip: 'No celular você pode usar «Adicionar à tela inicial» do navegador: abre como um app, sem barras.',
-          captura: 'codigo',
+          tip: 'No celular você pode usar «Adicionar à tela inicial» do navegador: abre como um app, sem barras.',
         },
         {
           titulo: 'Escolha um caso',
@@ -247,7 +242,7 @@ export const GUIA = {
         {
           titulo: 'Examine o paciente',
           texto: [
-            'No celular, **gire a tela** para a horizontal. À direita está o manequim: **mantenha um ponto pressionado** e a ultrassonografia daquela região aparece na tela, como se você apoiasse o transdutor. Ao soltar, a sonda volta ao repouso.',
+            'No celular na vertical, a ultrassonografia fica em cima e o manequim embaixo (na horizontal, o manequim fica à direita): **mantenha um ponto pressionado** e a ultrassonografia daquela região aparece na tela, como se você apoiasse o transdutor. Ao soltar, a sonda volta ao repouso.',
             'Mude de vista com **Ventral**, **Esq.** e **Dir.** para chegar a todos os pontos.',
           ],
           tip: 'Na primeira vez que você entra em um caso pode aparecer «Preparando as ultrassonografias…»: elas são baixadas uma única vez e depois respondem na hora.',
@@ -291,7 +286,6 @@ export const GUIA = {
       mensaje: 'Olá, tenho uma dúvida sobre como usar o EcoSim.',
     },
     capturas: {
-      codigo: 'Tela para digitar o código de acesso da conta',
       menu: 'Menu de casos ativos que o aluno vê',
       caso: 'Vista do aluno: a ultrassonografia à esquerda e o manequim com seus pontos à direita',
     },
@@ -362,10 +356,9 @@ export const GUIA = {
           tip: 'A case with no videos or tests does not appear in the menu, even if it is on.',
         },
         {
-          titulo: 'Share the link (and, if you like, a code)',
+          titulo: 'Share the link',
           texto: [
             'Your account’s link is on the **Active cases** card, with a **Copy** button. Send it to your students through the class chat or your virtual classroom.',
-            'If you want only them to get in, set an **access code** on that same card and tell them in class. They type it once per device. If you change it, everyone has to type the new one (handy at the end of a term).',
           ],
         },
       ],
@@ -379,10 +372,9 @@ export const GUIA = {
         {
           titulo: 'Open your teacher’s link',
           texto: [
-            'If it asks for an **access code**, type the one your teacher gave you. You only need to do this once on that device.',
+            'Open it in the browser on your phone, tablet or computer. There is nothing to install and no account to create.',
           ],
-          tip: 'On a phone, you can use your browser’s “Add to Home Screen”: it then opens like an app, without the browser bars.',
-          captura: 'codigo',
+          tip: 'On a phone, you can use your browser’s “Add to Home Screen”: it then opens like an app, without the browser bars.',
         },
         {
           titulo: 'Choose a case',
@@ -395,7 +387,7 @@ export const GUIA = {
         {
           titulo: 'Examine the patient',
           texto: [
-            'On a phone, **turn the screen** sideways. The mannequin is on the right: **press and hold a point** and the ultrasound of that area appears on screen, as if you were placing the transducer there. When you let go, the probe goes back to rest.',
+            'On a phone held upright, the ultrasound is on top and the mannequin below (held sideways, the mannequin is on the right): **press and hold a point** and the ultrasound of that area appears on screen, as if you were placing the transducer there. When you let go, the probe goes back to rest.',
             'Switch views with **Ventral**, **Left** and **Right** to reach every point.',
           ],
           tip: 'The first time you open a case you may see “Preparing the ultrasound videos…”: they are downloaded only once and then respond instantly.',
@@ -439,7 +431,6 @@ export const GUIA = {
       mensaje: 'Hi, I have a question about how to use EcoSim.',
     },
     capturas: {
-      codigo: 'Screen for typing the account’s access code',
       menu: 'Menu of active cases that students see',
       caso: 'Student view: the ultrasound on the left and the mannequin with its points on the right',
     },

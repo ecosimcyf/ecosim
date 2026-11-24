@@ -5,7 +5,6 @@
 import '@/app/globals.css';
 import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
-import ReporteErrores from '@/lib/ReporteErrores';
 import { firaCode, metadatosBase, viewportBase } from '@/app/base';
 import { IDIOMA_DEFECTO, LOCALE } from '@/lib/i18n/config';
 
@@ -17,7 +16,6 @@ export default function LayoutEstudiante({ children }) {
     <html lang={LOCALE[IDIOMA_DEFECTO]} className={firaCode.variable}>
       <body>
         {children}
-        <ReporteErrores />
         <Analytics />
         <SpeedInsights />
       </body>

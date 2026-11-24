@@ -2,10 +2,7 @@
 // ============================================================
 // Vista del estudiante, dentro de una cuenta (/c/[slug]).
 //
-// Si la cuenta tiene código de acceso y este navegador todavía no lo
-// escribió (o el profesor lo cambió), primero se pide el código.
-//
-// Luego se ve un MENÚ con los casos activos de ESTA cuenta (puede haber
+// Primero se ve un MENÚ con los casos activos de ESTA cuenta (puede haber
 // varios a la vez). Al elegir uno se cargan sus datos. Si sus videos suman
 // poco (PRECARGA_MAX_MB, en src/lib/datos.js) se PRECARGAN todos en
 // memoria con una barra de progreso, y cada punto arranca al instante. Si
@@ -18,9 +15,7 @@
 // ============================================================
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { crearClienteNavegador } from '@/lib/supabase/client';
-import { listarCasosActivos, cargarDatosDeCaso, SIN_ACCESO } from '@/lib/datos';
-import { tokenAccesoNavegador } from '@/lib/acceso';
-import PantallaCodigo from './PantallaCodigo';
+import { listarCasosActivos, cargarDatosDeCaso } from '@/lib/datos';
 import { MANIQUIES } from '@/lib/maniquies';
 import { BotonesExamenes, VentanaExamen, EXAMENES } from './Examenes';
 import { unir } from '@/lib/i18n/config';
@@ -44,12 +39,10 @@ function hayVideos(datos) {
   return !!(datos && datos.puntos && datos.puntos.some((p) => p.videoUrl));
 }
 
-export default function VistaPrincipal({ casosActivosIniciales, cuentaId, slug, sinAccesoInicial = false }) {
+export default function VistaPrincipal({ casosActivosIniciales, cuentaId }) {
   const t = useT(TEXTOS);
   const idioma = useIdioma();
   const [casosActivos, setCasosActivos] = useState(casosActivosIniciales);
-  // La cuenta pide código y este navegador no tiene uno válido.
-  const [sinAcceso, setSinAcceso] = useState(sinAccesoInicial);
   const [casoSeleccionado, setCasoSeleccionado] = useState(null); // null => menú
   const [avisoCasoDesactivado, setAvisoCasoDesactivado] = useState(false);
   const [vistaDescripcion, setVistaDescripcion] = useState(null); // {caso, entrarAlCerrar} | null
@@ -92,7 +85,7 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId, slug, 
     setDatos(null);
     let d;
     try {
-      d = await cargarDatosDeCaso(crearClienteNavegador(), casoId, cuentaId, tokenAccesoNavegador(cuentaId));
+      d = await cargarDatosDeCaso(crearClienteNavegador(), casoId, cuentaId);
     } catch {
       d = { casoId: null, error: true };
     }
@@ -100,7 +93,6 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId, slug, 
     // esta respuesta ya no le corresponde.
     if (miCarga !== cargaIdRef.current) return;
     if (d.error) { setErrorCarga(true); return; }
-    if (d.sinAcceso) { setCasoSeleccionado(null); setSinAcceso(true); return; }
     if (!d.casoId) {
       // Pudo desactivarse justo entre que se listó y se eligió.
       setAvisoCasoDesactivado(true);
@@ -175,21 +167,12 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId, slug, 
   // un salón de 40 estudiantes eso son muchas consultas que nadie ve. Al
   // volver a la pestaña se consulta en el acto y se reanuda el sondeo.
   const recargarLista = useCallback(async () => {
-    const lista = await listarCasosActivos(crearClienteNavegador(), cuentaId, tokenAccesoNavegador(cuentaId));
+    const lista = await listarCasosActivos(crearClienteNavegador(), cuentaId);
     // null = la consulta falló (red caída): se conserva lo que había y se
     // reintenta en el siguiente sondeo. NUNCA se interpreta como "el
     // profesor desactivó todo", o un corte de Wi-Fi sacaría a toda la
     // clase de su caso.
     if (!lista) return;
-    // El profesor puso (o cambió) el código: hay que escribirlo de nuevo.
-    if (lista === SIN_ACCESO) {
-      setSinAcceso(true);
-      setCasoSeleccionado(null);
-      setDatos(null);
-      setVideoUrl(null);
-      return;
-    }
-    setSinAcceso(false);
     setCasosActivos(lista);
     const abiertoId = casoSeleccionadoRef.current;
     if (abiertoId && !lista.some((c) => c.id === abiertoId)) {
@@ -367,11 +350,6 @@ export default function VistaPrincipal({ casosActivosIniciales, cuentaId, slug, 
     if (congeladoRef.current) { graciaRef.current = null; return; }
     graciaRef.current = setTimeout(() => { graciaRef.current = null; irAReposo(); }, GRACIA_TACTIL_MS);
   };
-
-  // -------- Falta el código de acceso de la cuenta --------
-  if (sinAcceso) {
-    return <PantallaCodigo slug={slug} onEntrar={recargarLista} />;
-  }
 
   // -------- Menú: todavía no se ha elegido ningún caso --------
   if (!casoSeleccionado) {

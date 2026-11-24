@@ -3,14 +3,13 @@
 // Acciones de login / logout del administrador, con Supabase Auth.
 // ============================================================
 import { redirect } from 'next/navigation';
-import { crearClienteServidorAuth } from '@/lib/supabase/server';
+import { crearClienteServidor, crearClienteServidorAuth } from '@/lib/supabase/server';
 import { estaBloqueado, registrarIntento, limpiarIntentos, ipVisitante } from '@/lib/ratelimit';
 import { LIMITES, claveLimite } from '@/lib/limites';
 import { crearT } from '@/lib/i18n/config';
 import { idiomaVisitante } from '@/lib/i18n/servidor';
 import { idiomaPanel } from '@/lib/i18n/panel-servidor';
 import { PANEL } from '@/lib/i18n/textos/panel';
-import { faltaSegundoPaso } from '@/lib/mfa';
 
 export async function login(_prevState, formData) {
   const correo = String(formData.get('correo') || '');
@@ -40,8 +39,7 @@ export async function login(_prevState, formData) {
   }
 
   await limpiarIntentos(claveCorreo);
-  // Con verificación en dos pasos: falta el código del teléfono.
-  redirect((await faltaSegundoPaso(supabase)) ? '/admin/login/verificar' : '/admin');
+  redirect('/admin');
 }
 
 export async function logout() {
@@ -71,14 +69,16 @@ export async function cambiarContrasena(_prevState, formData) {
 
   const supabase = crearClienteServidorAuth();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user?.email || await faltaSegundoPaso(supabase)) return { error: t('err.sesion') };
+  if (!user?.email) return { error: t('err.sesion') };
 
   // Por usuario (no por IP): la contraseña que se protege es la suya.
   const claveUsuario = claveLimite('clave', user.id);
   if (await estaBloqueado(claveUsuario, LIMITES.clave)) {
     return { error: t('err.intentos') };
   }
-  const { error: errActual } = await supabase.auth.signInWithPassword({ email: user.email, password: actual });
+  // Se comprueba con un cliente APARTE, sin cookies: iniciar sesión con el
+  // cliente de la sesión reemplazaría la sesión actual del navegador.
+  const { error: errActual } = await crearClienteServidor().auth.signInWithPassword({ email: user.email, password: actual });
   if (errActual) {
     await registrarIntento(claveUsuario, LIMITES.clave);
     return { error: t('err.actualMal') };
@@ -93,5 +93,8 @@ export async function cambiarContrasena(_prevState, formData) {
     if (/weak|short|characters/i.test(m)) return { error: t('err.claveDebil') };
     return { error: t('err.claveFallo') };
   }
+  // Cierra las sesiones abiertas en OTROS dispositivos: si alguien más
+  // conocía la contraseña vieja, se queda fuera.
+  await supabase.auth.signOut({ scope: 'others' }).catch(() => {});
   return { ok: true };
 }

@@ -6,8 +6,6 @@
 // selector de la barra, y es también el de sus estudiantes); el suyo
 // propio (cookie) para el super_admin.
 import { leerDatosAdmin } from '@/app/actions/admin';
-import { crearClienteServidorAuth } from '@/lib/supabase/server';
-import { factorActivo } from '@/lib/mfa';
 import { logout } from '@/app/actions/auth';
 import { crearT } from '@/lib/i18n/config';
 import { idiomaVisitante } from '@/lib/i18n/servidor';
@@ -44,11 +42,6 @@ export default async function AdminPage() {
     errorCuenta = err?.codigo ? err.message : 'errorCarga';
   }
 
-  // El super_admin controla todas las cuentas: si no tiene verificación en
-  // dos pasos, se le recuerda arriba en cada visita.
-  const sinDosPasos = datos?.rol === 'super_admin'
-    && !(await factorActivo(crearClienteServidorAuth()).catch(() => true));
-
   const deCuenta = datos?.rol === 'cliente' && datos.idiomasDisponibles;
   const idioma = deCuenta ? datos.cuentaIdioma : await idiomaVisitante();
   const t = crearT(PANEL, idioma);
@@ -69,12 +62,6 @@ export default async function AdminPage() {
             </form>
           </div>
         </div>
-        {sinDosPasos && (
-          <div className="aviso-seguridad" role="note">
-            <span>{t('mfa.avisoSuper')}</span>
-            <a className="btn btn-primary small" href="/admin/cambiar-clave#dos-pasos">{t('mfa.avisoSuperBoton')}</a>
-          </div>
-        )}
         {errorCuenta ? (
           <p className="muted" style={{ padding: 24, textAlign: 'center' }}>{t(errorCuenta)}</p>
         ) : (

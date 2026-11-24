@@ -2,16 +2,15 @@
 // Pantalla que se ve cuando algo falla al pintar una página (la usan los
 // error.js de cada zona). En vez del mensaje genérico de Next.js en
 // inglés, explica qué pasó en el idioma de la página y ofrece reintentar
-// sin cerrar la pestaña. El error se reporta solo (src/lib/ReporteErrores.jsx).
+// sin cerrar la pestaña. El error queda en la consola del navegador.
 import { useEffect, useState } from 'react';
-import { reportar } from './ReporteErrores';
 import { ERRORES, idiomaDelDocumento } from './i18n/textos/errores';
 
 // estilo: 'oscuro' (simulador y panel) o 'claro' (landing).
 export default function PantallaError({ error, reset, origen, estudiante = false, estilo = 'oscuro' }) {
   const [idioma, setIdioma] = useState('es');
   useEffect(() => { setIdioma(idiomaDelDocumento()); }, []);
-  useEffect(() => { reportar(origen, error, { digest: error?.digest }); }, [error, origen]);
+  useEffect(() => { console.error('[' + origen + ']', error); }, [error, origen]);
   const t = ERRORES[idioma];
 
   if (estilo === 'claro') {

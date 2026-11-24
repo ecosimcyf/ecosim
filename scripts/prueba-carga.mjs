@@ -15,8 +15,6 @@
 //   npm run prueba-carga -- --slug prueba2 --estudiantes 300 --segundos 90
 //   npm run prueba-carga -- --slug prueba2 --sitio https://<vista-previa>.vercel.app
 //
-// Si la cuenta tiene código de acceso, el token se lee con la clave
-// service_role de .env.local (como si todos hubieran escrito el código).
 // Pega contra la base REAL: úsala con moderación y fuera de horas de clase.
 // ============================================================
 import { createClient } from '@supabase/supabase-js';

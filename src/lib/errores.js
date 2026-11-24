@@ -1,15 +1,9 @@
 // ============================================================
-// Registro de errores del servidor en la tabla "errores" (la ve el
-// super_admin en el panel, pestaña «Errores»). SOLO para el servidor.
+// Registro de errores del servidor. SOLO para el servidor.
 //
-// Nunca lanza: si no se puede guardar (base caída, migración pendiente),
-// queda al menos en el registro de Vercel con console.error.
-//
-// Después, si está configurado, avisa por correo (ver aviso-errores.js).
+// Quedan en el registro de Vercel (Logs del proyecto) con console.error.
+// Nunca lanza.
 // ============================================================
-import { crearClienteAdmin } from '@/lib/supabase/admin';
-import { quizasAvisar } from './aviso-errores';
-
 const corto = (v, max) => String(v ?? '').slice(0, max);
 
 export async function registrarError(origen, err, extra) {
@@ -22,10 +16,4 @@ export async function registrarError(origen, err, extra) {
     err?.stack,
   ].filter(Boolean).join('\n'), 4000);
   console.error('[' + origen + ']', mensaje, detalle ? '\n' + detalle : '');
-  try {
-    await crearClienteAdmin().from('errores').insert({ origen: corto(origen, 80), mensaje, detalle: detalle || null });
-  } catch {
-    // Ya quedó en console.error.
-  }
-  await quizasAvisar(corto(origen, 80), mensaje);
 }

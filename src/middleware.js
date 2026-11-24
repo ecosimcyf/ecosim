@@ -10,14 +10,11 @@
 //    mandamos a /admin/login (la propia /admin/login se deja pasar
 //    siempre). actualizarSesion() refresca la sesión en CADA petición
 //    (necesario para que el token no caduque) y dice quién es el usuario.
-//    Quien tiene la verificación en dos pasos activada y aún no escribió
-//    el código va a /admin/login/verificar (ver src/lib/mfa.js).
 // ============================================================
 import { NextResponse } from 'next/server';
 import { actualizarSesion } from '@/lib/supabase/middleware';
 import { COOKIE_IDIOMA, IDIOMA_DEFECTO, idiomaValido, idiomaDeNavegador } from '@/lib/i18n/config';
 import { RUTAS_PUBLICAS } from '@/lib/i18n/publico';
-import { faltaSegundoPaso } from '@/lib/mfa';
 
 export async function middleware(request) {
   const { pathname } = request.nextUrl;
@@ -32,13 +29,10 @@ export async function middleware(request) {
     return NextResponse.rewrite(url);
   }
 
-  const { response, usuario, supabase } = await actualizarSesion(request);
+  const { response, usuario } = await actualizarSesion(request);
   const esLogin = pathname.startsWith('/admin/login');
   if (esLogin) return response;
   if (!usuario) return NextResponse.redirect(new URL('/admin/login', request.url));
-  if (await faltaSegundoPaso(supabase)) {
-    return NextResponse.redirect(new URL('/admin/login/verificar', request.url));
-  }
   return response;
 }
 

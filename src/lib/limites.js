@@ -23,13 +23,6 @@ export const LIMITES = {
   // asistentes lo llenan a la vez desde el mismo Wi-Fi.
   contactoCorreo: { max: 3, ventanaSeg: 60 * MIN },
   contactoIp: { max: 20, ventanaSeg: 10 * MIN },
-  // Código de acceso del estudiante: 150 fallos cada 10 minutos por IP y
-  // cuenta. Alcanza para un auditorio de cientos de personas con errores de
-  // tipeo; aun así, adivinar un código de 6 letras y números a ese ritmo
-  // tomaría más de 100 años.
-  codigo: { max: 150, ventanaSeg: 10 * MIN },
-  // Errores que reportan los navegadores (src/app/actions/errores.js).
-  erroresNavegador: { max: 30, ventanaSeg: 10 * MIN },
 };
 
 // Clave del contador: partes unidas con ':' (correo en minúsculas, sin

@@ -95,7 +95,7 @@ export const LANDING = {
       titulo: 'Lo que suelen preguntarnos',
       verPrivacidad: 'Ver la política de privacidad',
       lista: [
-        { p: '¿Qué necesitan mis estudiantes para usarlo?', r: 'Solo el enlace de tu cuenta y un navegador: funciona en celular, tablet o computador. No instalan nada ni crean usuario ni contraseña. Si quieres que solo entren tus estudiantes, puedes ponerle a tu cuenta un código de acceso: lo escriben una vez por dispositivo.' },
+        { p: '¿Qué necesitan mis estudiantes para usarlo?', r: 'Solo el enlace de tu cuenta y un navegador: funciona en celular, tablet o computador. No instalan nada ni crean usuario ni contraseña.' },
         { p: '¿Necesita internet?', r: 'Sí. Al entrar a un caso, sus videos se descargan una sola vez y a partir de ahí responden al instante, aunque la conexión del salón no sea la mejor. En los casos muy grandes (más de unos 20 videos), cada video se descarga la primera vez que se toca su punto, para no hacer esperar a la clase.' },
         { p: '¿Puedo subir mis propios videos?', r: 'Sí, desde tu panel, con los videos de tu ecógrafo (hasta 30 segundos cada uno). Si el formato no se puede ver en el navegador —pasa con muchos ecógrafos—, el panel lo convierte solo antes de subirlo.' },
         { p: '¿Se le muestra el diagnóstico al estudiante?', r: 'No. El estudiante solo ve el maniquí y los videos, nunca el nombre de la estructura ni el diagnóstico. Tú decides si cada caso lleva una descripción previa (motivo de consulta, síntomas).' },
@@ -242,7 +242,7 @@ export const LANDING = {
       titulo: 'O que costumam nos perguntar',
       verPrivacidad: 'Ver a política de privacidade',
       lista: [
-        { p: 'Do que meus alunos precisam para usar?', r: 'Só do link da sua conta e de um navegador: funciona no celular, no tablet ou no computador. Eles não instalam nada nem criam usuário ou senha. Se quiser que só seus alunos entrem, você pode colocar um código de acesso na sua conta: eles o digitam uma vez por dispositivo.' },
+        { p: 'Do que meus alunos precisam para usar?', r: 'Só do link da sua conta e de um navegador: funciona no celular, no tablet ou no computador. Eles não instalam nada nem criam usuário ou senha.' },
         { p: 'Precisa de internet?', r: 'Sim. Ao entrar em um caso, os vídeos são baixados uma única vez e a partir daí respondem na hora, mesmo que a conexão da sala não seja das melhores. Nos casos muito grandes (mais de uns 20 vídeos), cada vídeo é baixado na primeira vez que seu ponto é tocado, para a turma não ficar esperando.' },
         { p: 'Posso enviar meus próprios vídeos?', r: 'Sim, pelo seu painel, com os vídeos do seu aparelho de ultrassom (até 30 segundos cada). Se o formato não puder ser exibido no navegador — o que acontece com muitos aparelhos —, o painel o converte automaticamente antes do envio.' },
         { p: 'O diagnóstico é mostrado ao aluno?', r: 'Não. O aluno só vê o manequim e os vídeos, nunca o nome da estrutura nem o diagnóstico. Você decide se cada caso tem uma descrição prévia (queixa principal, sintomas).' },
@@ -389,7 +389,7 @@ export const LANDING = {
       titulo: 'What people usually ask us',
       verPrivacidad: 'Read the privacy policy',
       lista: [
-        { p: 'What do my students need to use it?', r: 'Just your account’s link and a web browser: it works on a phone, tablet, or computer. They don’t install anything or create a username or password. If you want only your students to get in, you can add an access code to your account: they type it once per device.' },
+        { p: 'What do my students need to use it?', r: 'Just your account’s link and a web browser: it works on a phone, tablet, or computer. They don’t install anything or create a username or password.' },
         { p: 'Does it need internet?', r: 'Yes. When a student opens a case, its videos are downloaded only once and from then on they respond instantly, even if the classroom connection isn’t great. For very large cases (more than about 20 videos), each video is downloaded the first time its point is touched, so the class isn’t kept waiting.' },
         { p: 'Can I upload my own videos?', r: 'Yes, from your dashboard, using the videos from your ultrasound machine (up to 30 seconds each). If the format can’t be played in the browser — which happens with many machines — the dashboard converts it automatically before uploading.' },
         { p: 'Is the diagnosis shown to the student?', r: 'No. The student only sees the mannequin and the videos, never the name of the structure or the diagnosis. You decide whether each case has a description beforehand (presenting complaint, signs).' },

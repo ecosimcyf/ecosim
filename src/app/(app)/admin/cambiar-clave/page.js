@@ -5,9 +5,6 @@
 // Ya queda protegida por el middleware existente (su matcher ya cubre
 // /admin/:path*): sin sesión, no se llega hasta aquí.
 import CambiarClaveForm from './CambiarClaveForm';
-import DosPasos from './DosPasos';
-import { crearClienteServidorAuth } from '@/lib/supabase/server';
-import { factorActivo } from '@/lib/mfa';
 import { crearT } from '@/lib/i18n/config';
 import { idiomaPanel } from '@/lib/i18n/panel-servidor';
 import { PANEL } from '@/lib/i18n/textos/panel';
@@ -21,9 +18,6 @@ export async function generateMetadata() {
 
 export default async function CambiarClavePage() {
   const t = crearT(PANEL, await idiomaPanel());
-  // ¿Ya tiene la verificación en dos pasos? (si falla la consulta, se
-  // muestra como desactivada: activarla de nuevo avisa si ya lo estaba).
-  const activa = !!(await factorActivo(crearClienteServidorAuth()).catch(() => null));
   return (
     <div className="admin">
       <div className="admin-bar">
@@ -31,7 +25,6 @@ export default async function CambiarClavePage() {
       </div>
       <div className="admin-login admin-seguridad">
         <CambiarClaveForm textos={t('clave')} />
-        <DosPasos textos={t('mfa')} activaInicial={activa} />
       </div>
     </div>
   );

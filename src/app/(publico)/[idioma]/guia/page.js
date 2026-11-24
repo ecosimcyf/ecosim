@@ -18,7 +18,6 @@ import { GUIA } from '@/lib/i18n/textos/guia';
 
 // Tamaño real de cada captura (para que next/image reserve el espacio).
 const CAPTURAS = {
-  codigo: { src: '/guia/codigo.webp', ancho: 780, alto: 1120, telefono: true },
   menu: { src: '/guia/menu.webp', ancho: 780, alto: 1120, telefono: true },
   caso: { src: '/guia/caso.webp', ancho: 2560, alto: 1440, telefono: false },
 };

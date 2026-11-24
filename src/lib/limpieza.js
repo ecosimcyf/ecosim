@@ -89,6 +89,7 @@ export async function limpiezaCompleta(supabase) {
   for (const [tabla, col, antes] of [
     ['subidas_pendientes', 'creada_en', haceUnDia],
     ['intentos', 'desde', haceUnDia],
+    // Tabla de una versión anterior (registro de errores): se vacía sola.
     ['errores', 'creado_en', haceUnMes],
   ]) {
     const { error } = await supabase.from(tabla).delete().lt(col, antes);

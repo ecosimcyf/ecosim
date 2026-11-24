@@ -263,17 +263,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .menu-casos-sub { color: var(--text-faint); font-size: 14px; font-weight: 400; margin: -8px 0 4px; }
 .menu-casos .txt { color: var(--text-soft); font-size: 16px; max-width: 420px; }
 .aviso-caso { color: var(--warn); font-size: 14px; }
-/* Código de acceso de la cuenta (antes del menú). */
-.codigo-acceso {
-  display: flex; flex-direction: column; align-items: center; gap: 12px;
-  width: min(340px, 100%); text-align: center;
-}
-.codigo-acceso .menu-casos-sub { margin: 0; }
-.codigo-acceso input {
-  width: 100%; text-align: center; font-size: 20px; letter-spacing: .08em; padding: 10px 12px;
-}
-.codigo-acceso .btn { width: 100%; }
-.codigo-ayuda { color: var(--text-faint); font-size: 13px; margin: 0; }
 .menu-casos-grid {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; max-width: 760px;
 }
@@ -456,19 +445,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 /* ---- Enlace de los estudiantes, con botón de copiar ---- */
 .enlace-estudiantes { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
 .enlace-estudiantes .lbl { font-size: 12.5px; }
-/* Código de acceso de los estudiantes (tarjeta «Casos activos»). */
-.codigo-cuenta {
-  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft);
-  display: flex; flex-direction: column; gap: 6px;
-}
-.codigo-cuenta .lbl { font-size: 12.5px; }
-.codigo-cuenta p { margin: 0; }
-.codigo-cuenta input { flex: 1 1 200px; min-width: 0; }
-/* Pestaña «Errores» del super_admin. */
-.error-detalle {
-  font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto;
-  background: var(--bg-1); border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px; margin: 6px 0 0;
-}
 
 /* ---- Editar una cuenta (super_admin) ---- */
 .editar-cuenta { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
@@ -1221,18 +1197,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   box-shadow: 0 4px 16px rgba(0, 0, 0, .35);
 }
 
-/* Contraseña y seguridad (/admin/cambiar-clave): las dos tarjetas lado a
-   lado en pantalla ancha, una debajo de otra en el teléfono. */
+/* Cambiar contraseña (/admin/cambiar-clave). */
 .admin-seguridad { flex-wrap: wrap; align-items: flex-start; gap: 20px; padding: 60px 16px 40px; }
 .login-box form, .login-box-form { display: flex; flex-direction: column; gap: 12px; }
-.dos-pasos { text-align: left; }
-.dos-pasos p { margin: 0; }
-.dos-pasos-qr { align-self: center; background: #fff; padding: 10px; border-radius: 10px; }
-.dos-pasos-secreto { font-family: var(--font-mono), monospace; overflow-wrap: anywhere; color: var(--accent-bright); }
-
-/* Aviso al super_admin sin verificación en dos pasos. */
-.aviso-seguridad {
-  max-width: 920px; margin: 16px auto 0; padding: 12px 16px; border-radius: 10px;
-  border: 1px solid var(--warn); color: var(--warn-text); background: var(--warn-dim);
-  display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap;
-}

@@ -5,14 +5,11 @@
 // Las mismas funciones sirven en el servidor (primer pintado) y en el
 // navegador (sondeo). Reciben un cliente de Supabase ya creado.
 //
-// Todo pasa por funciones RPC "_v2" (supabase/migracion-2026-11-04-revision.sql)
-// que exigen el TOKEN de acceso de la cuenta cuando esta tiene código
-// (ver src/lib/acceso.js). Sin token válido devuelven el error 28000 y aquí
-// se traduce a SIN_ACCESO: la vista pide entonces el código.
+// Todo pasa por funciones RPC "_v2" (supabase/migracion-2026-11-04-revision.sql),
+// que traen en una sola consulta lo que antes eran varias. Reciben un
+// "token" de una función que esta versión no usa (código de acceso): se
+// manda siempre null.
 // ============================================================
-import { esErrorDeCodigo } from './acceso.js';
-
-export const SIN_ACCESO = 'sin-acceso';
 
 // Si el caso pesa hasta esto en total, se descargan todos sus videos al
 // entrar (cada punto arranca al instante). Si pesa más, cada video se pide
@@ -26,12 +23,12 @@ export const PRECARGA_MAX_MB = 50;
 // Videos viejos sin tamaño guardado: se suponen de este peso (30 s ≈ 3 MB).
 const MB_SUPUESTOS_SIN_TAMANO = 5;
 
-// slug de la URL (/c/[slug]) -> { id, slug, nombre, activa, requiereCodigo, idioma } | null
+// slug de la URL (/c/[slug]) -> { id, slug, nombre, activa, idioma } | null
 export async function resolverCuenta(supabase, slug) {
   const { data, error } = await supabase.rpc('cuenta_por_slug_v2', { p_slug: slug });
   if (error) throw error;
   const c = data?.[0];
-  return c ? { id: c.id, slug: c.slug, nombre: c.nombre, activa: c.activa, requiereCodigo: c.requiere_codigo, idioma: c.idioma } : null;
+  return c ? { id: c.id, slug: c.slug, nombre: c.nombre, activa: c.activa, idioma: c.idioma } : null;
 }
 
 // Menú: casos activos de ESTA cuenta, cada uno con qué exámenes trae
@@ -40,11 +37,9 @@ export async function resolverCuenta(supabase, slug) {
 // Devuelve null (no []) si la consulta FALLA (red caída, Supabase lento…):
 // así quien llama distingue "no hay casos activos" de "no se pudo
 // preguntar". Un corte de red no debe sacar a nadie de su caso.
-// Devuelve SIN_ACCESO si falta el código (o el profesor lo cambió).
-export async function listarCasosActivos(supabase, cuentaId, token) {
+export async function listarCasosActivos(supabase, cuentaId) {
   try {
-    const { data, error } = await supabase.rpc('casos_activos_v2', { p_cuenta_id: cuentaId, p_token: token || null });
-    if (esErrorDeCodigo(error)) return SIN_ACCESO;
+    const { data, error } = await supabase.rpc('casos_activos_v2', { p_cuenta_id: cuentaId, p_token: null });
     if (error) return null;
     return (data || []).map((c) => ({
       id: c.id, nombre: c.nombre, descripcion: c.descripcion, especie: c.especie,
@@ -60,13 +55,11 @@ export async function listarCasosActivos(supabase, cuentaId, token) {
 // punto (sería una pista), y sus exámenes complementarios.
 //   { casoId: null }                 -> el caso ya no está activo
 //   { casoId: null, error: true }    -> falló la red (ofrecer reintentar)
-//   { casoId: null, sinAcceso: true }-> falta el código
-export async function cargarDatosDeCaso(supabase, casoId, cuentaId, token) {
+export async function cargarDatosDeCaso(supabase, casoId, cuentaId) {
   if (!casoId) return { casoId: null };
   const { data, error } = await supabase.rpc('datos_caso_v2', {
-    p_cuenta_id: cuentaId, p_caso_id: casoId, p_token: token || null,
+    p_cuenta_id: cuentaId, p_caso_id: casoId, p_token: null,
   });
-  if (esErrorDeCodigo(error)) return { casoId: null, sinAcceso: true };
   if (error) return { casoId: null, error: true };
   if (!data?.caso) return { casoId: null };
 
