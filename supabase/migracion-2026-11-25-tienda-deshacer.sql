@@ -1,6 +1,19 @@
 -- ============================================================
 -- DESHACER migracion-2026-11-25-tienda.sql
 -- ------------------------------------------------------------
+-- !!! AVISOS ANTES DE EJECUTARLO !!!
+--  1. HAZ UN RESPALDO ANTES (npm run respaldo). Este script BORRA las tablas
+--     adquisiciones y catalogo_casos: se pierde para siempre el historial de
+--     solicitudes, pagos marcados y entregas, y los precios de referencia.
+--  2. NO DESPLIEGUES una versión del código ANTERIOR a esta rama después de
+--     haber hecho entregas. El código viejo borra archivos de Storage sin
+--     mirar a qué cuenta pertenece ni si otro caso los sigue usando: al
+--     borrar un caso o una cuenta rompería el catálogo y los casos de OTRAS
+--     clínicas que compraron (sus videos y exámenes apuntan a los objetos de
+--     la cuenta «catalogo»). Si hay que volver atrás en el código, conserva
+--     el borrado seguro (src/lib/entrega.js, borrarObjetosSeguros) o no
+--     borres casos ni cuentas hasta tenerlo de vuelta.
+-- ------------------------------------------------------------
 -- Quita la tienda de casos y devuelve los cupos a su cálculo anterior.
 -- OJO: los casos que una clínica ya compró y recibió se QUEDAN en su cuenta,
 -- pero pasan a contar como casos propios (cupo de casos) y sus archivos

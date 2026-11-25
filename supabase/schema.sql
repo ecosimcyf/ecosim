@@ -890,6 +890,17 @@ end $$;
 -- activa = false: la vista de estudiantes (/c/catalogo) no abre. Cupos
 -- altos porque ahí solo escribe el super_admin (que de todos modos no tiene
 -- cupo). El idioma queda en el valor por defecto de la columna.
+-- El slug «catalogo» está reservado: si ya existe una cuenta con ese slug y
+-- NO es la cuenta técnica, se aborta aquí con un mensaje claro (si no, el
+-- insert de abajo se saltaría en silencio y la tienda quedaría sin cuenta
+-- catálogo). Renombra o borra esa cuenta y vuelve a ejecutar.
+do $$
+begin
+  if exists (select 1 from cuentas where slug = 'catalogo' and id <> 'cuenta-catalogo') then
+    raise exception 'Ya existe una cuenta con el enlace "catalogo" que no es la cuenta técnica del catálogo. Cámbiale el enlace (o bórrala) y vuelve a ejecutar esta migración.';
+  end if;
+end $$;
+
 insert into cuentas (id, slug, nombre, cupo_casos_propios, cupo_storage_mb, activa)
 values ('cuenta-catalogo', 'catalogo', 'Catálogo de casos (cuenta técnica)', 9999, 99999, false)
 on conflict do nothing;
@@ -963,9 +974,11 @@ grant select, insert, update, delete on catalogo_casos to service_role;
 grant select, insert, update, delete on adquisiciones to service_role;
 
 -- ---------- 5. Reclamar una entrega (atómico) ----------
--- Pasa la adquisición a 'entregando' SOLO si estaba en 'solicitada', 'pagada'
--- o 'fallida' (reintento), o si se quedó en 'entregando' más de 10 minutos
--- (el servidor murió a mitad). Devuelve la fila, o ninguna si otro ya la
+-- Pasa la adquisición a 'entregando' SOLO si estaba en 'pagada' o 'fallida'
+-- (reintento), si estaba 'entregada' pero la clínica borró su copia
+-- (caso_entregado_id nulo: reentrega), o si se quedó en 'entregando' más de
+-- 10 minutos (el servidor murió a mitad). Una 'solicitada' sin pago marcado
+-- NO se entrega. Devuelve la fila, o ninguna si otro ya la
 -- tomó / ya se entregó: así dos clics a la vez nunca entregan dos veces.
 create or replace function reclamar_entrega(p_adq text)
 returns setof adquisiciones
@@ -974,7 +987,9 @@ as $$
   update adquisiciones a
      set estado = 'entregando', actualizada_en = now()
    where a.id = p_adq
-     and (a.estado in ('solicitada', 'pagada', 'fallida')
+     and (a.estado in ('pagada', 'fallida')
+          -- entregada pero la clínica borró su copia (caso_entregado_id quedó nulo): reentrega
+          or (a.estado = 'entregada' and a.caso_entregado_id is null)
           or (a.estado = 'entregando' and a.actualizada_en < now() - interval '10 minutes'))
   returning a.*;
 $$;

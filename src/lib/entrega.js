@@ -15,6 +15,7 @@ import { randomBytes } from 'node:crypto';
 import {
   ErrorTienda, ESTADOS_VIVOS, planificarMapeoPuntos, pathDeUrlPublica, pathEsDeCuenta,
   puedeBorrarObjeto, monedaDeIdioma, columnaPrecio, transicionValida, urlWhatsappSolicitud,
+  CUENTA_CATALOGO_ID, normalizarNombrePunto,
 } from './tienda.js';
 import { faltaMigracion, paraLike } from './limpieza.js';
 import { registrarError } from './errores.js';
@@ -156,6 +157,8 @@ export async function contadoresDeCasos(supabase, casoIds) {
 // aporta la cuenta y el caso. Devuelve { adquisicion, whatsappUrl } SIN
 // precios.
 export async function crearSolicitud(supabase, { cuentaId, catalogoId, userId }) {
+  // La cuenta técnica del catálogo no compra (es de donde salen los casos).
+  if (cuentaId === CUENTA_CATALOGO_ID) throw new ErrorTienda('err.noAutorizado');
   const { data: cat, error: errCat } = await supabase.from('catalogo_casos')
     .select('id,titulo,publicado,precio_cop,precio_brl,precio_usd').eq('id', catalogoId).maybeSingle();
   exigirTienda({ error: errCat }, 'leer el catálogo');
@@ -235,6 +238,31 @@ export async function entregarAdquisicion(supabase, adqId, { nuevoId = idPunto, 
   }
 }
 
+const claveDePunto = (p) => p.especie + '|' + p.vista + '|' + normalizarNombrePunto(p.nombre);
+
+// Borra de la cuenta los puntos dados que NINGÚN video usa (borrar un punto
+// borra en cascada los videos que lo usan, así que se comprueba antes). Con
+// "claves" solo se consideran los puntos cuya (especie|vista|nombre) esté en
+// el conjunto. Lanza si una consulta falla (el que llama decide si importa).
+async function borrarPuntosSinUso(supabase, cuentaId, ids, { claves } = {}) {
+  if (!ids.length) return;
+  const { data: filas, error } = await supabase.from('puntos').select('id,especie,vista,nombre')
+    .in('id', ids).eq('cuenta_id', cuentaId);
+  if (error) throw error;
+  const sinUso = [];
+  for (const p of filas || []) {
+    if (claves && !claves.has(claveDePunto(p))) continue;
+    const { count, error: errCuenta } = await supabase.from('caso_videos').select('caso_id', { count: 'exact', head: true })
+      .eq('punto_id', p.id);
+    if (errCuenta) throw errCuenta;
+    if (count === 0) sinUso.push(p.id);
+  }
+  if (sinUso.length) {
+    const { error: errBorrar } = await supabase.from('puntos').delete().in('id', sinUso).eq('cuenta_id', cuentaId);
+    if (errBorrar) throw errBorrar;
+  }
+}
+
 async function crearFilasDeEntrega(supabase, adq, creado, { nuevoId, maxPuntos }) {
   const cuentaId = adq.cuenta_id;
   const { data: cat } = exigirSb(await supabase.from('catalogo_casos').select('id,caso_origen_id')
@@ -262,22 +290,34 @@ async function crearFilasDeEntrega(supabase, adq, creado, { nuevoId, maxPuntos }
     ? await todas(() => supabase.from('puntos').select('id,especie,vista,nombre,x,y').in('id', idsUsados).order('id'),
       'leer los puntos del caso')
     : [];
+
+  // Restos de un intento anterior que murió a mitad (la copia que la clínica
+  // aún no tiene registrada en ninguna adquisición): se quitan antes, junto
+  // con los puntos que ese intento pudo crear (los que, tras quitar el caso,
+  // ningún video usa y que coinciden con un punto de este caso).
+  const { data: restos } = exigirSb(await supabase.from('casos').select('id')
+    .eq('cuenta_id', cuentaId).eq('origen_catalogo_id', cat.id), 'buscar restos de entrega');
+  if (restos?.length) {
+    const idsRestos = restos.map((c) => c.id);
+    const { data: enUso } = exigirSb(await supabase.from('adquisiciones').select('caso_entregado_id')
+      .in('caso_entregado_id', idsRestos), 'leer las entregas');
+    if (enUso?.length) throw new ErrorTienda('err.adqEstado'); // la clínica ya tiene este caso
+    const videosResto = await todas(() => supabase.from('caso_videos').select('caso_id,punto_id')
+      .in('caso_id', idsRestos).order('caso_id').order('punto_id'), 'leer los videos de los restos');
+    exigirSb(await supabase.from('casos').delete().in('id', idsRestos), 'quitar restos de entrega');
+    try {
+      await borrarPuntosSinUso(supabase, cuentaId, [...new Set(videosResto.map((v) => v.punto_id))],
+        { claves: new Set(puntosOrigen.map(claveDePunto)) });
+    } catch (err) {
+      await registrarError('tienda', err, { limpieza: 'puntos de restos', adquisicion: adq.id });
+    }
+  }
+
   const puntosDestino = await todas(() => supabase.from('puntos').select('id,especie,vista,nombre,x,y')
     .eq('cuenta_id', cuentaId).order('id'), 'leer los puntos de la cuenta');
 
   const plan = planificarMapeoPuntos({ puntosOrigen, puntosDestino, maxPuntos, nuevoId });
-  if (plan.excede) throw new ErrorTienda('err.entregaLimitePuntos'); // aún no se escribió nada
-
-  // Restos de un intento anterior que murió a mitad (la copia que la clínica
-  // aún no tiene registrada en ninguna adquisición): se quitan antes.
-  const { data: restos } = exigirSb(await supabase.from('casos').select('id')
-    .eq('cuenta_id', cuentaId).eq('origen_catalogo_id', cat.id), 'buscar restos de entrega');
-  if (restos?.length) {
-    const { data: enUso } = exigirSb(await supabase.from('adquisiciones').select('caso_entregado_id')
-      .in('caso_entregado_id', restos.map((c) => c.id)), 'leer las entregas');
-    if (enUso?.length) throw new ErrorTienda('err.adqEstado'); // la clínica ya tiene este caso
-    exigirSb(await supabase.from('casos').delete().in('id', restos.map((c) => c.id)), 'quitar restos de entrega');
-  }
+  if (plan.excede) throw new ErrorTienda('err.entregaLimitePuntos'); // aún no se escribió nada del caso nuevo
 
   // --- Escribir ---
   if (plan.nuevos.length) {
@@ -330,7 +370,9 @@ async function compensar(supabase, adq, creado, err) {
   };
   if (creado.casoId) await paso('borrar el caso', () => supabase.from('casos').delete().eq('id', creado.casoId));
   if (creado.puntos.length) {
-    await paso('borrar los puntos', () => supabase.from('puntos').delete().in('id', creado.puntos).eq('cuenta_id', adq.cuenta_id));
+    // Solo los que ningún video usa (el caso ya se borró; otro caso de la
+    // clínica podría haber empezado a usarlos entretanto).
+    await paso('borrar los puntos', async () => { await borrarPuntosSinUso(supabase, adq.cuenta_id, creado.puntos); return {}; });
   }
   const nota = ('Entrega fallida: ' + (err instanceof ErrorTienda && !err.causa ? err.message
     : (err?.causa?.message || err?.message || 'error'))).slice(0, 900);
@@ -338,4 +380,50 @@ async function compensar(supabase, adq, creado, err) {
     .update({ estado: 'fallida', nota, actualizada_en: new Date().toISOString() })
     .eq('id', adq.id).eq('estado', 'entregando'));
   return null;
+}
+
+// ---------- tienda vista por la clínica ----------
+
+// Lo que ve la clínica: los casos PUBLICADOS más los despublicados para los
+// que ya tiene una adquisición viva o fallida (para que vea su estado; esos
+// llevan disponible:false y no se pueden solicitar). Columnas explícitas: la
+// clínica nunca recibe valores monetarios. Si falta la migración devuelve
+// { tiendaDisponible: false, items: [] }.
+export async function leerTiendaDeCuenta(supabase, cuentaId) {
+  const COLS = 'id,caso_origen_id,titulo,descripcion_venta,especie,portada_url,nivel,etiquetas,orden,creado_en,publicado';
+  const { data: pub, error } = await supabase.from('catalogo_casos').select(COLS)
+    .eq('publicado', true).order('orden').order('creado_en');
+  if (error) {
+    if (faltaMigracion(error)) return { tiendaDisponible: false, items: [] };
+    exigirSb({ error }, 'leer la tienda');
+  }
+  const { data: adqs, error: errAdq } = await supabase.from('adquisiciones')
+    .select('id,catalogo_id,estado,solicitada_en').eq('cuenta_id', cuentaId)
+    .in('estado', [...ESTADOS_VIVOS, 'fallida']).order('solicitada_en', { ascending: false });
+  if (errAdq && !faltaMigracion(errAdq)) exigirSb({ error: errAdq }, 'leer las solicitudes');
+  const porCatalogo = {};
+  (adqs || []).forEach((a) => { if (!porCatalogo[a.catalogo_id]) porCatalogo[a.catalogo_id] = { id: a.id, estado: a.estado }; });
+
+  const lista = [...(pub || [])];
+  const faltan = Object.keys(porCatalogo).filter((id) => !lista.some((f) => f.id === id));
+  if (faltan.length) {
+    const { data: extra } = exigirSb(await supabase.from('catalogo_casos').select(COLS).in('id', faltan), 'leer la tienda');
+    lista.push(...(extra || []));
+  }
+  lista.sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0) || String(a.creado_en ?? '').localeCompare(String(b.creado_en ?? '')));
+
+  const contadores = await contadoresDeCasos(supabase, lista.map((f) => f.caso_origen_id));
+  return {
+    tiendaDisponible: true,
+    items: lista.map((f) => {
+      const k = contadores[f.caso_origen_id];
+      return {
+        id: f.id, titulo: f.titulo, descripcionVenta: f.descripcion_venta, especie: f.especie, nivel: f.nivel,
+        etiquetas: f.etiquetas || [], portadaUrl: f.portada_url, videos: k.videos,
+        examenes: { lab: k.laboratorio > 0 || k.labArchivos > 0, rx: k.rx > 0, vitales: k.vitales },
+        adquisicion: porCatalogo[f.id] || null,
+        disponible: !!f.publicado,
+      };
+    }),
+  };
 }

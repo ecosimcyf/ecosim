@@ -546,6 +546,9 @@ export default function AdminPanel({ inicial }) {
   }
   async function borrarCaso(id) {
     if (!confirm(t('casos.confirmBorrar'))) return;
+    // Un caso comprado: si lo borra, la compra queda sin caso y hay que pedir la reentrega.
+    const eraComprado = (datos.casos || []).find((c) => c.id === id)?.comprado;
+    if (eraComprado && !confirm(t('casos.confirmBorrarComprado'))) return;
     const r = await ejecutar(() => eliminarCaso(datos.cuentaId, id));
     if (r && casoEnEdicion === id) setCasoEnEdicion(null);
     if (r && casoExamenes === id) setCasoExamenes(null);

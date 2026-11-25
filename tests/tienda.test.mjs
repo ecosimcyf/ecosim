@@ -8,10 +8,11 @@ import { readFileSync } from 'node:fs';
 import {
   monedaDeIdioma, columnaPrecio, normalizarNombrePunto, planificarMapeoPuntos, transicionValida,
   pathDeUrlPublica, pathEsDeCuenta, puedeBorrarObjeto, limpiarDatosCatalogo, urlWhatsappSolicitud, ErrorTienda,
+  puedeEntregarse, CUENTA_CATALOGO_ID,
 } from '../src/lib/tienda.js';
 import {
   entregarAdquisicion, borrarObjetosSeguros, borrarVideosSeguros, borrarExamenesSeguros, crearSolicitud,
-  cambiarEstado, contadoresDeCasos, catalogoDeCaso,
+  cambiarEstado, contadoresDeCasos, catalogoDeCaso, leerTiendaDeCuenta,
 } from '../src/lib/entrega.js';
 import { WHATSAPP_NUMERO } from '../src/app/landing/contacto.js';
 import { crearFalso } from './_falso.mjs';
@@ -68,6 +69,17 @@ test('estados: solo transiciones válidas', () => {
   assert.ok(!transicionValida('cancelada', 'pagada'));
   assert.ok(!transicionValida('pagada', 'solicitada'));
   assert.ok(!transicionValida('constructor', 'pagada'));
+  // B2: entregar exige el pago marcado.
+  assert.ok(!transicionValida('solicitada', 'entregando'));
+  assert.ok(transicionValida('pagada', 'entregando'));
+  // M1: una entregada solo se reentrega si la clínica borró su caso.
+  assert.ok(!transicionValida('entregada', 'entregando'));
+  assert.ok(transicionValida('entregada', 'entregando', { casoBorrado: true }));
+  assert.ok(!puedeEntregarse({ estado: 'entregada', casoEntregadoId: 'caso-1' }));
+  assert.ok(puedeEntregarse({ estado: 'entregada', casoEntregadoId: null }));
+  assert.ok(puedeEntregarse({ estado: 'fallida', casoEntregadoId: null }));
+  assert.ok(!puedeEntregarse({ estado: 'solicitada', casoEntregadoId: null }));
+  assert.ok(!puedeEntregarse({ estado: 'cancelada', casoEntregadoId: null }));
 });
 
 test('Storage: paths de URL pública y regla de borrado', () => {
@@ -422,4 +434,152 @@ test('admin.js: ningún borrado directo de Storage (todo pasa por el borrado seg
   const e = readFileSync(new URL('../src/lib/entrega.js', import.meta.url), 'utf8');
   // Solo el borrado seguro llama a storage.remove.
   assert.equal([...e.matchAll(/\.remove\(/g)].length, 1);
+});
+
+// ---------- revisión: M1, M3, B2, B4, B7, B10 ----------
+
+test('B2: una solicitud sin pago marcado NO se entrega; tras marcarla pagada sí', async () => {
+  const d = datos(); d.adquisiciones[0].estado = 'solicitada';
+  const sb = crearFalso(d);
+  await assert.rejects(entregarAdquisicion(sb, 'adq-1', { nuevoId: idsDe() }), (e) => e.message === 'err.adqEstado');
+  assert.equal(sb.db.adquisiciones[0].estado, 'solicitada');
+  assert.equal(sb.db.casos.filter((c) => c.cuenta_id === 'c1').length, 0);
+  await cambiarEstado(sb, 'adq-1', 'pagada');
+  await entregarAdquisicion(sb, 'adq-1', { nuevoId: idsDe() });
+  assert.equal(sb.db.adquisiciones[0].estado, 'entregada');
+});
+
+test('M1: si la clínica borra el caso entregado, la compra se puede reentregar (y no antes)', async () => {
+  const sb = crearFalso(datos());
+  const r1 = await entregarAdquisicion(sb, 'adq-1', { nuevoId: idsDe() });
+  // Con el caso vivo no se reentrega.
+  await assert.rejects(entregarAdquisicion(sb, 'adq-1', { nuevoId: idsDe() }), (e) => e.message === 'err.adqEstado');
+  // La clínica borra su caso (la FK pone caso_entregado_id en null).
+  await sb.from('casos').delete().eq('id', r1.casoId);
+  const adq = sb.db.adquisiciones.find((a) => a.id === 'adq-1');
+  assert.equal(adq.estado, 'entregada');
+  assert.equal(adq.caso_entregado_id, null);
+  const r2 = await entregarAdquisicion(sb, 'adq-1', { nuevoId: idsDe() });
+  assert.notEqual(r2.casoId, r1.casoId);
+  assert.equal(adq.caso_entregado_id, r2.casoId);
+  assert.equal(sb.db.casos.filter((c) => c.cuenta_id === 'c1' && c.origen_catalogo_id === 'cat-1').length, 1);
+  assert.equal(sb.db.adquisiciones.filter((a) => a.cuenta_id === 'c1').length, 1); // sigue una sola compra
+  // Una entregada sin caso tampoco se cancela desde las acciones.
+  await sb.from('casos').delete().eq('id', r2.casoId);
+  await assert.rejects(cambiarEstado(sb, 'adq-1', 'cancelada'), (e) => e.message === 'err.adqEstado');
+});
+
+test('M1: la reentrega que falla deja la compra fallida y se puede reintentar', async () => {
+  let romper = false;
+  const sb = crearFalso(datos(), {
+    fallar: ({ tabla, op }) => (romper && tabla === 'caso_archivos' && op === 'insert' ? { code: 'XX000', message: 'boom' } : null),
+  });
+  const r1 = await entregarAdquisicion(sb, 'adq-1', { nuevoId: idsDe() });
+  await sb.from('casos').delete().eq('id', r1.casoId);
+  romper = true;
+  await assert.rejects(entregarAdquisicion(sb, 'adq-1', { nuevoId: idsDe() }), (e) => e.message === 'err.entregaFallo');
+  assert.equal(sb.db.adquisiciones[0].estado, 'fallida');
+  romper = false;
+  await entregarAdquisicion(sb, 'adq-1', { nuevoId: idsDe() });
+  assert.equal(sb.db.adquisiciones[0].estado, 'entregada');
+  assert.ok(sb.db.adquisiciones[0].caso_entregado_id);
+});
+
+test('B10: la cuenta técnica del catálogo no puede solicitar casos', async () => {
+  const d = datos(); d.adquisiciones = [];
+  const sb = crearFalso(d);
+  await assert.rejects(crearSolicitud(sb, { cuentaId: CUENTA_CATALOGO_ID, catalogoId: 'cat-1' }), (e) => e.message === 'err.noAutorizado');
+  assert.equal(sb.db.adquisiciones.length, 0);
+  const f = readFileSync(new URL('../src/app/actions/tienda.js', import.meta.url), 'utf8');
+  assert.match(cuerpoDe(f, 'solicitarCaso'), /cuentaId === CUENTA_CATALOGO_ID/);
+});
+
+test('B7: la clínica ve también los despublicados que ya pidió (sin poder solicitarlos) y nunca precios', async () => {
+  const d = datos();
+  d.catalogo_casos[0].publicado = false; // despublicado, con adquisición 'pagada' de c1
+  d.casos.push({ id: 'caso-cat2', cuenta_id: 'cuenta-catalogo', nombre: 'Otro', descripcion: '', especie: 'gato', activo: false });
+  d.catalogo_casos.push({ id: 'cat-2', caso_origen_id: 'caso-cat2', titulo: 'Oculto', publicado: false, especie: 'gato', precio_cop: 5 });
+  d.catalogo_casos.push({ id: 'cat-3', caso_origen_id: 'caso-cat2', titulo: 'Visible', publicado: true, especie: 'gato', precio_cop: 7 });
+  const sb = crearFalso(d);
+  const c1 = await leerTiendaDeCuenta(sb, 'c1');
+  assert.deepEqual(c1.items.map((i) => i.id).sort(), ['cat-1', 'cat-3']);
+  const viejo = c1.items.find((i) => i.id === 'cat-1');
+  assert.equal(viejo.disponible, false);
+  assert.equal(viejo.adquisicion.estado, 'pagada');
+  assert.equal(c1.items.find((i) => i.id === 'cat-3').disponible, true);
+  assert.ok(!/precio|moneda|1000000|"publicado"/i.test(JSON.stringify(c1)));
+  // Una cuenta sin adquisición solo ve lo publicado; una cancelada tampoco cuenta.
+  const c2 = await leerTiendaDeCuenta(sb, 'c2');
+  assert.deepEqual(c2.items.map((i) => i.id), ['cat-3']);
+  sb.db.adquisiciones[0].estado = 'cancelada';
+  assert.deepEqual((await leerTiendaDeCuenta(sb, 'c1')).items.map((i) => i.id), ['cat-3']);
+  // Fallida sí se ve; sin la migración, tienda no disponible.
+  sb.db.adquisiciones[0].estado = 'fallida';
+  assert.equal((await leerTiendaDeCuenta(sb, 'c1')).items.find((i) => i.id === 'cat-1').adquisicion.estado, 'fallida');
+  const sin = crearFalso(datos(), { fallar: ({ tabla }) => (tabla === 'catalogo_casos' ? { code: 'PGRST205' } : null) });
+  assert.deepEqual(await leerTiendaDeCuenta(sin, 'c1'), { tiendaDisponible: false, items: [] });
+});
+
+test('M3 / B1: la cuenta catálogo se localiza por id; el slug está reservado y siempre queda inactiva', () => {
+  const t = readFileSync(new URL('../src/app/actions/tienda.js', import.meta.url), 'utf8');
+  assert.match(t, /\.eq\('id', CUENTA_CATALOGO_ID\)/);
+  assert.doesNotMatch(t, /\.eq\('slug'/);
+  const a = readFileSync(new URL('../src/app/actions/admin.js', import.meta.url), 'utf8');
+  assert.match(cuerpoDe(a, 'crearCuenta'), /slugLimpio === SLUG_CATALOGO\) throw new ErrorAdmin\('err\.slugReservado'\)/);
+  assert.match(cuerpoDe(a, 'actualizarCuenta'), /cuentaId === CUENTA_CATALOGO_ID \? false : !!activa/);
+  assert.match(cuerpoDe(a, 'eliminarCuenta'), /cuenta\.id === CUENTA_CATALOGO_ID/);
+  // La migración y el estado final de schema.sql abortan si el slug ya lo usa otra cuenta, ANTES del insert.
+  for (const f of ['../supabase/migracion-2026-11-25-tienda.sql', '../supabase/schema.sql']) {
+    const sql = readFileSync(new URL(f, import.meta.url), 'utf8');
+    const iBloque = sql.indexOf("slug = 'catalogo' and id <> 'cuenta-catalogo'");
+    const iInsert = sql.indexOf("values ('cuenta-catalogo'");
+    assert.ok(iBloque > 0 && iBloque < iInsert, f);
+    assert.match(sql, /raise exception/);
+    // reclamar_entrega: ya no acepta 'solicitada'; sí la entregada sin caso.
+    const rec = sql.slice(sql.indexOf('create or replace function reclamar_entrega'));
+    assert.doesNotMatch(rec.slice(0, rec.indexOf('$$;', 100)), /'solicitada'/, f);
+    assert.match(rec, /a\.estado = 'entregada' and a\.caso_entregado_id is null/, f);
+  }
+});
+
+test('B4: la compensación no borra un punto que otro video ya usa; la limpieza de restos quita los puntos huérfanos', async () => {
+  // Compensación: entre crear el punto y fallar, otro caso de la clínica pasa a usarlo.
+  let sb;
+  sb = crearFalso(datos(), {
+    fallar: ({ tabla, op }) => {
+      if (tabla === 'caso_archivos' && op === 'insert') {
+        sb.db.casos.push({ id: 'otro', cuenta_id: 'c1', nombre: 'Otro', especie: 'perro', activo: false, origen_catalogo_id: null });
+        sb.db.caso_videos.push({ caso_id: 'otro', punto_id: 'punto-t1', video_url: URL_VIDEO('c1', 'z'), tamano_bytes: 1 });
+        return { code: 'XX000', message: 'boom' };
+      }
+      return null;
+    },
+  });
+  await assert.rejects(entregarAdquisicion(sb, 'adq-1', { nuevoId: idsDe() }), (e) => e.message === 'err.entregaFallo');
+  assert.ok(sb.db.puntos.some((p) => p.id === 'punto-t1'), 'el punto en uso se conserva');
+  assert.ok(sb.db.caso_videos.some((v) => v.caso_id === 'otro' && v.punto_id === 'punto-t1'));
+  assert.equal(sb.db.casos.filter((c) => c.cuenta_id === 'c1' && c.origen_catalogo_id === 'cat-1').length, 0);
+
+  // Restos de un intento muerto: sus puntos sin uso (y que coinciden con el caso) se quitan; los usados o ajenos, no.
+  const d = datos();
+  d.adquisiciones[0].estado = 'entregando'; d.adquisiciones[0].actualizada_en = 1000;
+  d.puntos.push(
+    { id: 'pR', cuenta_id: 'c1', especie: 'perro', vista: 'ventral', nombre: 'Riñón izq', x: 3, y: 3 }, // huérfano tras quitar el resto
+    { id: 'pZ', cuenta_id: 'c1', especie: 'perro', vista: 'ventral', nombre: 'Otro punto', x: 4, y: 4 }, // no es de este caso
+  );
+  d.casos.push({ id: 'resto', cuenta_id: 'c1', nombre: 'a medias', especie: 'perro', activo: false, origen_catalogo_id: 'cat-1' });
+  d.casos.push({ id: 'propio', cuenta_id: 'c1', nombre: 'mío', especie: 'perro', activo: false, origen_catalogo_id: null });
+  d.caso_videos.push(
+    { caso_id: 'resto', punto_id: 'pR', video_url: URL_VIDEO('cuenta-catalogo', 'v2'), tamano_bytes: 1 },
+    { caso_id: 'resto', punto_id: 'pX', video_url: URL_VIDEO('cuenta-catalogo', 'v1'), tamano_bytes: 1 },
+    { caso_id: 'resto', punto_id: 'pZ', video_url: URL_VIDEO('cuenta-catalogo', 'v1'), tamano_bytes: 1 },
+    { caso_id: 'propio', punto_id: 'pX', video_url: URL_VIDEO('c1', 'mio'), tamano_bytes: 1 },
+  );
+  const sb2 = crearFalso(d, { ahora: () => 1000 + 11 * 60 * 1000 });
+  await entregarAdquisicion(sb2, 'adq-1', { nuevoId: idsDe() });
+  assert.ok(!sb2.db.casos.some((c) => c.id === 'resto'));
+  assert.ok(!sb2.db.puntos.some((p) => p.id === 'pR'), 'el punto huérfano del intento muerto se quitó');
+  assert.ok(sb2.db.puntos.some((p) => p.id === 'pX'), 'el punto que usa otro caso se conserva');
+  assert.ok(sb2.db.puntos.some((p) => p.id === 'pZ'), 'un punto que no es de este caso no se toca');
+  assert.ok(sb2.db.caso_videos.some((v) => v.caso_id === 'propio' && v.punto_id === 'pX'));
 });

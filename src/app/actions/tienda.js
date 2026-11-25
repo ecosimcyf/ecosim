@@ -24,11 +24,9 @@ import { consumirIntento, ipVisitante } from '@/lib/ratelimit';
 import {
   conErrores, exigir, requerirSuperAdmin, requerirAccesoCuenta, ErrorAdmin,
 } from '@/lib/admin-comun';
+import { CUENTA_CATALOGO_ID, limpiarDatosCatalogo } from '@/lib/tienda';
 import {
-  SLUG_CATALOGO, limpiarDatosCatalogo, ESTADOS_VIVOS,
-} from '@/lib/tienda';
-import {
-  contadoresDeCasos, crearSolicitud, cambiarEstado, entregarAdquisicion as entregar,
+  contadoresDeCasos, crearSolicitud, cambiarEstado, entregarAdquisicion as entregar, leerTiendaDeCuenta,
 } from '@/lib/entrega';
 
 // Cuántas solicitudes puede mandar una cuenta por hora (frena el abuso).
@@ -36,9 +34,10 @@ const LIMITE_SOLICITUDES = { max: 10, ventanaSeg: 60 * 60 };
 
 // ---------- lecturas internas ----------
 
-// Cuenta técnica del catálogo, o null si no existe todavía.
+// Cuenta técnica del catálogo (se busca por su id fijo, nunca por slug), o
+// null si no existe todavía.
 async function cuentaCatalogo(supabase) {
-  const { data, error } = await supabase.from('cuentas').select('id,slug').eq('slug', SLUG_CATALOGO).maybeSingle();
+  const { data, error } = await supabase.from('cuentas').select('id,slug').eq('id', CUENTA_CATALOGO_ID).maybeSingle();
   exigir({ error }, 'leer la cuenta del catálogo');
   return data || null;
 }
@@ -108,7 +107,7 @@ async function leerAdquisiciones(supabase) {
       cuentaSlug: nombreCuenta[a.cuenta_id]?.slug || '', catalogoId: a.catalogo_id, titulo: titulo[a.catalogo_id] || '',
       estado: a.estado, moneda: a.moneda, precioReferencia: a.precio_referencia,
       casoEntregadoId: a.caso_entregado_id, nota: a.nota, pasarela: a.pasarela, referenciaPago: a.referencia_pago,
-      solicitadaEn: a.solicitada_en, pagadaEn: a.pagada_en, entregadaEn: a.entregada_en,
+      solicitadaEn: a.solicitada_en, pagadaEn: a.pagada_en, entregadaEn: a.entregada_en, actualizadaEn: a.actualizada_en,
     })),
   };
 }
@@ -229,8 +228,9 @@ export async function cancelarAdquisicion(id, nota) {
   });
 }
 
-// Entrega el caso a la clínica (solicitada, pagada o fallida). El caso queda
-// en su cuenta DESACTIVADO. Devuelve { casoId, adquisiciones, tiendaDisponible }.
+// Entrega el caso a la clínica (pagada, fallida, o entregada cuyo caso la
+// clínica borró: reentrega). Una solicitada sin pago marcado NO se entrega.
+// El caso queda en su cuenta DESACTIVADO. Devuelve { casoId, adquisiciones, tiendaDisponible }.
 // Si falla, se deshace lo creado, la adquisición queda 'fallida' con una nota
 // y se puede reintentar.
 export async function entregarAdquisicion(id) {
@@ -251,42 +251,17 @@ export async function entregarAdquisicion(id) {
 
 // ---------- clínica ----------
 
-// Lo que ve la clínica: SOLO casos publicados y SIN precios.
+// Lo que ve la clínica: casos publicados (más los despublicados para los que
+// ya tiene una adquisición viva o fallida, con disponible:false) y SIN
+// precios. La lógica (columnas explícitas, sin valores monetarios) está en
+// leerTiendaDeCuenta (src/lib/entrega.js, con pruebas).
 // { tiendaDisponible, items: [{ id, titulo, descripcionVenta, especie, nivel,
-//   etiquetas, portadaUrl, videos, examenes: {lab, rx, vitales},
+//   etiquetas, portadaUrl, videos, examenes: {lab, rx, vitales}, disponible,
 //   adquisicion: null | {id, estado} }] }
 export async function listarTienda(cuentaId) {
   return conErrores(async () => {
     await requerirAccesoCuenta(cuentaId);
-    const supabase = crearClienteAdmin();
-    // Columnas EXPLÍCITAS (la clínica nunca recibe valores monetarios).
-    const { data: filas, error } = await supabase.from('catalogo_casos')
-      .select('id,caso_origen_id,titulo,descripcion_venta,especie,portada_url,nivel,etiquetas,orden')
-      .eq('publicado', true).order('orden').order('creado_en');
-    if (error) {
-      if (faltaMigracion(error)) return { tiendaDisponible: false, items: [] };
-      exigir({ error }, 'leer la tienda');
-    }
-    const lista = filas || [];
-    const contadores = await contadoresDeCasos(supabase, lista.map((f) => f.caso_origen_id));
-    const { data: adqs, error: errAdq } = await supabase.from('adquisiciones')
-      .select('id,catalogo_id,estado,solicitada_en').eq('cuenta_id', cuentaId)
-      .in('estado', [...ESTADOS_VIVOS, 'fallida']).order('solicitada_en', { ascending: false });
-    if (errAdq && !faltaMigracion(errAdq)) exigir({ error: errAdq }, 'leer las solicitudes');
-    const porCatalogo = {};
-    (adqs || []).forEach((a) => { if (!porCatalogo[a.catalogo_id]) porCatalogo[a.catalogo_id] = { id: a.id, estado: a.estado }; });
-    return {
-      tiendaDisponible: true,
-      items: lista.map((f) => {
-        const k = contadores[f.caso_origen_id];
-        return {
-          id: f.id, titulo: f.titulo, descripcionVenta: f.descripcion_venta, especie: f.especie, nivel: f.nivel,
-          etiquetas: f.etiquetas || [], portadaUrl: f.portada_url, videos: k.videos,
-          examenes: { lab: k.laboratorio > 0 || k.labArchivos > 0, rx: k.rx > 0, vitales: k.vitales },
-          adquisicion: porCatalogo[f.id] || null,
-        };
-      }),
-    };
+    return leerTiendaDeCuenta(crearClienteAdmin(), cuentaId);
   });
 }
 
@@ -297,6 +272,7 @@ export async function listarTienda(cuentaId) {
 export async function solicitarCaso(cuentaId, catalogoId) {
   return conErrores(async () => {
     const { userId } = await requerirAccesoCuenta(cuentaId);
+    if (cuentaId === CUENTA_CATALOGO_ID) throw new ErrorAdmin('err.noAutorizado'); // la cuenta técnica no compra
     if (typeof catalogoId !== 'string' || !catalogoId) throw new ErrorAdmin('err.catalogoNoExiste');
     const clave = 'tienda:' + cuentaId + ':' + (await ipVisitante());
     if (await consumirIntento(clave, LIMITE_SOLICITUDES) !== 'ok') throw new ErrorAdmin('err.intentos');

@@ -133,7 +133,8 @@ export function crearFalso(inicial = {}, { fallar, ahora = () => Date.now() } = 
       if (err) return { data: null, error: err };
       if (fn === 'reclamar_entrega') {
         const a = tabla('adquisiciones').find((x) => x.id === args.p_adq);
-        const ok = a && (['solicitada', 'pagada', 'fallida'].includes(a.estado)
+        const ok = a && (['pagada', 'fallida'].includes(a.estado)
+          || (a.estado === 'entregada' && a.caso_entregado_id == null) // la clínica borró su copia
           || (a.estado === 'entregando' && ahora() - (a.actualizada_en || 0) > 10 * 60 * 1000));
         if (!ok) return { data: [], error: null };
         a.estado = 'entregando';

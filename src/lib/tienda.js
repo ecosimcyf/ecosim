@@ -14,7 +14,9 @@
 import { PANEL } from './i18n/textos/panel.js';
 import { whatsappUrl } from '../app/landing/contacto.js';
 
-// Slug y id de la cuenta técnica que guarda los casos del catálogo.
+// Slug y id de la cuenta técnica que guarda los casos del catálogo. El código
+// la localiza SIEMPRE por id; el slug está reservado (ninguna otra cuenta
+// puede llamarse así).
 export const SLUG_CATALOGO = 'catalogo';
 export const CUENTA_CATALOGO_ID = 'cuenta-catalogo';
 
@@ -50,9 +52,10 @@ export const ESTADOS = ['solicitada', 'pagada', 'entregando', 'entregada', 'canc
 export const ESTADOS_VIVOS = ['solicitada', 'pagada', 'entregando', 'entregada'];
 
 // Transiciones que pueden pedir las ACCIONES. 'entregando' → entregada/fallida
-// las hace el propio proceso de entrega (no se piden desde fuera).
+// las hace el propio proceso de entrega (no se piden desde fuera). Entregar
+// exige el pago marcado: solicitada solo puede pasar a pagada o cancelada.
 const TRANSICIONES = {
-  solicitada: ['pagada', 'cancelada', 'entregando'],
+  solicitada: ['pagada', 'cancelada'],
   pagada: ['cancelada', 'entregando'],
   fallida: ['cancelada', 'entregando'],
   entregando: ['entregada', 'fallida'],
@@ -60,8 +63,17 @@ const TRANSICIONES = {
   cancelada: [],
 };
 
-export function transicionValida(desde, hasta) {
+// "casoBorrado": la adquisición está entregada pero la clínica borró el caso
+// (caso_entregado_id nulo): en ese único caso se puede volver a entregar.
+export function transicionValida(desde, hasta, { casoBorrado = false } = {}) {
+  if (desde === 'entregada' && hasta === 'entregando') return !!casoBorrado;
   return Object.hasOwn(TRANSICIONES, desde) && TRANSICIONES[desde].includes(hasta);
+}
+
+// ¿Esta adquisición se puede (re)entregar ahora? pagada, fallida, o entregada
+// cuyo caso la clínica borró. (La 'entregando' atascada la reclama el SQL.)
+export function puedeEntregarse({ estado, casoEntregadoId }) {
+  return transicionValida(estado, 'entregando', { casoBorrado: estado === 'entregada' && !casoEntregadoId });
 }
 
 // ---------- validación de datos del catálogo ----------

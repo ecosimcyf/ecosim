@@ -37,7 +37,7 @@ import { limpiezaCompleta, faltaMigracion } from '@/lib/limpieza';
 import {
   borrarVideosSeguros, borrarExamenesSeguros, borrarObjetosSeguros, catalogoDeCaso, MAX_PUNTOS_POR_CUENTA,
 } from '@/lib/entrega';
-import { SLUG_CATALOGO } from '@/lib/tienda';
+import { SLUG_CATALOGO, CUENTA_CATALOGO_ID } from '@/lib/tienda';
 import { normalizarSlug, slugValido, extensionDeSubida, nombrePorDefecto } from '@/lib/validar';
 
 const BUCKET = 'videos';
@@ -455,6 +455,8 @@ export async function crearCuenta({ slug, nombre, cupoCasosPropios, cupoStorageM
     if (!slugValido(slugLimpio)) {
       throw new ErrorAdmin('err.slug');
     }
+    // «catalogo» está reservado para la cuenta técnica de la tienda.
+    if (slugLimpio === SLUG_CATALOGO) throw new ErrorAdmin('err.slugReservado');
     if (!correoValido(correoLimpio)) throw new ErrorAdmin('err.correo');
     const cupoCasos = cupo(cupoCasosPropios, 'err.cupoCasos');
     const cupoStorage = cupo(cupoStorageMb, 'err.cupoStorage');
@@ -513,7 +515,8 @@ export async function actualizarCuenta(cuentaId, { nombre, cupoCasosPropios, cup
       nombre: nombreLimpio,
       cupo_casos_propios: cupo(cupoCasosPropios, 'err.cupoCasos'),
       cupo_storage_mb: cupo(cupoStorageMb, 'err.cupoStorage'),
-      activa: !!activa,
+      // La cuenta técnica del catálogo siempre queda inactiva (no entran estudiantes).
+      activa: cuentaId === CUENTA_CATALOGO_ID ? false : !!activa,
     }).eq('id', cuentaId), 'guardar la cuenta');
     if (idioma != null) {
       const id = idiomaValido(idioma);
@@ -582,7 +585,7 @@ export async function eliminarCuenta(cuentaId, confirmacion) {
     if (!cuenta) throw new ErrorAdmin('err.cuentaYaNoExiste');
     // La cuenta técnica del catálogo guarda los objetos que comparten las
     // clínicas que compraron: no se borra.
-    if (cuenta.slug === SLUG_CATALOGO) throw new ErrorAdmin('err.cuentaCatalogo');
+    if (cuenta.id === CUENTA_CATALOGO_ID || cuenta.slug === SLUG_CATALOGO) throw new ErrorAdmin('err.cuentaCatalogo');
     if (rol === 'cliente' && String(confirmacion ?? '').trim() !== String(cuenta.nombre).trim()) {
       throw new ErrorAdmin('err.noAutorizado');
     }

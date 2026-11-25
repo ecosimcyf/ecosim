@@ -90,6 +90,8 @@ export default function TiendaCasos({ cuentaId, ejecutar }) {
                     <span className="tienda-precio">{t('tienda.consultar')}</span>
                     {adq ? (
                       <span className={'chip ' + (CLASE_ESTADO[adq.estado] || '')} role="status">{t('tienda.estado.' + adq.estado)}</span>
+                    ) : it.disponible === false ? (
+                      <span className="chip">{t('tienda.noDisponibleCaso')}</span>
                     ) : (
                       <button className="btn small btn-primary" disabled={!!enviando} onClick={() => solicitar(it)}>
                         {enviando === it.id ? t('tienda.solicitando') : t('tienda.solicitar')}

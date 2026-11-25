@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { useIdioma, useT } from '@/lib/i18n/cliente';
 import { LOCALE } from '@/lib/i18n/config';
 import { PANEL } from '@/lib/i18n/textos/panel';
-import { ESTADOS } from '@/lib/tienda';
+import { ESTADOS, puedeEntregarse } from '@/lib/tienda';
 import {
   listarAdquisiciones, marcarPagada, entregarAdquisicion, cancelarAdquisicion,
 } from '@/app/actions/tienda';
@@ -76,7 +76,13 @@ export default function VentasCasos({ ejecutar, adquisiciones, onCambio }) {
           </div>
           {lista.length ? lista.map((a) => {
             const bloqueado = !!enCurso;
-            const puedeEntregar = ['solicitada', 'pagada', 'fallida'].includes(a.estado);
+            // Entregar exige el pago marcado: pagada, fallida, o entregada cuyo caso
+            // la clínica borró (reentrega). En solicitada solo "Marcar pagada" y "Cancelar".
+            const casoBorrado = a.estado === 'entregada' && !a.casoEntregadoId;
+            // 'entregando' que lleva >10 min sin avanzar: el servidor murió a mitad y se puede reclamar.
+            const atascada = a.estado === 'entregando' && Date.now() - new Date(a.actualizadaEn || 0).getTime() > 10 * 60 * 1000;
+            const puedeEntregar = puedeEntregarse(a) || atascada;
+            const puedeCancelar = ['solicitada', 'pagada', 'fallida'].includes(a.estado);
             return (
               <div className="item venta" key={a.id}>
                 <div className="venta-info">
@@ -94,6 +100,7 @@ export default function VentasCasos({ ejecutar, adquisiciones, onCambio }) {
                     {a.entregadaEn && <span className="muted"> · {t('ventas.entregada')}: {fecha(a.entregadaEn)}</span>}
                   </div>
                   {a.nota && <div className="venta-nota">{t('ventas.nota')}: {a.nota}</div>}
+                  {casoBorrado && <div className="venta-nota">{t('ventas.casoBorrado')}</div>}
                 </div>
                 <div className="venta-acciones">
                   {a.estado === 'solicitada' && (
@@ -108,10 +115,10 @@ export default function VentasCasos({ ejecutar, adquisiciones, onCambio }) {
                         }
                       }}
                     >
-                      {a.estado === 'fallida' ? t('ventas.reintentar') : t('ventas.entregar')}
+                      {casoBorrado ? t('ventas.reentregar') : a.estado === 'fallida' ? t('ventas.reintentar') : t('ventas.entregar')}
                     </button>
                   )}
-                  {puedeEntregar && (
+                  {puedeCancelar && (
                     <button
                       className="btn small danger" disabled={bloqueado}
                       onClick={() => {
