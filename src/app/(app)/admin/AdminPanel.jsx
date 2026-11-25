@@ -18,6 +18,9 @@ import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264, duracionDe, cancelarConversion, ERR_CANCELADA, ERR_FALLO } from '@/lib/convertir-video';
 import EditorExamenes from './EditorExamenes';
+import TiendaCasos from './TiendaCasos';
+import GestionCatalogo from './GestionCatalogo';
+import VentasCasos from './VentasCasos';
 import { IDIOMAS, LOCALE, NOMBRES_IDIOMA } from '@/lib/i18n/config';
 import { useIdioma, useT } from '@/lib/i18n/cliente';
 import { PANEL } from '@/lib/i18n/textos/panel';
@@ -28,6 +31,7 @@ import {
   addPunto, actualizarPunto, eliminarPunto,
   crearUrlSubidaVideo, guardarVideoCaso, quitarVideoCaso,
 } from '@/app/actions/admin';
+import { listarAdquisiciones } from '@/app/actions/tienda';
 
 // Tope de duración por video: clips cortos alcanzan igual para mostrar un
 // punto de ecografía, y mantienen el storage (y el costo) bajo control.
@@ -213,6 +217,11 @@ export default function AdminPanel({ inicial }) {
     () => (inicial.rol === 'super_admin' && !inicial.cuentaId) ? 'cuentas' : 'simulador'
   );
 
+  // Clínica: «Mis casos» o «Tienda». Super_admin: ver la tienda como la ve la cuenta elegida.
+  const [seccionCli, setSeccionCli] = useState('casos');
+  // Ventas de la tienda (super_admin): se carga al entrar al panel para el aviso del menú.
+  const [adquisiciones, setAdquisiciones] = useState([]);
+
   // Ventana con una contraseña temporal recién generada (se ve UNA vez).
   const [claveNueva, setClaveNueva] = useState(null); // { titulo, correos, clave, slug } | null
 
@@ -287,6 +296,10 @@ export default function AdminPanel({ inicial }) {
   // Acciones en curso: mientras haya alguna se ve «Guardando…» arriba (borrar
   // un caso con videos puede tardar varios segundos y no debe parecer colgado).
   const [enCurso, setEnCurso] = useState(0);
+  useEffect(() => {
+    if (inicial.rol !== 'super_admin') return;
+    listarAdquisiciones().then((r) => { if (r && !r.error) setAdquisiciones(r.adquisiciones || []); }).catch(() => {});
+  }, [inicial.rol]);
   // Si la respuesta llega de una cuenta que ya no es la activa (el super_admin
   // cambió de cuenta mientras tanto) se descarta, salvo que la acción sea
   // justamente la que cambia de cuenta (cambiaCuenta).
@@ -651,6 +664,8 @@ export default function AdminPanel({ inicial }) {
   const hayCuenta = !!datos.cuentaId;
   const esSuperAdmin = datos.rol === 'super_admin';
   const solicitudesNuevas = (datos.solicitudes || []).filter((s) => s.estado === 'nueva').length;
+  const ventasPendientes = adquisiciones.filter((a) => a.estado === 'solicitada' || a.estado === 'pagada').length;
+  const enTiendaCli = !esSuperAdmin && seccionCli === 'tienda';
   const slugActual = esSuperAdmin ? cuentaElegida?.slug : datos.cuentaSlug;
 
   return (
@@ -680,12 +695,54 @@ export default function AdminPanel({ inicial }) {
             {solicitudesNuevas > 0 && <span className="admin-nav-badge">{solicitudesNuevas}</span>}
           </button>
           <button
+            className={'admin-nav-tab' + (seccion === 'catalogo' ? ' act' : '')}
+            onClick={() => setSeccion('catalogo')}
+          >
+            {t('nav.catalogo')}
+          </button>
+          <button
+            className={'admin-nav-tab' + (seccion === 'ventas' ? ' act' : '')}
+            onClick={() => setSeccion('ventas')}
+          >
+            {t('nav.ventas')}
+            {ventasPendientes > 0 && <span className="admin-nav-badge">{ventasPendientes}</span>}
+          </button>
+          <button
             className={'admin-nav-tab' + (seccion === 'simulador' ? ' act' : '')}
             onClick={() => setSeccion('simulador')}
           >
             {t('nav.simulador')}{cuentaElegida ? ' · ' + cuentaElegida.nombre : ''}
           </button>
         </nav>
+      )}
+
+      {/* -------- Nav de la clínica: Mis casos / Tienda -------- */}
+      {!esSuperAdmin && hayCuenta && (
+        <nav className="admin-nav">
+          <button className={'admin-nav-tab' + (seccionCli === 'casos' ? ' act' : '')} onClick={() => setSeccionCli('casos')}>
+            {t('nav.misCasos')}
+          </button>
+          <button className={'admin-nav-tab' + (seccionCli === 'tienda' ? ' act' : '')} onClick={() => setSeccionCli('tienda')}>
+            {t('nav.tienda')}
+          </button>
+        </nav>
+      )}
+
+      {enTiendaCli && <TiendaCasos cuentaId={datos.cuentaId} ejecutar={ejecutar} />}
+
+      {/* -------- Catálogo y ventas de la tienda (solo super_admin) -------- */}
+      {esSuperAdmin && seccion === 'catalogo' && (
+        <GestionCatalogo
+          ejecutar={ejecutar}
+          onIrCuentaCatalogo={async (id) => {
+            if (!id) return;
+            const r = await ejecutar(() => elegirCuentaAdmin(id), { cambiaCuenta: true });
+            if (r) { setPuntoSel(null); setCasoEnEdicion(null); setCasoExamenes(null); setSeccion('simulador'); }
+          }}
+        />
+      )}
+      {esSuperAdmin && seccion === 'ventas' && (
+        <VentasCasos ejecutar={ejecutar} adquisiciones={adquisiciones} onCambio={setAdquisiciones} />
       )}
 
       {/* -------- Cuentas de clientes (solo super_admin) -------- */}
@@ -869,7 +926,7 @@ export default function AdminPanel({ inicial }) {
         </section>
       )}
 
-      {hayCuenta && (!esSuperAdmin || seccion === 'simulador') && <>
+      {hayCuenta && (esSuperAdmin ? seccion === 'simulador' : seccionCli === 'casos') && <>
       {/* -------- Casos activos -------- */}
       <section className="card">
         <h3>{t('activos.titulo')}</h3>
@@ -982,6 +1039,7 @@ export default function AdminPanel({ inicial }) {
               <option value="gato">{t('especie.gato')}</option>
             </select>
             <span className="muted">{t('casos.videos', { n: c.numVideos })}</span>
+            {c.comprado && <span className="chip chip-ok">{t('tienda.comprado')}</span>}
             <label className="chk-activo" title={t('casos.activoTitle')}>
               <input type="checkbox" checked={!!c.activo} onChange={() => activar(c)} />
               <span className={c.activo ? 'accent' : 'muted'}>{c.activo ? t('casos.activo') : t('casos.inactivo')}</span>
