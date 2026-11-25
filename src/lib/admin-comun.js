@@ -31,7 +31,7 @@ export async function conErrores(fn) {
     // cupo"…) no son fallas; todo lo demás queda en el registro de Vercel.
     if (!(err instanceof ErrorAdmin) || err.causa) await registrarError('admin', err);
     if (err instanceof ErrorAdmin) return { error: err.message, vars: err.vars, codigo: err.codigo };
-    return { error: 'err.generico' };
+    return { error: 'err.inesperado' };
   }
 }
 

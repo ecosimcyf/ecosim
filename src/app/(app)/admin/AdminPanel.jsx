@@ -18,6 +18,8 @@ import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264, duracionDe, cancelarConversion, ERR_CANCELADA, ERR_FALLO } from '@/lib/convertir-video';
 import { useModal } from './useModal';
+import { useAvisos } from './Avisos';
+import { mensajeError, claveError } from '@/lib/mensaje-error';
 import RecorteVideo from './RecorteVideo';
 import { necesitaRecorte } from '@/lib/recorte-video';
 import EditorExamenes from './EditorExamenes';
@@ -180,6 +182,8 @@ function VistaPrevia({ url, onCerrar }) {
 
 export default function AdminPanel({ inicial }) {
   const t = useT(PANEL);
+  const { avisar, confirmar, pedirTexto } = useAvisos();
+  const pregunta = (clave, vars, extra = {}) => confirmar({ titulo: t('avisos.confirmar'), mensaje: t(clave, vars), ...extra });
   const idioma = useIdioma();
   const [datos, setDatos] = useState(inicial);
 
@@ -291,8 +295,8 @@ export default function AdminPanel({ inicial }) {
       const r = await accion();
       if (r?.error) {
         // El servidor manda una clave (err.*) que se traduce aquí.
-        alert(t(r.error, r.vars));
-        if (r.codigo === 'sin-sesion') window.location.href = '/admin/login';
+        avisar.error(mensajeError(r.error, t, { vars: r.vars }));
+        if (r.codigo === 'sin-sesion') setTimeout(() => { window.location.href = '/admin/login'; }, 2500);
         return null;
       }
       if (fusionarResultado && cuentaInicio != null && cuentaActivaRef.current !== cuentaInicio) {
@@ -301,8 +305,10 @@ export default function AdminPanel({ inicial }) {
       if (fusionarResultado && r) fusionar(r);
       return r || {};
     } catch (err) {
+      // El detalle técnico queda en la consola; al usuario, un mensaje claro.
       console.error(err);
-      alert(t('comun.errorRed'));
+      avisar.error(mensajeError(err, t));
+      if (claveError(err) === 'err.sesionExpirada') setTimeout(() => { window.location.href = '/admin/login'; }, 2500);
       return null;
     }
   }
@@ -347,7 +353,7 @@ export default function AdminPanel({ inicial }) {
     const n = nuevaCuenta;
     const cupoOk = (v) => String(v).trim() !== '' && Number.isFinite(Number(v)) && Number(v) >= 0;
     if (!n.slug.trim() || !n.nombre.trim() || !n.correo.trim() || !cupoOk(n.cupoCasos) || !cupoOk(n.cupoStorage)) {
-      alert(t('cuentas.completar'));
+      avisar.info(t('cuentas.completar'), { titulo: t('avisos.faltaDato') });
       return;
     }
     setCreandoCuenta(true);
@@ -375,23 +381,23 @@ export default function AdminPanel({ inicial }) {
       activa: edicionCuenta.activa,
       ...(datos.idiomasDisponibles ? { idioma: edicionCuenta.idioma } : {}),
     }));
-    if (r) alert(t('cuentas.guardada'));
+    if (r) avisar.exito(t('cuentas.guardada'));
   }
 
   async function restablecerClave() {
     if (!cuentaElegida) return;
-    if (!confirm(t('cuentas.confirmRestablecer', { nombre: cuentaElegida.nombre }))) return;
+    if (!(await pregunta('cuentas.confirmRestablecer', { nombre: cuentaElegida.nombre }, { peligro: true }))) return;
     const r = await ejecutar(() => restablecerClaveCuenta(cuentaElegida.id), { fusionarResultado: false });
     if (r) setClaveNueva({ titulo: t('cuentas.restablecida'), correos: r.correos, clave: r.claveTemporal, slug: null });
   }
 
   async function limpiarHuerfanos() {
-    if (!confirm(t('cuentas.confirmLimpiar'))) return;
+    if (!(await pregunta('cuentas.confirmLimpiar'))) return;
     setLimpiando(true);
     const r = await ejecutar(() => limpiarVideosHuerfanos(), { fusionarResultado: false });
     setLimpiando(false);
     if (r) {
-      alert(r.borrados
+      avisar.exito(r.borrados
         ? t('cuentas.limpiezaOk', { n: r.borrados, mb: r.liberadosMb })
         : t('cuentas.sinHuerfanos'));
     }
@@ -413,9 +419,9 @@ export default function AdminPanel({ inicial }) {
   // El super_admin borra la cuenta que tiene elegida en el selector.
   async function borrarCuentaElegida() {
     if (!cuentaElegida) return;
-    const escrito = prompt(t('cuentas.promptBorrar', { nombre: cuentaElegida.nombre }));
+    const escrito = await pedirTexto({ titulo: t('avisos.confirmar'), mensaje: t('cuentas.promptBorrar', { nombre: cuentaElegida.nombre }), peligro: true });
     if (escrito === null) return;
-    if (escrito.trim() !== cuentaElegida.nombre) { alert(t('cuentas.noCoincide')); return; }
+    if (escrito.trim() !== cuentaElegida.nombre) { avisar.error(t('cuentas.noCoincide')); return; }
     await ejecutar(() => eliminarCuenta(cuentaElegida.id), { cambiaCuenta: true });
   }
 
@@ -481,7 +487,7 @@ export default function AdminPanel({ inicial }) {
   }
   async function borrarPunto() {
     if (!puntoSel) return;
-    if (!confirm(t('maniqui.confirmBorrar'))) return;
+    if (!(await pregunta('maniqui.confirmBorrar', undefined, { peligro: true }))) return;
     const id = puntoSel;
     setPuntoSel(null);
     await ejecutar(() => eliminarPunto(datos.cuentaId, id));
@@ -489,14 +495,14 @@ export default function AdminPanel({ inicial }) {
 
   // ---------------- Casos ----------------
   async function crear() {
-    if (!nuevoNombre.trim()) { alert(t('casos.alertNombre')); return; }
+    if (!nuevoNombre.trim()) { avisar.info(t('casos.alertNombre'), { titulo: t('avisos.faltaDato') }); return; }
     const r = await ejecutar(() => crearCaso(datos.cuentaId, nuevoNombre, nuevaEspecie));
     if (r) setNuevoNombre('');
   }
-  function activar(c) {
+  async function activar(c) {
     // Un caso sin videos ni exámenes no sale en el menú del estudiante: se
     // avisa antes, para que nadie crea que lo activó y "no aparece".
-    if (!c.activo && !c.numVideos && !resumenExamenesCaso(c.id) && !confirm(t('casos.confirmActivarVacio'))) return;
+    if (!c.activo && !c.numVideos && !resumenExamenesCaso(c.id) && !(await pregunta('casos.confirmActivarVacio'))) return;
     ejecutar(() => alternarCasoActivo(datos.cuentaId, c.id, !c.activo));
   }
   function renombrar(c, nombre) {
@@ -508,9 +514,9 @@ export default function AdminPanel({ inicial }) {
     ejecutar(() => describirCaso(datos.cuentaId, c.id, descripcion));
   }
   async function cambiarEspecie(c, especie, selectEl) {
-    if (c.numVideos > 0 && !confirm(t('casos.confirmEspecie', {
+    if (c.numVideos > 0 && !(await pregunta('casos.confirmEspecie', {
       n: c.numVideos, de: t('especieMin.' + especieOk(c.especie)), a: t('especieMin.' + especieOk(especie)),
-    }))) {
+    }, { peligro: true }))) {
       selectEl.value = c.especie;
       return;
     }
@@ -519,10 +525,10 @@ export default function AdminPanel({ inicial }) {
     if (!r) selectEl.value = c.especie;
   }
   async function borrarCaso(id) {
-    if (!confirm(t('casos.confirmBorrar'))) return;
+    if (!(await pregunta('casos.confirmBorrar', undefined, { peligro: true }))) return;
     // Un caso comprado: si lo borra, la compra queda sin caso y hay que pedir la reentrega.
     const eraComprado = (datos.casos || []).find((c) => c.id === id)?.comprado;
-    if (eraComprado && !confirm(t('casos.confirmBorrarComprado'))) return;
+    if (eraComprado && !(await pregunta('casos.confirmBorrarComprado', undefined, { peligro: true }))) return;
     const r = await ejecutar(() => eliminarCaso(datos.cuentaId, id));
     if (r && casoEnEdicion === id) setCasoEnEdicion(null);
     if (r && casoExamenes === id) setCasoExamenes(null);
@@ -560,7 +566,7 @@ export default function AdminPanel({ inicial }) {
     const cuentaId = datos.cuentaId;
     // Archivos enormes se rechazan antes de cargarlos en memoria.
     if (file.size > MAX_MB_ENTRADA * 1024 * 1024) {
-      alert(t('videos.entradaGrande', { mb: Math.round(file.size / 1048576), max: MAX_MB_ENTRADA }));
+      avisar.error(t('videos.entradaGrande', { mb: Math.round(file.size / 1048576), max: MAX_MB_ENTRADA }), { titulo: t('avisos.videoFallo') });
       return;
     }
     // Si el clip es más largo que el máximo se abre el editor de recorte (el
@@ -596,12 +602,12 @@ export default function AdminPanel({ inicial }) {
         // El resultado también debe respetar el tope de duración.
         const durSalida = await duracionDe(aSubir);
         if (durSalida != null && durSalida > DURACION_MAX_SEG + 0.5) {
-          alert(t('videos.duracion', { seg: Math.round(durSalida), max: DURACION_MAX_SEG }));
+          avisar.error(t('videos.duracion', { seg: Math.round(durSalida), max: DURACION_MAX_SEG }), { titulo: t('avisos.videoFallo') });
           return;
         }
       }
       if (aSubir.size > MAX_MB_VIDEO * 1024 * 1024) {
-        alert(t('videos.pesa', { mb: Math.round(aSubir.size / 1048576), max: MAX_MB_VIDEO }));
+        avisar.error(t('videos.pesa', { mb: Math.round(aSubir.size / 1048576), max: MAX_MB_VIDEO }), { titulo: t('avisos.videoFallo') });
         return;
       }
 
@@ -615,9 +621,12 @@ export default function AdminPanel({ inicial }) {
       if (error) throw error;
       await ejecutar(() => guardarVideoCaso(cuentaId, casoId, puntoId, subida.path));
     } catch (err) {
-      if (err?.message === ERR_CANCELADA) alert(t('videos.cancelado'));
-      else if (err?.message === ERR_FALLO) alert(t('videos.convFallo'));
-      else alert(t('videos.procesar', { error: err?.message || err }));
+      if (err?.message === ERR_CANCELADA) avisar.info(t('videos.cancelado'));
+      else if (err?.message === ERR_FALLO) avisar.error(t('videos.convFallo'), { titulo: t('avisos.videoFallo') });
+      else {
+        console.error(err);
+        avisar.error(mensajeError(err, t, { porDefecto: 'videos.procesar' }), { titulo: t('avisos.videoFallo') });
+      }
     } finally {
       setSubiendo(false);
       setConvProgreso(null);
@@ -625,12 +634,12 @@ export default function AdminPanel({ inicial }) {
   }
   async function quitarVideo() {
     if (!casoEnEdicion || !casoPuntoSel) return;
-    if (!confirm(t('videos.confirmQuitar'))) return;
+    if (!(await pregunta('videos.confirmQuitar', undefined, { peligro: true }))) return;
     await ejecutar(() => quitarVideoCaso(datos.cuentaId, casoEnEdicion, casoPuntoSel));
   }
   function verVideo() {
     const url = datos.videosPorCaso?.[casoEnEdicion]?.[casoPuntoSel];
-    if (!url) { alert(t('videos.sinVideoAlert')); return; }
+    if (!url) { avisar.info(t('videos.sinVideoAlert')); return; }
     setPreviewUrl(url);
   }
 

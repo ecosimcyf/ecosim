@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react';
 import { useT } from '@/lib/i18n/cliente';
 import { PANEL } from '@/lib/i18n/textos/panel';
+import { useAvisos } from './Avisos';
 import { NIVELES } from '@/lib/tienda';
 import {
   listarCatalogoAdmin, publicarCaso, actualizarCatalogo, alternarPublicado, quitarDelCatalogo,
@@ -91,6 +92,7 @@ function Entrada({ e, ocupado, bloqueoGlobal, onGuardar, onPublicado, onQuitar }
 
 export default function GestionCatalogo({ ejecutar, onIrCuentaCatalogo }) {
   const t = useT(PANEL);
+  const { confirmar } = useAvisos();
   const [cat, setCat] = useState(null);
   const [ocupado, setOcupado] = useState(null); // id (entrada o caso disponible) en curso
 
@@ -132,8 +134,9 @@ export default function GestionCatalogo({ ejecutar, onIrCuentaCatalogo }) {
                 key={e.id} e={e} ocupado={ocupado === e.id} bloqueoGlobal={!!ocupado}
                 onGuardar={(en, b) => accion(en.id, () => actualizarCatalogo(en.id, b))}
                 onPublicado={(en) => accion(en.id, () => alternarPublicado(en.id, !en.publicado))}
-                onQuitar={(en) => {
-                  if (window.confirm(t('catalogo.quitarConfirm', { titulo: en.titulo }))) accion(en.id, () => quitarDelCatalogo(en.id));
+                onQuitar={async (en) => {
+                  const ok = await confirmar({ titulo: t('avisos.confirmar'), mensaje: t('catalogo.quitarConfirm', { titulo: en.titulo }), peligro: true });
+                  if (ok) accion(en.id, () => quitarDelCatalogo(en.id));
                 }}
               />
             )) : <p className="muted">{t('catalogo.sinEntradas')}</p>}

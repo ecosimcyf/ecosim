@@ -17,6 +17,8 @@ import {
 import { unir } from '@/lib/i18n/config';
 import { useIdioma, useT } from '@/lib/i18n/cliente';
 import { PANEL } from '@/lib/i18n/textos/panel';
+import { useAvisos } from './Avisos';
+import { mensajeError } from '@/lib/mensaje-error';
 import { EXAMENES_TXT } from '@/lib/i18n/textos/examenes';
 import { prepararArchivoExamen, tituloDesdeNombre } from '@/lib/preparar-imagen';
 import {
@@ -37,7 +39,9 @@ const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 export default function EditorExamenes({ cuentaId, caso, examenes, ejecutar, onCerrar }) {
   const t = useT(TEXTOS);
+  const { avisar, confirmar } = useAvisos();
   const idioma = useIdioma();
+  const pregunta = (clave, vars) => confirmar({ titulo: t('avisos.confirmar'), mensaje: t(clave, vars), peligro: true });
   const [pestana, setPestana] = useState('lab');
   const guardados = {
     laboratorio: examenes?.laboratorio || [],
@@ -66,8 +70,8 @@ export default function EditorExamenes({ cuentaId, caso, examenes, ejecutar, onC
     return () => window.removeEventListener('beforeunload', aviso);
   }, [labPendiente, vitalesPendientes]);
 
-  function cerrar() {
-    if ((labPendiente || vitalesPendientes) && !confirm(t('ed.confirmCerrar'))) return;
+  async function cerrar() {
+    if ((labPendiente || vitalesPendientes) && !(await pregunta('ed.confirmCerrar'))) return;
     onCerrar();
   }
 
@@ -94,7 +98,7 @@ export default function EditorExamenes({ cuentaId, caso, examenes, ejecutar, onC
     if (!files.length) return;
     const yaHay = archivos.filter((a) => a.tipo === tipo).length;
     if (yaHay + files.length > LIMITES.archivosPorTipo) {
-      alert(t('ed.maxArchivos', { n: LIMITES.archivosPorTipo }));
+      avisar.error(t('ed.maxArchivos', { n: LIMITES.archivosPorTipo }), { titulo: t('avisos.noSubido') });
       return;
     }
     try {
@@ -103,7 +107,7 @@ export default function EditorExamenes({ cuentaId, caso, examenes, ejecutar, onC
         const cuenta = files.length > 1 ? `(${i + 1}/${files.length}) ` : '';
         setSubiendo(cuenta + t('ed.preparando', { nombre: f.name }));
         if (tipo === 'rx' && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name))) {
-          alert(t('ed.rxSoloImg', { nombre: f.name }));
+          avisar.error(t('ed.rxSoloImg', { nombre: f.name }), { titulo: t('avisos.noSubido') });
           continue;
         }
         let listo;
@@ -111,11 +115,12 @@ export default function EditorExamenes({ cuentaId, caso, examenes, ejecutar, onC
           listo = await prepararArchivoExamen(f);
         } catch (err) {
           // prepararArchivoExamen lanza claves de err.* (ver preparar-imagen.js).
-          alert(t('ed.errorArchivo', { nombre: f.name, error: t(err.message) }));
+          console.error(err);
+          avisar.error(t('ed.errorArchivo', { nombre: f.name, error: mensajeError(err, t) }), { titulo: t('avisos.noSubido') });
           continue;
         }
         if (listo.size > LIMITES.mbArchivo * 1024 * 1024) {
-          alert(t('ed.pesa', { nombre: f.name, mb: Math.round(listo.size / 1048576), max: LIMITES.mbArchivo }));
+          avisar.error(t('ed.pesa', { nombre: f.name, mb: Math.round(listo.size / 1048576), max: LIMITES.mbArchivo }), { titulo: t('avisos.noSubido') });
           continue;
         }
         setSubiendo(cuenta + t('ed.subiendo', { nombre: f.name }));
@@ -129,7 +134,8 @@ export default function EditorExamenes({ cuentaId, caso, examenes, ejecutar, onC
         if (!ok) return;
       }
     } catch (err) {
-      alert(t('ed.noSubir', { error: err?.message || err }));
+      console.error(err);
+      avisar.error(mensajeError(err, t, { porDefecto: 'ed.noSubir' }), { titulo: t('avisos.noSubido') });
     } finally {
       setSubiendo(null);
     }
@@ -142,8 +148,8 @@ export default function EditorExamenes({ cuentaId, caso, examenes, ejecutar, onC
   function moverArchivo(a, mover) {
     ejecutar(() => actualizarArchivoExamen(cuentaId, a.id, { mover }));
   }
-  function borrarArchivo(a) {
-    if (!confirm(t('ed.confirmQuitarArch', { titulo: a.titulo }))) return;
+  async function borrarArchivo(a) {
+    if (!(await pregunta('ed.confirmQuitarArch', { titulo: a.titulo }))) return;
     ejecutar(() => quitarArchivoExamen(cuentaId, a.id));
   }
 
@@ -183,11 +189,11 @@ export default function EditorExamenes({ cuentaId, caso, examenes, ejecutar, onC
     })));
   }
   function agregarPanel() {
-    if (paneles.length >= LIMITES.paneles) { alert(t('ed.maxTablas', { n: LIMITES.paneles })); return; }
+    if (paneles.length >= LIMITES.paneles) { avisar.info(t('ed.maxTablas', { n: LIMITES.paneles })); return; }
     setPaneles((ps) => [...ps, panelDesdePlantilla(plantilla, caso.especie, idioma)]);
   }
-  function quitarPanel(i) {
-    if (!confirm(t('ed.confirmQuitarTabla', { titulo: paneles[i].titulo }))) return;
+  async function quitarPanel(i) {
+    if (!(await pregunta('ed.confirmQuitarTabla', { titulo: paneles[i].titulo }))) return;
     setPaneles((ps) => ps.filter((_, k) => k !== i));
   }
   function agregarFila(i) {

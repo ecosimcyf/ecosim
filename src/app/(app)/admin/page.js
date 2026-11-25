@@ -15,6 +15,7 @@ import SelectorIdioma from '@/lib/i18n/SelectorIdioma';
 import { PANEL } from '@/lib/i18n/textos/panel';
 import AdminPanel from './AdminPanel';
 import SelectorIdiomaCuenta from './SelectorIdiomaCuenta';
+import { AvisosProvider } from './Avisos';
 
 export const dynamic = 'force-dynamic';
 // Las Server Actions del panel corren en la función de esta página.
@@ -48,6 +49,7 @@ export default async function AdminPage() {
 
   return (
     <Idioma valor={idioma}>
+      <AvisosProvider>
       <div className="admin">
         <div className="admin-bar">
           <h1 className="admin-title">{t('bar.titulo')}</h1>
@@ -68,6 +70,7 @@ export default async function AdminPage() {
           <AdminPanel inicial={datos} />
         )}
       </div>
+      </AvisosProvider>
     </Idioma>
   );
 }

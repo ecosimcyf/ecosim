@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { useIdioma, useT } from '@/lib/i18n/cliente';
 import { LOCALE } from '@/lib/i18n/config';
 import { PANEL } from '@/lib/i18n/textos/panel';
+import { useAvisos } from './Avisos';
 import { ESTADOS, puedeEntregarse } from '@/lib/tienda';
 import {
   listarAdquisiciones, marcarPagada, entregarAdquisicion, cancelarAdquisicion,
@@ -26,6 +27,7 @@ function dinero(valor, moneda, locale) {
 
 export default function VentasCasos({ ejecutar, adquisiciones, onCambio }) {
   const t = useT(PANEL);
+  const { confirmar, pedirTexto } = useAvisos();
   const idioma = useIdioma();
   const locale = LOCALE[idioma];
   const [disponible, setDisponible] = useState(true);
@@ -109,10 +111,9 @@ export default function VentasCasos({ ejecutar, adquisiciones, onCambio }) {
                   {puedeEntregar && (
                     <button
                       className="btn small btn-primary" disabled={bloqueado}
-                      onClick={() => {
-                        if (window.confirm(t('ventas.confirmEntregar', { titulo: a.titulo, cuenta: a.cuentaNombre }))) {
-                          correr(a, () => entregarAdquisicion(a.id));
-                        }
+                      onClick={async () => {
+                        const ok = await confirmar({ titulo: t('avisos.confirmar'), mensaje: t('ventas.confirmEntregar', { titulo: a.titulo, cuenta: a.cuentaNombre }) });
+                        if (ok) correr(a, () => entregarAdquisicion(a.id));
                       }}
                     >
                       {casoBorrado ? t('ventas.reentregar') : a.estado === 'fallida' ? t('ventas.reintentar') : t('ventas.entregar')}
@@ -121,8 +122,8 @@ export default function VentasCasos({ ejecutar, adquisiciones, onCambio }) {
                   {puedeCancelar && (
                     <button
                       className="btn small danger" disabled={bloqueado}
-                      onClick={() => {
-                        const nota = window.prompt(t('ventas.pedirNota'), '');
+                      onClick={async () => {
+                        const nota = await pedirTexto({ titulo: t('ventas.cancelar'), mensaje: t('ventas.pedirNota'), peligro: true });
                         if (nota !== null) correr(a, () => cancelarAdquisicion(a.id, nota));
                       }}
                     >

@@ -1319,3 +1319,45 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   .recorte-box { padding: 16px 14px; }
   .recorte-acciones .btn { flex: 1 1 auto; }
 }
+
+/* ---- Avisos propios (toasts y diálogos; ver admin/Avisos.jsx) ---- */
+.avisos {
+  position: fixed; z-index: 90; right: 16px; bottom: 16px;
+  width: 380px; max-width: calc(100vw - 32px);
+  display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+}
+.aviso {
+  pointer-events: auto; display: flex; align-items: flex-start; gap: 12px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 12px 12px 14px; box-shadow: var(--shadow-card);
+}
+.aviso-icono {
+  flex: none; width: 24px; height: 24px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; background: var(--accent-dim); color: var(--accent-bright);
+}
+.aviso-error { background: var(--danger-dim); border-color: #5a2a2a; }
+.aviso-error .aviso-icono { background: var(--danger); color: #fff; }
+.aviso-exito .aviso-icono { background: #0f3a2c; color: var(--ok); }
+.aviso-texto { flex: 1; min-width: 0; }
+.aviso-texto strong { display: block; font-size: 14px; color: var(--text); font-weight: 600; }
+.aviso-texto p { margin: 3px 0 0; font-size: 13px; line-height: 1.45; color: var(--text-soft); overflow-wrap: anywhere; }
+.aviso-error .aviso-texto p { color: var(--danger-text); }
+.aviso-cerrar {
+  flex: none; width: 32px; height: 32px; margin: -4px -4px 0 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--text-soft); font-size: 20px; line-height: 1; cursor: pointer;
+}
+.aviso-cerrar:hover { background: var(--bg-3); color: var(--text); }
+.aviso-cerrar:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.aviso-fondo { z-index: 95; }
+.aviso-dialogo { width: 420px; }
+.aviso-dialogo-msg { white-space: pre-line; }
+@media (prefers-reduced-motion: no-preference) {
+  .aviso { animation: aviso-entra .18s ease-out; }
+  @keyframes aviso-entra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+}
+@media (max-width: 480px) {
+  .avisos { right: 16px; left: 16px; width: auto; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .aviso-dialogo .modal-acciones { flex-direction: column-reverse; }
+  .aviso-dialogo .modal-acciones .btn { width: 100%; }
+}
