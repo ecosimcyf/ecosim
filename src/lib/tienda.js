@@ -105,11 +105,6 @@ export function limpiarDatosCatalogo(datos, { parcial = false } = {}) {
   for (const [k, col] of [['precioCop', 'precio_cop'], ['precioBrl', 'precio_brl'], ['precioUsd', 'precio_usd']]) {
     if (tiene(k)) r[col] = limpiarPrecio(d[k]);
   }
-  if (tiene('portadaUrl')) {
-    const u = corto(d.portadaUrl, 1000);
-    if (u && !/^https:\/\/\S+$/i.test(u)) throw new ErrorTienda('err.portada');
-    r.portada_url = u || null;
-  }
   if (tiene('nivel')) {
     if (d.nivel == null || d.nivel === '') r.nivel = null;
     else if (NIVELES.includes(d.nivel)) r.nivel = d.nivel;

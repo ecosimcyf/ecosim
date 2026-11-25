@@ -390,7 +390,7 @@ async function compensar(supabase, adq, creado, err) {
 // clínica nunca recibe valores monetarios. Si falta la migración devuelve
 // { tiendaDisponible: false, items: [] }.
 export async function leerTiendaDeCuenta(supabase, cuentaId) {
-  const COLS = 'id,caso_origen_id,titulo,descripcion_venta,especie,portada_url,nivel,etiquetas,orden,creado_en,publicado';
+  const COLS = 'id,caso_origen_id,titulo,descripcion_venta,especie,nivel,etiquetas,orden,creado_en,publicado';
   const { data: pub, error } = await supabase.from('catalogo_casos').select(COLS)
     .eq('publicado', true).order('orden').order('creado_en');
   if (error) {
@@ -419,7 +419,7 @@ export async function leerTiendaDeCuenta(supabase, cuentaId) {
       const k = contadores[f.caso_origen_id];
       return {
         id: f.id, titulo: f.titulo, descripcionVenta: f.descripcion_venta, especie: f.especie, nivel: f.nivel,
-        etiquetas: f.etiquetas || [], portadaUrl: f.portada_url, videos: k.videos,
+        etiquetas: f.etiquetas || [], videos: k.videos,
         examenes: { lab: k.laboratorio > 0 || k.labArchivos > 0, rx: k.rx > 0, vitales: k.vitales },
         adquisicion: porCatalogo[f.id] || null,
         disponible: !!f.publicado,

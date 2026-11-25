@@ -84,6 +84,7 @@ export const LANDING = {
         { titulo: 'Casos propios', texto: 'Cuántos casos puede tener tu cuenta, para que crees los tuyos desde el panel.' },
         { titulo: 'Almacenamiento de video', texto: 'El espacio para los videos de tus casos. Cada video dura hasta 30 segundos.' },
         { titulo: 'Casos precargados (opcional)', texto: 'Si quieres empezar ya, te dejamos casos listos en tu cuenta para que solo tengas que activarlos.' },
+        { titulo: 'Catálogo de casos listos (opcional)', texto: 'Puedes adquirir casos clínicos ya preparados, con videos de ecografía y exámenes complementarios. Se añaden a tu cuenta, puedes editarlos, y se adquieren a través de un asesor.' },
       ],
     },
     banner: {
@@ -102,6 +103,7 @@ export const LANDING = {
         { p: '¿Cuántos estudiantes pueden usar el mismo enlace?', r: 'Todos los de tu grupo usan el mismo enlace, cada uno desde su propio dispositivo. No tienes que crear un usuario por estudiante.' },
         { p: '¿En qué idiomas está?', r: 'En español, portugués e inglés. Eliges el idioma de tu cuenta y cada estudiante puede cambiarlo para sí mismo. Los nombres y descripciones de los casos se muestran tal como los escribas.' },
         { p: '¿Cuánto cuesta?', r: 'Depende del plan: cuántos casos propios necesitas, cuánto almacenamiento de video y si quieres casos precargados. Escríbenos y un asesor te arma una propuesta para tu grupo.' },
+        { p: '¿Puedo comprar casos ya hechos?', r: 'Sí. Desde tu panel puedes ver el catálogo de casos clínicos precreados: casos listos, con videos de ecografía y exámenes complementarios, que se añaden a tu cuenta y puedes editar. Se adquieren a través de un asesor, que te explica las opciones para tu grupo.' },
         { p: '¿Qué pasa con mis videos y mis datos?', r: 'Tus casos y videos son tuyos: solo los usamos para prestarte el servicio y puedes borrarlos cuando quieras desde el panel.', privacidad: true },
         { p: '¿Cómo empiezo?', r: 'Escríbenos por el formulario o por WhatsApp. Un asesor conversa contigo, crea tu cuenta y te entrega el acceso a tu panel y el enlace para tus estudiantes.' },
       ],
@@ -231,6 +233,7 @@ export const LANDING = {
         { titulo: 'Casos próprios', texto: 'Quantos casos a sua conta pode ter, para você criar os seus no painel.' },
         { titulo: 'Armazenamento de vídeo', texto: 'O espaço para os vídeos dos seus casos. Cada vídeo dura até 30 segundos.' },
         { titulo: 'Casos pré-carregados (opcional)', texto: 'Se quiser começar já, deixamos casos prontos na sua conta para que você só precise ativá-los.' },
+        { titulo: 'Catálogo de casos prontos (opcional)', texto: 'Você pode adquirir casos clínicos já preparados, com vídeos de ultrassonografia e exames complementares. Eles são adicionados à sua conta, podem ser editados e são adquiridos por meio de um consultor.' },
       ],
     },
     banner: {
@@ -249,6 +252,7 @@ export const LANDING = {
         { p: 'Quantos alunos podem usar o mesmo link?', r: 'Todos da sua turma usam o mesmo link, cada um no seu próprio dispositivo. Você não precisa criar um usuário para cada aluno.' },
         { p: 'Em quais idiomas está disponível?', r: 'Em espanhol, português e inglês. Você escolhe o idioma da sua conta e cada aluno pode mudá-lo para si. Os nomes e as descrições dos casos aparecem exatamente como você os escrever.' },
         { p: 'Quanto custa?', r: 'Depende do plano: quantos casos próprios você precisa, quanto armazenamento de vídeo e se quer casos pré-carregados. Fale conosco e um consultor monta uma proposta para a sua turma.' },
+        { p: 'Posso comprar casos já prontos?', r: 'Sim. No seu painel você encontra o catálogo de casos clínicos pré-criados: casos prontos, com vídeos de ultrassonografia e exames complementares, que são adicionados à sua conta e podem ser editados. A aquisição é feita por meio de um consultor, que explica as opções para a sua turma.' },
         { p: 'O que acontece com meus vídeos e meus dados?', r: 'Seus casos e vídeos são seus: só os usamos para prestar o serviço e você pode excluí-los quando quiser pelo painel.', privacidad: true },
         { p: 'Como eu começo?', r: 'Fale conosco pelo formulário ou pelo WhatsApp. Um consultor conversa com você, cria a sua conta e entrega o acesso ao seu painel e o link para os seus alunos.' },
       ],
@@ -378,6 +382,7 @@ export const LANDING = {
         { titulo: 'Your own cases', texto: 'How many cases your account can have, so you can create your own from the dashboard.' },
         { titulo: 'Video storage', texto: 'The space for your cases’ videos. Each video can be up to 30 seconds long.' },
         { titulo: 'Preloaded cases (optional)', texto: 'If you want to get started right away, we set up ready-made cases in your account so all you have to do is switch them on.' },
+        { titulo: 'Ready-made case catalog (optional)', texto: 'Buy clinical cases that are already prepared, with ultrasound videos and complementary exams. They are added to your account, you can edit them, and they are acquired through an advisor.' },
       ],
     },
     banner: {
@@ -396,6 +401,7 @@ export const LANDING = {
         { p: 'How many students can use the same link?', r: 'Everyone in your group uses the same link, each on their own device. You don’t have to create an account for each student.' },
         { p: 'Which languages is it available in?', r: 'Spanish, Portuguese, and English. You choose your account’s language, and each student can change it for themselves. Case names and descriptions are shown exactly as you write them.' },
         { p: 'How much does it cost?', r: 'It depends on the plan: how many of your own cases you need, how much video storage, and whether you want preloaded cases. Get in touch and an advisor will put together a proposal for your group.' },
+        { p: 'Can I buy ready-made cases?', r: 'Yes. From your dashboard you can browse a catalog of pre-built clinical cases, ready to use, with ultrasound videos and complementary exams. They are added to your account and you can edit them. They are acquired through an advisor, who will explain the options for your group.' },
         { p: 'What happens to my videos and my data?', r: 'Your cases and videos are yours: we only use them to provide the service, and you can delete them whenever you want from the dashboard.', privacidad: true },
         { p: 'How do I get started?', r: 'Contact us through the form or on WhatsApp. An advisor will talk with you, create your account, and give you access to your dashboard and the link for your students.' },
       ],

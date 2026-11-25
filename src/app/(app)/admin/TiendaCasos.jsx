@@ -68,10 +68,6 @@ export default function TiendaCasos({ cuentaId, ejecutar }) {
             const ex = it.examenes || {};
             return (
               <article className="tienda-card" key={it.id}>
-                {it.portadaUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img className="tienda-portada" src={it.portadaUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />
-                )}
                 <div className="tienda-cuerpo">
                   <h4 className="tienda-titulo">{it.titulo || t('tienda.sinTitulo')}</h4>
                   <div className="tienda-meta">

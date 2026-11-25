@@ -100,7 +100,7 @@ test('Storage: paths de URL pública y regla de borrado', () => {
 test('catálogo: validación de datos', () => {
   const d = limpiarDatosCatalogo({
     titulo: '  Caso renal ', descripcionVenta: 'x', precioCop: '1500000', precioBrl: '', precioUsd: '350,5',
-    portadaUrl: 'https://a.b/c.png', nivel: 'basico', etiquetas: 'riñón, ,riñón,gato', orden: '3', publicado: 1,
+    nivel: 'basico', etiquetas: 'riñón, ,riñón,gato', orden: '3', publicado: 1,
   });
   assert.equal(d.titulo, 'Caso renal');
   assert.equal(d.precio_cop, 1500000);
@@ -112,7 +112,6 @@ test('catálogo: validación de datos', () => {
   assert.throws(() => limpiarDatosCatalogo({ titulo: ' ' }), (e) => e.message === 'err.tituloCatalogo');
   assert.throws(() => limpiarDatosCatalogo({ titulo: 'a', precioCop: -1 }), (e) => e.message === 'err.precio');
   assert.throws(() => limpiarDatosCatalogo({ titulo: 'a', precioCop: 'abc' }), (e) => e.message === 'err.precio');
-  assert.throws(() => limpiarDatosCatalogo({ titulo: 'a', portadaUrl: 'javascript:alert(1)' }), (e) => e.message === 'err.portada');
   assert.throws(() => limpiarDatosCatalogo({ titulo: 'a', nivel: 'dios' }), (e) => e.message === 'err.nivel');
   // Parcial: solo lo que viene.
   assert.deepEqual(limpiarDatosCatalogo({ publicado: false }, { parcial: true }), { publicado: false });

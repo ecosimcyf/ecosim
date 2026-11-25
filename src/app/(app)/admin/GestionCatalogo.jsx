@@ -17,7 +17,7 @@ const aTexto = (v) => (v == null ? '' : String(v));
 function borradorDe(e) {
   return {
     titulo: e.titulo || '', descripcionVenta: e.descripcionVenta || '', nivel: e.nivel || '',
-    etiquetas: (e.etiquetas || []).join(', '), orden: aTexto(e.orden ?? 0), portadaUrl: e.portadaUrl || '',
+    etiquetas: (e.etiquetas || []).join(', '), orden: aTexto(e.orden ?? 0),
     precioCop: aTexto(e.precioCop), precioBrl: aTexto(e.precioBrl), precioUsd: aTexto(e.precioUsd),
   };
 }
@@ -58,9 +58,6 @@ function Entrada({ e, ocupado, bloqueoGlobal, onGuardar, onPublicado, onQuitar }
         </label>
         <label className="cat-campo cat-ancho" htmlFor={id + 'e'}>{t('catalogo.etiquetas')}
           <input id={id + 'e'} value={b.etiquetas} onChange={set('etiquetas')} />
-        </label>
-        <label className="cat-campo cat-ancho" htmlFor={id + 'p'}>{t('catalogo.portada')}
-          <input id={id + 'p'} type="url" inputMode="url" value={b.portadaUrl} onChange={set('portadaUrl')} placeholder="https://" />
         </label>
         <fieldset className="cat-precios cat-ancho">
           <legend>{t('catalogo.precios')} <span className="muted">· {t('catalogo.preciosSolo')}</span></legend>

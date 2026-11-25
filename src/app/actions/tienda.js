@@ -48,7 +48,7 @@ function entradaAdmin(c, contadores, numAdquisiciones) {
   return {
     id: c.id, casoOrigenId: c.caso_origen_id, titulo: c.titulo, descripcionVenta: c.descripcion_venta,
     especie: c.especie, precioCop: c.precio_cop, precioBrl: c.precio_brl, precioUsd: c.precio_usd,
-    portadaUrl: c.portada_url, nivel: c.nivel, etiquetas: c.etiquetas || [], publicado: c.publicado,
+    nivel: c.nivel, etiquetas: c.etiquetas || [], publicado: c.publicado,
     orden: c.orden, numAdquisiciones: numAdquisiciones || 0,
     contadores: { videos: k.videos, puntos: k.videos, laboratorio: k.laboratorio, labArchivos: k.labArchivos, rx: k.rx, vitales: k.vitales },
   };
@@ -126,7 +126,7 @@ export async function listarCatalogoAdmin() {
 }
 
 // datos: { casoId (obligatorio, de la cuenta catalogo), titulo, descripcionVenta,
-//   precioCop, precioBrl, precioUsd, portadaUrl, nivel, etiquetas, orden, publicado }
+//   precioCop, precioBrl, precioUsd, nivel, etiquetas, orden, publicado }
 // Devuelve lo mismo que listarCatalogoAdmin (+ nuevoId).
 export async function publicarCaso(datos) {
   return conErrores(async () => {
@@ -256,7 +256,7 @@ export async function entregarAdquisicion(id) {
 // precios. La lógica (columnas explícitas, sin valores monetarios) está en
 // leerTiendaDeCuenta (src/lib/entrega.js, con pruebas).
 // { tiendaDisponible, items: [{ id, titulo, descripcionVenta, especie, nivel,
-//   etiquetas, portadaUrl, videos, examenes: {lab, rx, vitales}, disponible,
+//   etiquetas, videos, examenes: {lab, rx, vitales}, disponible,
 //   adquisicion: null | {id, estado} }] }
 export async function listarTienda(cuentaId) {
   return conErrores(async () => {

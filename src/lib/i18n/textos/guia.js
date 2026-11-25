@@ -40,6 +40,7 @@ export const GUIA = {
           texto: [
             'En **Casos**, escribe un nombre (por ejemplo, «Piómetra — hembra de 8 años»), elige la especie y pulsa **Crear caso**.',
             'Escribe la **descripción**: el motivo de consulta y los síntomas. El estudiante la lee antes de entrar, como si recibiera al paciente.',
+            '¿Prefieres no empezar desde cero? Tu asesor puede ofrecerte casos ya preparados del catálogo, con videos y exámenes complementarios. Se añaden a tu cuenta y puedes editarlos.',
           ],
           tip: 'El nombre del caso sí lo ve el estudiante en el menú: no pongas el diagnóstico si quieres que lo descubra.',
         },
@@ -185,6 +186,7 @@ export const GUIA = {
           texto: [
             'Em **Casos**, digite um nome (por exemplo, «Piometra — fêmea de 8 anos»), escolha a espécie e clique em **Criar caso**.',
             'Escreva a **descrição**: a queixa principal e os sintomas. O aluno a lê antes de entrar, como se recebesse o paciente.',
+            'Prefere não começar do zero? Seu consultor pode oferecer casos já prontos do catálogo, com vídeos e exames complementares. Eles são adicionados à sua conta, e você pode editá-los.',
           ],
           tip: 'O aluno vê o nome do caso no menu: não coloque o diagnóstico se quiser que ele o descubra.',
         },
@@ -330,6 +332,7 @@ export const GUIA = {
           texto: [
             'Under **Cases**, type a name (for example, “Pyometra — 8-year-old female”), choose the species and click **Create case**.',
             'Write the **description**: the presenting complaint and symptoms. Students read it before going in, as if they were receiving the patient.',
+            'Prefer not to start from scratch? Your advisor can offer ready-made cases from the catalog, with videos and complementary exams. They are added to your account, and you can edit them.',
           ],
           tip: 'Students do see the case name in the menu: leave the diagnosis out if you want them to work it out.',
         },
