@@ -10,6 +10,8 @@
 // public), no desde un CDN externo.
 // ============================================================
 
+import { construirArgsFFmpeg } from './recorte-video';
+
 let ffmpegPromesa = null;
 // Instancia en uso y marca de cancelación (ver cancelarConversion).
 let ffmpegActual = null;
@@ -92,13 +94,19 @@ export function puedeReproducir(file) {
 }
 
 // Convierte un archivo a MP4/H.264. onProgress recibe un % (0-100).
-export async function convertirAH264(file, onProgress) {
+// recorte (opcional) = { inicio, largo, duracionTotal? } en segundos: se corta en la MISMA
+// pasada (-ss/-t), recodificando, así no se codifica dos veces y el corte es
+// exacto (con -c copy solo se corta en keyframes).
+export async function convertirAH264(file, onProgress, recorte = null) {
   cancelado = false;
   const { fetchFile } = await import('@ffmpeg/util');
   const ffmpeg = await cargarFFmpeg();
   if (cancelado) throw new Error(ERR_CANCELADA);
   const prog = ({ progress }) => {
-    if (onProgress) onProgress(Math.max(0, Math.min(99, Math.round(progress * 100))));
+    // ffmpeg calcula el progreso sobre la duración de la ENTRADA; con recorte
+    // la salida es más corta, así que se reescala para que llegue a 100%.
+    const f = recorte?.duracionTotal > 0 && recorte.largo > 0 ? recorte.duracionTotal / recorte.largo : 1;
+    if (onProgress) onProgress(Math.max(0, Math.min(99, Math.round(progress * f * 100))));
   };
   ffmpeg.on('progress', prog);
   try {
@@ -108,14 +116,7 @@ export async function convertirAH264(file, onProgress) {
     // el archivo queda ~2,5x más pequeño → menos gasto de datos y menos
     // memoria en los equipos de los estudiantes. El video se ve siempre en
     // silencio, así que quitamos el audio (-an) para ahorrar aún más.
-    const codigo = await ffmpeg.exec([
-      '-i', 'entrada',
-      '-vf', 'scale=960:-2',
-      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '27', '-pix_fmt', 'yuv420p',
-      '-an',
-      '-movflags', '+faststart',
-      'salida.mp4',
-    ]);
+    const codigo = await ffmpeg.exec(construirArgsFFmpeg(recorte, 'entrada', 'salida.mp4'));
     if (codigo !== 0) throw new Error(ERR_FALLO);
     const data = await ffmpeg.readFile('salida.mp4');
     return new Blob([data], { type: 'video/mp4' });

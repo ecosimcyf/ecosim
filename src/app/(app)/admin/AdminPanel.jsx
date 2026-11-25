@@ -17,6 +17,9 @@ import { useState, useEffect, useRef } from 'react';
 import { MANIQUIES } from '@/lib/maniquies';
 import { crearClienteNavegador } from '@/lib/supabase/client';
 import { puedeReproducir, convertirAH264, duracionDe, cancelarConversion, ERR_CANCELADA, ERR_FALLO } from '@/lib/convertir-video';
+import { useModal } from './useModal';
+import RecorteVideo from './RecorteVideo';
+import { necesitaRecorte } from '@/lib/recorte-video';
 import EditorExamenes from './EditorExamenes';
 import TiendaCasos from './TiendaCasos';
 import GestionCatalogo from './GestionCatalogo';
@@ -141,37 +144,6 @@ function EnlaceEstudiantes({ slug }) {
   );
 }
 
-// Accesibilidad de los modales: foco inicial dentro, Escape cierra, Tab no
-// se escapa del modal y al cerrar el foco vuelve a donde estaba.
-function useModal(onCerrar) {
-  const ref = useRef(null);
-  const cerrarRef = useRef(onCerrar);
-  cerrarRef.current = onCerrar;
-  useEffect(() => {
-    const previo = document.activeElement;
-    const enfocables = () => Array.from(ref.current?.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') || [])
-      .filter((el) => !el.disabled);
-    enfocables()[0]?.focus();
-    const tecla = (e) => {
-      if (e.key === 'Escape') { e.preventDefault(); cerrarRef.current(); return; }
-      if (e.key !== 'Tab') return;
-      const lista = enfocables();
-      if (!lista.length) return;
-      const primero = lista[0];
-      const ultimo = lista[lista.length - 1];
-      if (e.shiftKey && document.activeElement === primero) { e.preventDefault(); ultimo.focus(); }
-      else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primero.focus(); }
-      else if (!ref.current?.contains(document.activeElement)) { e.preventDefault(); primero.focus(); }
-    };
-    document.addEventListener('keydown', tecla);
-    return () => {
-      document.removeEventListener('keydown', tecla);
-      try { previo?.focus?.(); } catch {}
-    };
-  }, []);
-  return ref;
-}
-
 // Ventana con la contraseña temporal (se muestra una sola vez).
 function ModalClave({ clave, onCerrar }) {
   const t = useT(PANEL);
@@ -261,6 +233,8 @@ export default function AdminPanel({ inicial }) {
   const [subiendo, setSubiendo] = useState(false);
   const [convProgreso, setConvProgreso] = useState(null); // % de conversión (o null)
   const [previewUrl, setPreviewUrl] = useState(null);
+  // Editor de recorte abierto: { file, duracion, ctx } (ctx = caso/punto/cuenta destino).
+  const [recorte, setRecorte] = useState(null);
   const fileInputRef = useRef(null);
 
   const canvasPuntosRef = useRef(null);
@@ -589,27 +563,34 @@ export default function AdminPanel({ inicial }) {
       alert(t('videos.entradaGrande', { mb: Math.round(file.size / 1048576), max: MAX_MB_ENTRADA }));
       return;
     }
+    // Si el clip es más largo que el máximo se abre el editor de recorte (el
+    // usuario elige qué tramo usar) en vez de rechazarlo. Si la duración no se
+    // pudo leer (navegador raro, archivo corrupto), se deja pasar: ya fallará
+    // más adelante con un error más claro al intentar reproducirlo/convertirlo.
+    setSubiendo(true);
+    let duracion = null;
+    try { duracion = await duracionDe(file); } finally { setSubiendo(false); }
+    const ctx = { casoId, puntoId, cuentaId };
+    if (necesitaRecorte(duracion, DURACION_MAX_SEG)) {
+      setRecorte({ file, duracion, ctx });
+      return;
+    }
+    await subirVideo(file, ctx, null);
+  }
+  // Convierte (si hace falta), recorta (si hay tramo) y sube el vídeo.
+  async function subirVideo(file, { casoId, puntoId, cuentaId }, tramo) {
     setSubiendo(true);
     setConvProgreso(null);
     try {
-      // Rechazar clips largos ANTES de convertir/subir nada (la conversión
-      // es lo más lento del proceso). Si la duración no se pudo leer
-      // (navegador raro, archivo corrupto), se deja pasar: ya fallará más
-      // adelante con un error más claro al intentar reproducirlo/convertirlo.
-      const duracion = await duracionDe(file);
-      if (duracion != null && duracion > DURACION_MAX_SEG + 0.5) {
-        alert(t('videos.duracion', { seg: Math.round(duracion), max: DURACION_MAX_SEG }));
-        return;
-      }
-
       // Todo se guarda como MP4/H.264 (el bucket solo acepta video/mp4): si
       // el archivo no es MP4 o el navegador no puede reproducirlo (p. ej.
-      // MPEG-4 Parte 2 de los ecógrafos), se convierte aquí mismo.
+      // MPEG-4 Parte 2 de los ecógrafos), se convierte aquí mismo. Con tramo
+      // SIEMPRE se pasa por ffmpeg: el recorte se hace en esa misma pasada.
       let aSubir = file;
       const esMp4 = file.type === 'video/mp4' || /\.mp4$/i.test(file.name);
-      if (!esMp4 || !(await puedeReproducir(file))) {
+      if (tramo || !esMp4 || !(await puedeReproducir(file))) {
         setConvProgreso(0);
-        const blob = await convertirAH264(file, (p) => setConvProgreso(p));
+        const blob = await convertirAH264(file, (p) => setConvProgreso(p), tramo);
         aSubir = new File([blob], 'video.mp4', { type: 'video/mp4' });
         setConvProgreso(null);
         // El resultado también debe respetar el tope de duración.
@@ -1206,6 +1187,13 @@ export default function AdminPanel({ inicial }) {
       {claveNueva && <ModalClave clave={claveNueva} onCerrar={() => setClaveNueva(null)} />}
 
       {/* -------- Vista previa de video -------- */}
+      {recorte && (
+        <RecorteVideo
+          file={recorte.file} duracion={recorte.duracion} max={DURACION_MAX_SEG}
+          onCancelar={() => setRecorte(null)}
+          onUsar={(tramo) => { const r = recorte; setRecorte(null); subirVideo(r.file, r.ctx, { ...tramo, duracionTotal: r.duracion }); }}
+        />
+      )}
       {previewUrl && <VistaPrevia url={previewUrl} onCerrar={() => setPreviewUrl(null)} />}
     </div>
   );
