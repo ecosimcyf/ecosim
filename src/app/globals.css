@@ -1291,3 +1291,31 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   .venta-acciones { width: 100%; }
   .venta-acciones .btn { flex: 1 1 auto; }
 }
+
+/* ---- Editor de recorte de vídeo (panel admin) ---- */
+.overlay-recorte { z-index: 70; padding: 12px; overflow-y: auto; }
+.recorte-box { width: min(560px, 100%); max-width: 100%; max-height: 100%; overflow-y: auto; }
+.recorte-video { background: #000; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.recorte-video video { display: block; width: 100%; max-width: 100%; max-height: 38vh; background: #000; border: 0; border-radius: 0; margin: 0 auto; }
+.recorte-pista {
+  position: relative; height: 44px; background: var(--bg-2);
+  border: 1px solid var(--border); border-radius: 8px;
+  touch-action: none; user-select: none; cursor: pointer;
+}
+.recorte-ventana {
+  position: absolute; top: 3px; bottom: 3px; min-width: 6px;
+  background: var(--accent-dim); border: 2px solid var(--accent);
+  border-radius: 6px; cursor: grab;
+}
+.recorte-ventana:active { cursor: grabbing; }
+.recorte-tiempos { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.recorte-tiempos strong { color: var(--accent-bright); font-weight: 600; }
+.recorte-campo { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.recorte-campo input[type="range"] { width: 100%; min-height: 32px; padding: 0; accent-color: var(--accent); }
+.recorte-box p.recorte-aviso { color: var(--warn-text); }
+.recorte-box p.recorte-nota { font-size: 12.5px; color: var(--text-faint); }
+.recorte-acciones { flex-wrap: wrap; }
+@media (max-width: 420px) {
+  .recorte-box { padding: 16px 14px; }
+  .recorte-acciones .btn { flex: 1 1 auto; }
+}
