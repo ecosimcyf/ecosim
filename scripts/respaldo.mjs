@@ -37,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 const TABLAS = [
   ['cuentas', ['id']], ['perfiles', ['id']], ['casos', ['id']], ['puntos', ['id']],
   ['caso_videos', ['caso_id', 'punto_id']], ['caso_archivos', ['id']],
+  ['catalogo_casos', ['id']], ['adquisiciones', ['id']],
   ['config', ['id']], ['solicitudes_contacto', ['id']],
 ];
 // Códigos de "la tabla no existe" (migración sin ejecutar): no es un fallo.

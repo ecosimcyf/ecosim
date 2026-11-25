@@ -51,7 +51,7 @@ const BASE = opcion('--base') ? resolve(opcion('--base')) : null;
 // Orden: primero lo que otras tablas referencian.
 const ORDEN = [
   ['cuentas', 'id'], ['puntos', 'id'], ['casos', 'id'], ['caso_videos', 'caso_id,punto_id'],
-  ['caso_archivos', 'id'], ['config', 'id'], ['solicitudes_contacto', null], ['perfiles', 'id'],
+  ['caso_archivos', 'id'], ['catalogo_casos', 'id'], ['adquisiciones', 'id'], ['config', 'id'], ['solicitudes_contacto', null], ['perfiles', 'id'],
 ];
 const BUCKETS = ['videos', 'examenes'];
 const TIPOS = { mp4: 'video/mp4', webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf' };

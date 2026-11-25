@@ -49,6 +49,9 @@ export function excedeTopeHuerfanos(huerfanos, total) {
 // Escapa \ % y _ para usar un texto literal dentro de un "like".
 export function paraLike(t) { return t.replace(/[\\%_]/g, (c) => '\\' + c); }
 
+// OJO (tienda de casos): "usados" se lee de TODAS las cuentas a la vez, y los casos
+// comprados apuntan a los mismos objetos que el catálogo; por eso un objeto
+// compartido nunca parece huérfano mientras alguna fila lo referencie.
 // Borra los archivos de "bucket" que no estén en "usados" (paths) y tengan
 // más de 24 h. Revisa la raíz y un nivel de carpetas (como las crea el panel).
 // "sigueEnUso(ruta)" vuelve a preguntarle a la base justo antes de borrar:

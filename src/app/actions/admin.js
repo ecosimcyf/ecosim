@@ -30,14 +30,17 @@
 import { randomUUID, randomBytes } from 'node:crypto';
 import { crearClienteAdmin } from '@/lib/supabase/admin';
 import { crearClienteServidorAuth } from '@/lib/supabase/server';
+import { ErrorAdmin, conErrores, exigir, requerirAdmin, requerirSuperAdmin, requerirAccesoCuenta, texto } from '@/lib/admin-comun';
 import { LIMITES, MIME_EXTENSION, limpiarLaboratorio, limpiarVitales } from '@/lib/examenes';
 import { idiomaValido } from '@/lib/i18n/config';
-import { registrarError } from '@/lib/errores';
 import { limpiezaCompleta, faltaMigracion } from '@/lib/limpieza';
+import {
+  borrarVideosSeguros, borrarExamenesSeguros, borrarObjetosSeguros, catalogoDeCaso, MAX_PUNTOS_POR_CUENTA,
+} from '@/lib/entrega';
+import { SLUG_CATALOGO } from '@/lib/tienda';
 import { normalizarSlug, slugValido, extensionDeSubida, nombrePorDefecto } from '@/lib/validar';
 
 const BUCKET = 'videos';
-const PREFIJO_PUBLICO = '/storage/v1/object/public/' + BUCKET + '/';
 // Debe coincidir con file_size_limit del bucket (supabase/schema.sql).
 const MAX_BYTES_VIDEO = 50 * 1024 * 1024;
 
@@ -50,8 +53,6 @@ const MAX_BYTES_EXAMEN = LIMITES.mbArchivo * 1024 * 1024;
 // una URL firmada que ocupa cupo): sin tope, pedir miles de URLs saturaría
 // la tabla de reservas.
 const MAX_SUBIDAS_PENDIENTES = 20;
-// Tope de puntos por cuenta (cada punto es una fila que lee el estudiante).
-const MAX_PUNTOS_POR_CUENTA = 300;
 // PROVISIONAL: aún no hay textos propios para estos dos avisos (tope de
 // puntos y demasiadas subidas pendientes); cuando se añadan claves
 // (err.limitePuntos, err.muchasSubidas) basta con cambiarlas aquí.
@@ -60,87 +61,14 @@ const ERR_MUCHAS_SUBIDAS = 'err.muchasSubidas';
 // Mínimo que se reserva por subida aunque el navegador declare menos.
 const PISO_RESERVA = 5 * 1024 * 1024;
 
-// ---------- errores ----------
-
-// Error para mostrar en el panel: "clave" es una clave de err.* (el panel
-// la traduce), con sus variables ({ vars }) y un "codigo" opcional que
-// el panel usa para decidir qué hacer (p. ej. 'sin-sesion' → al login).
-class ErrorAdmin extends Error {
-  constructor(clave, { vars, codigo } = {}) { super(clave); this.vars = vars; this.codigo = codigo; }
-}
-
-async function conErrores(fn) {
-  try {
-    return await fn();
-  } catch (err) {
-    // Los avisos de validación (ErrorAdmin sin causa: "nombre vacío", "sin
-    // cupo"…) no son fallas; todo lo demás queda en el registro de Vercel.
-    if (!(err instanceof ErrorAdmin) || err.causa) await registrarError('admin', err);
-    if (err instanceof ErrorAdmin) return { error: err.message, vars: err.vars, codigo: err.codigo };
-    return { error: 'err.generico' };
-  }
-}
-
-// Revisa la respuesta de una consulta de Supabase: si trae error, lo lanza.
-function exigir(resultado, que) {
-  if (resultado?.error) {
-    console.error('[admin] ' + que + ':', resultado.error);
-    // "que" (p. ej. 'leer los casos') queda en el registro del servidor;
-    // al panel le llega un aviso general.
-    const err = new ErrorAdmin('err.operacion');
-    err.causa = resultado.error;
-    throw err;
-  }
-  return resultado;
-}
-
 // faltaMigracion (src/lib/limpieza.js): ¿el error es porque todavía no se
 // ejecutó una migración (columna, tabla o función inexistente)? En ese
 // caso el panel sigue funcionando, solo que sin esa parte.
-
-// ---------- sesión y permisos ----------
-
-async function requerirAdmin() {
-  const auth = crearClienteServidorAuth();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) throw new ErrorAdmin('err.sesion', { codigo: 'sin-sesion' });
-  const supabase = crearClienteAdmin();
-  const { data: perfil, error } = await supabase
-    .from('perfiles').select('rol,cuenta_id').eq('id', user.id).maybeSingle();
-  if (error) throw new ErrorAdmin('err.red', { codigo: 'error-red' });
-  if (!perfil) throw new ErrorAdmin('err.sinPerfil', { codigo: 'sin-perfil' });
-
-  if (perfil.rol === 'cliente') {
-    if (!perfil.cuenta_id) throw new ErrorAdmin('err.sinCuenta', { codigo: 'sin-perfil' });
-    const { data: cuenta, error: errCuenta } = await supabase
-      .from('cuentas').select('activa').eq('id', perfil.cuenta_id).maybeSingle();
-    if (errCuenta) throw new ErrorAdmin('err.red', { codigo: 'error-red' });
-    if (!cuenta) throw new ErrorAdmin('err.cuentaNoExiste', { codigo: 'sin-perfil' });
-    if (!cuenta.activa) throw new ErrorAdmin('err.desactivada', { codigo: 'cuenta-inactiva' });
-  }
-  return { rol: perfil.rol, cuentaId: perfil.cuenta_id, userId: user.id };
-}
-
-async function requerirSuperAdmin() {
-  const r = await requerirAdmin();
-  if (r.rol !== 'super_admin') throw new ErrorAdmin('err.noAutorizado');
-  return r;
-}
-
-// Cualquier admin, pero solo sobre SU cuenta (el super_admin, sobre
-// cualquiera que exista).
-async function requerirAccesoCuenta(cuentaId) {
-  const r = await requerirAdmin();
-  if (typeof cuentaId !== 'string' || !cuentaId) throw new ErrorAdmin('err.eligeCuenta');
-  if (r.rol === 'cliente' && cuentaId !== r.cuentaId) throw new ErrorAdmin('err.noAutorizado');
-  return r;
-}
 
 // ---------- validación ----------
 
 function especieOk(e) { return e === 'gato' ? 'gato' : 'perro'; }
 function vistaOk(v) { return v === 'izq' || v === 'der' ? v : 'ventral'; }
-function texto(v, max) { return String(v ?? '').trim().slice(0, max); }
 
 // normalizarSlug / slugValido: en src/lib/validar.js.
 
@@ -177,27 +105,9 @@ async function todasLasFilas(consulta, que) {
   }
 }
 
-// Borra de Storage los archivos de una lista de URLs públicas.
-async function borrarVideosStorage(supabase, urls) {
-  const paths = (urls || [])
-    .map((u) => (u || '').split(PREFIJO_PUBLICO)[1])
-    .filter(Boolean);
-  for (let i = 0; i < paths.length; i += 100) {
-    const { error } = await supabase.storage.from(BUCKET).remove(paths.slice(i, i + 100));
-    // No se corta la acción por esto: lo peor que deja es un archivo
-    // huérfano, que "Limpiar videos huérfanos" recoge después.
-    if (error) console.error('[admin] no se pudieron borrar videos de Storage:', error);
-  }
-}
-
-// Igual, para archivos de exámenes (aquí se guarda el path, no la URL).
-async function borrarArchivosExamenes(supabase, paths) {
-  const lista = (paths || []).filter(Boolean);
-  for (let i = 0; i < lista.length; i += 100) {
-    const { error } = await supabase.storage.from(BUCKET_EXAMENES).remove(lista.slice(i, i + 100));
-    if (error) console.error('[admin] no se pudieron borrar exámenes de Storage:', error);
-  }
-}
+// El borrado de objetos de Storage vive en src/lib/entrega.js (borrarVideosSeguros,
+// borrarExamenesSeguros): solo borra lo que es del prefijo de la cuenta y que
+// ya nadie más referencia (los casos comprados apuntan a objetos del catálogo).
 
 // Archivos de exámenes de los casos que cumplan "filtro" (sobre la
 // consulta de caso_archivos). [] si la migración aún no se ejecutó.
@@ -272,9 +182,14 @@ async function liberarReserva(supabase, bucket, path) {
 
 // Cuántos casos tiene YA una cuenta (para comparar contra su cupo).
 async function contarCasosDeCuenta(supabase, cuentaId) {
-  const { count } = exigir(await supabase
+  // Los casos COMPRADOS (origen_catalogo_id) no cuentan para el cupo.
+  const { count, error } = await supabase
+    .from('casos').select('id', { count: 'exact', head: true }).eq('cuenta_id', cuentaId).is('origen_catalogo_id', null);
+  if (!error) return count || 0;
+  if (!faltaMigracion(error)) exigir({ error }, 'contar los casos');
+  const { count: todos } = exigir(await supabase
     .from('casos').select('id', { count: 'exact', head: true }).eq('cuenta_id', cuentaId), 'contar los casos');
-  return count || 0;
+  return todos || 0;
 }
 
 // Cuántos bytes tiene YA una cuenta, entre videos y archivos de exámenes
@@ -397,14 +312,29 @@ async function leerTodo(supabase, cuentaId) {
   });
 
   const examenes = await leerExamenes(supabase, cuentaId);
+  const comprados = await casosComprados(supabase, cuentaId);
 
   return {
     puntos,
-    casos: casos.map((c) => ({ ...c, numVideos: Object.keys(videosPorCaso[c.id] || {}).length })),
+    casos: casos.map((c) => ({
+      ...c, numVideos: Object.keys(videosPorCaso[c.id] || {}).length, comprado: comprados.has(c.id),
+    })),
     videosPorCaso,
     examenesDisponibles: !!examenes,
     examenesPorCaso: examenes || {},
   };
+}
+
+// Ids de los casos que la cuenta COMPRÓ en la tienda (vacío si la migración
+// de la tienda aún no se ejecutó).
+async function casosComprados(supabase, cuentaId) {
+  const { data, error } = await supabase.from('casos').select('id')
+    .eq('cuenta_id', cuentaId).not('origen_catalogo_id', 'is', null);
+  if (error) {
+    if (faltaMigracion(error)) return new Set();
+    exigir({ error }, 'leer los casos comprados');
+  }
+  return new Set((data || []).map((c) => c.id));
 }
 
 // Laboratorio, signos vitales y archivos de cada caso de la cuenta:
@@ -647,9 +577,12 @@ export async function eliminarCuenta(cuentaId, confirmacion) {
     const { rol } = await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
 
-    const { data: cuenta } = exigir(await supabase.from('cuentas').select('id,nombre').eq('id', cuentaId).maybeSingle(),
+    const { data: cuenta } = exigir(await supabase.from('cuentas').select('id,nombre,slug').eq('id', cuentaId).maybeSingle(),
       'leer la cuenta');
     if (!cuenta) throw new ErrorAdmin('err.cuentaYaNoExiste');
+    // La cuenta técnica del catálogo guarda los objetos que comparten las
+    // clínicas que compraron: no se borra.
+    if (cuenta.slug === SLUG_CATALOGO) throw new ErrorAdmin('err.cuentaCatalogo');
     if (rol === 'cliente' && String(confirmacion ?? '').trim() !== String(cuenta.nombre).trim()) {
       throw new ErrorAdmin('err.noAutorizado');
     }
@@ -680,8 +613,8 @@ export async function eliminarCuenta(cuentaId, confirmacion) {
     exigir(await supabase.from('cuentas').delete().eq('id', cuentaId), 'borrar la cuenta');
 
     // 5. Ya sin filas: ahora sí, los archivos de Storage.
-    await borrarVideosStorage(supabase, vids.map((v) => v.video_url));
-    await borrarArchivosExamenes(supabase, archivos.map((a) => a.path));
+    await borrarVideosSeguros(supabase, cuentaId, vids.map((v) => v.video_url));
+    await borrarExamenesSeguros(supabase, cuentaId, archivos.map((a) => a.path));
 
     if (rol === 'cliente') return { cerrarSesion: true };
     return {
@@ -831,7 +764,10 @@ export async function cambiarEspecieCaso(cuentaId, casoId, especie) {
       }
       exigir(await supabase.from('casos').update({ especie: nueva }).eq('id', casoId).eq('cuenta_id', cuentaId),
         'cambiar la especie');
-      if (vids?.length) await borrarVideosStorage(supabase, vids.map((v) => v.video_url));
+      // Si el caso está en el catálogo, la ficha de la tienda sigue su especie.
+      const { error: errCat } = await supabase.from('catalogo_casos').update({ especie: nueva }).eq('caso_origen_id', casoId);
+      if (errCat && !faltaMigracion(errCat)) exigir({ error: errCat }, 'actualizar el catálogo');
+      if (vids?.length) await borrarVideosSeguros(supabase, cuentaId, vids.map((v) => v.video_url));
     }
     return leerTodoConUso(supabase, cuentaId);
   });
@@ -842,14 +778,20 @@ export async function eliminarCaso(cuentaId, casoId) {
     await requerirAccesoCuenta(cuentaId);
     const supabase = crearClienteAdmin();
     await casoDeCuenta(supabase, cuentaId, casoId);
+    // Un caso del catálogo no se borra (las clínicas que lo compraron apuntan
+    // a sus archivos): hay que quitarlo del catálogo primero. La base lo
+    // impide también (FK on delete restrict).
+    if (await catalogoDeCaso(supabase, casoId)) throw new ErrorAdmin('err.casoEnCatalogo');
     const { data: vids } = exigir(await supabase.from('caso_videos').select('video_url').eq('caso_id', casoId),
       'leer los videos del caso');
     const archivos = await archivosExamenes(supabase, (q) => q.eq('caso_id', casoId), 'leer los exámenes del caso');
     // Primero la fila (cascade borra sus caso_videos y caso_archivos) y
     // DESPUÉS los archivos: si el borrado falla, el caso sigue intacto.
-    exigir(await supabase.from('casos').delete().eq('id', casoId).eq('cuenta_id', cuentaId), 'borrar el caso');
-    await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
-    await borrarArchivosExamenes(supabase, archivos.map((a) => a.path));
+    const { error: errBorrar } = await supabase.from('casos').delete().eq('id', casoId).eq('cuenta_id', cuentaId);
+    if (errBorrar?.code === '23503') throw new ErrorAdmin('err.casoEnCatalogo'); // FK de catalogo_casos
+    exigir({ error: errBorrar }, 'borrar el caso');
+    await borrarVideosSeguros(supabase, cuentaId, (vids || []).map((v) => v.video_url));
+    await borrarExamenesSeguros(supabase, cuentaId, archivos.map((a) => a.path));
     return leerTodoConUso(supabase, cuentaId);
   });
 }
@@ -904,7 +846,7 @@ export async function eliminarPunto(cuentaId, puntoId) {
     const { data: vids } = exigir(await supabase.from('caso_videos').select('video_url').eq('punto_id', puntoId),
       'leer los videos del punto');
     exigir(await supabase.from('puntos').delete().eq('id', puntoId).eq('cuenta_id', cuentaId), 'borrar el punto'); // cascade borra sus caso_videos
-    await borrarVideosStorage(supabase, (vids || []).map((v) => v.video_url));
+    await borrarVideosSeguros(supabase, cuentaId, (vids || []).map((v) => v.video_url));
     return leerTodoConUso(supabase, cuentaId);
   });
 }
@@ -960,7 +902,7 @@ export async function guardarVideoCaso(cuentaId, casoId, puntoId, path) {
     // La reserva se suelta YA: a partir de aquí el archivo se cuenta por su
     // tamaño real (si no, contaría dos veces al revisar el cupo).
     await liberarReserva(supabase, BUCKET, path);
-    const quitarSubida = () => supabase.storage.from(BUCKET).remove([path]);
+    const quitarSubida = () => borrarObjetosSeguros(supabase, { bucket: BUCKET, cuentaId, paths: [path] });
 
     // El punto también debe ser de esta cuenta y de la especie del caso:
     // si no, el video quedaría colgado de un punto que el estudiante de
@@ -1002,7 +944,7 @@ export async function guardarVideoCaso(cuentaId, casoId, puntoId, path) {
       exigir({ error: errGuardar }, 'guardar el video');
     }
     // Solo cuando el nuevo ya quedó guardado se borra el archivo anterior.
-    if (prev?.video_url && prev.video_url !== url) await borrarVideosStorage(supabase, [prev.video_url]);
+    if (prev?.video_url && prev.video_url !== url) await borrarVideosSeguros(supabase, cuentaId, [prev.video_url]);
 
     return leerTodoConUso(supabase, cuentaId);
   });
@@ -1018,7 +960,7 @@ export async function quitarVideoCaso(cuentaId, casoId, puntoId) {
       .eq('caso_id', casoId).eq('punto_id', puntoId).maybeSingle(), 'leer el video');
     exigir(await supabase.from('caso_videos').delete().eq('caso_id', casoId).eq('punto_id', puntoId),
       'quitar el video');
-    if (row?.video_url) await borrarVideosStorage(supabase, [row.video_url]);
+    if (row?.video_url) await borrarVideosSeguros(supabase, cuentaId, [row.video_url]);
     return leerTodoConUso(supabase, cuentaId);
   });
 }
@@ -1108,7 +1050,7 @@ export async function guardarArchivoExamen(cuentaId, casoId, tipo, path, titulo)
     if (!ext) throw new ErrorAdmin('err.noAutorizado');
     const mime = Object.keys(MIME_EXTENSION).find((k) => MIME_EXTENSION[k] === ext);
     await liberarReserva(supabase, BUCKET_EXAMENES, path); // ver guardarVideoCaso
-    const quitarSubida = () => supabase.storage.from(BUCKET_EXAMENES).remove([path]);
+    const quitarSubida = () => borrarObjetosSeguros(supabase, { bucket: BUCKET_EXAMENES, cuentaId, paths: [path] });
 
     if (tipo === 'rx' && mime === 'application/pdf') {
       await quitarSubida();
@@ -1191,7 +1133,7 @@ export async function quitarArchivoExamen(cuentaId, archivoId) {
     const supabase = crearClienteAdmin();
     const archivo = await archivoDeCuenta(supabase, cuentaId, archivoId);
     exigir(await supabase.from('caso_archivos').delete().eq('id', archivoId), 'quitar el archivo');
-    await borrarArchivosExamenes(supabase, [archivo.path]);
+    await borrarExamenesSeguros(supabase, cuentaId, [archivo.path]);
     return leerTodoConUso(supabase, cuentaId);
   });
 }
